@@ -1,4 +1,5 @@
 import type { ComponentType } from 'react';
+import { ChaosTrack } from './chaos/ChaosTrack';
 import { TestTrack } from './test/TestTrack';
 
 /**
@@ -7,10 +8,11 @@ import { TestTrack } from './test/TestTrack';
  * `useRegisterTrackLayout(layout)`, then add it here (and make it the default if it should be).
  */
 export const TRACKS: Readonly<Record<string, ComponentType>> = {
+  chaos: ChaosTrack,
   test: TestTrack,
 };
 
-export const DEFAULT_TRACK_ID = 'test';
+export const DEFAULT_TRACK_ID = 'chaos';
 
 export function resolveTrackId(param: string | null): string {
   return param && param in TRACKS ? param : DEFAULT_TRACK_ID;

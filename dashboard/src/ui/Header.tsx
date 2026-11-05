@@ -115,7 +115,7 @@ const styles = StyleSheet.create({
     marginBottom: 4,
   },
   scanlines: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
     justifyContent: 'space-between',
     opacity: 0.5,
   },

@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import { Pressable, StyleSheet, View, type StyleProp, type ViewStyle } from 'react-native';
+import { Pressable, StyleSheet, View, type StyleProp, type TextStyle, type ViewStyle } from 'react-native';
 
 import { alpha, colors, glow } from '../theme';
 import { Txt } from './Txt';
@@ -13,6 +13,7 @@ interface NeonButtonProps {
   active?: boolean;
   disabled?: boolean;
   sublabel?: ReactNode;
+  labelStyle?: StyleProp<TextStyle>;
   accessibilityLabel?: string;
   accessibilityHint?: string;
   style?: StyleProp<ViewStyle>;
@@ -27,6 +28,7 @@ export function NeonButton({
   active = false,
   disabled = false,
   sublabel,
+  labelStyle,
   accessibilityLabel,
   accessibilityHint,
   style,
@@ -57,7 +59,7 @@ export function NeonButton({
       <Txt
         font="display"
         numberOfLines={1}
-        style={[styles.label, { color: lit ? colors.white : color }, glow(color, lit ? 10 : 4)]}
+        style={[styles.label, { color: lit ? colors.white : color }, glow(color, lit ? 10 : 4), labelStyle]}
       >
         {label}
       </Txt>

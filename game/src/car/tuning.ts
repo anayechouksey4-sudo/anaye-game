@@ -39,6 +39,9 @@ export const CAR_TUNING = {
   reverseEngageSpeed: 1.2,
   /** With no pedal input below this speed the brakes hold the car still, m/s. */
   idleHoldSpeed: 0.5,
+  /** Both pedals below burnoutMaxSpeed m/s: rear longitudinal grip × this ("clutch dump") so the rears light up at any tier. */
+  burnoutRearGrip: 0.4,
+  burnoutMaxSpeed: 4,
 
   // ── Suspension damping (scaled with the per-axle stiffness so balance changes stay consistent) ──
   /** Rapier damping = ratio × √stiffness (≈ fraction of critical for a quarter-car). */

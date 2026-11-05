@@ -181,7 +181,8 @@ export class CarController {
     const maxSteer = Math.max(T.steerMin, T.steerMax / (1 + Math.abs(vFwd) / T.steerSpeedFalloff));
     // Positive Rapier steering turns the nose toward +X (driver's left), so right input is negative.
     const target = -input.steer * maxSteer;
-    const returning = Math.abs(target) < Math.abs(this.steerAngle) || Math.sign(target) !== Math.sign(this.steerAngle);
+    const returning =
+      Math.abs(target) < Math.abs(this.steerAngle) || (this.steerAngle !== 0 && Math.sign(target) !== Math.sign(this.steerAngle));
     const rate = (returning ? T.steerReturnRate : T.steerRate) * dt;
     this.steerAngle += clamp(target - this.steerAngle, -rate, rate);
     vehicle.setWheelSteering(0, this.steerAngle);
@@ -197,7 +198,8 @@ export class CarController {
     let torquePerWheel = (p.engineTorque / 2) * throttle * (reversing ? -T.reverseTorqueRatio : 1);
     if (reversing && vFwd < -T.reverseMaxSpeed) torquePerWheel = 0;
     const baseSide = clamp(T.sideStiffnessBase + T.sideStiffnessPerTraction * p.traction, T.sideStiffnessMin, 1);
-    const longMu = p.traction * T.longitudinalGripRatio;
+    const burnout = frontOnlyBrake > 0 && Math.abs(vFwd) < T.burnoutMaxSpeed;
+    const longMu = p.traction * T.longitudinalGripRatio * (burnout ? T.burnoutRearGrip : 1);
 
     for (const wheel of WHEELS) {
       const i = wheel.index;

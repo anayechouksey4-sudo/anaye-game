@@ -8,6 +8,8 @@ import { CuboidCollider, RigidBody } from '@react-three/rapier';
 import { BIG_JUMP_LIP_KMH } from '@shared/protocol';
 import { Matrix4, type InstancedMesh } from 'three';
 import { Gate } from '../common/Gate';
+import { neonGridTexture } from '../common/neonGridTexture';
+import { buildRamp } from '../common/ramp';
 import type { TrackLayout, Vec3 } from '../types';
 import { useRegisterTrackLayout } from '../useTrackLayout';
 
@@ -17,12 +19,19 @@ const END_Z = 1850;
 const LENGTH = END_Z - START_Z;
 const FLOOR_THICKNESS = 2;
 
-const RAMP_START_Z = 1520;
-const RAMP_LENGTH = 22;
-const RAMP_ANGLE = (11 * Math.PI) / 180;
 const RAMP_WIDTH = 12;
 const RAMP_THICKNESS = 0.8;
-const RAMP_LIP: Vec3 = [0, RAMP_LENGTH * Math.sin(RAMP_ANGLE), RAMP_START_Z + RAMP_LENGTH * Math.cos(RAMP_ANGLE)];
+/** Eased kicker: 3° → 6° → 9° → 11° so the suspension isn't slammed on entry. */
+const RAMP = buildRamp(
+  1510,
+  [
+    { angleDeg: 3, length: 8 },
+    { angleDeg: 6, length: 8 },
+    { angleDeg: 9, length: 8 },
+    { angleDeg: 11, length: 12 },
+  ],
+  RAMP_THICKNESS,
+);
 
 const GATE_SIZE: Vec3 = [WIDTH, 9, 4];
 
@@ -37,16 +46,9 @@ export const TEST_TRACK_LAYOUT: TrackLayout = {
   ],
   finish: { position: [0, 0, 1800], yaw: 0, size: GATE_SIZE },
   killY: -25,
-  bigJump: { lipPosition: RAMP_LIP, yaw: 0, requiredKmh: BIG_JUMP_LIP_KMH, halfWidth: RAMP_WIDTH / 2 + 2 },
+  bigJump: { lipPosition: RAMP.lip, yaw: 0, requiredKmh: BIG_JUMP_LIP_KMH, halfWidth: RAMP_WIDTH / 2 + 2 },
   lengthM: END_Z,
 };
-
-/** Centre of a box whose top-face rear edge sits at (0, 0, startZ) after pitching up by `angle`. */
-function rampCenter(startZ: number): Vec3 {
-  const h = RAMP_THICKNESS / 2;
-  const l = RAMP_LENGTH / 2;
-  return [0, -h * Math.cos(RAMP_ANGLE) + l * Math.sin(RAMP_ANGLE), startZ + h * Math.sin(RAMP_ANGLE) + l * Math.cos(RAMP_ANGLE)];
-}
 
 function LaneStripes() {
   const ref = useRef<InstancedMesh>(null);
@@ -58,7 +60,7 @@ function LaneStripes() {
     for (let i = 0; i < count; i++) {
       const z = START_Z + i * 10;
       const major = Math.round(z) % 100 === 0;
-      m.makeScale(major ? WIDTH : 2.5, 1, major ? 0.8 : 0.35).setPosition(0, 0.012, z);
+      m.makeScale(major ? WIDTH - 2 : 2.5, 1, major ? 0.3 : 0.35).setPosition(0, 0.012, z);
       mesh.setMatrixAt(i, m);
     }
     mesh.instanceMatrix.needsUpdate = true;
@@ -66,14 +68,20 @@ function LaneStripes() {
   return (
     <instancedMesh ref={ref} args={[undefined, undefined, count]} frustumCulled={false}>
       <boxGeometry args={[1, 0.02, 1]} />
-      <meshStandardMaterial color="#00F0FF" emissive="#00F0FF" emissiveIntensity={0.6} />
+      <meshStandardMaterial color="#0a6d78" emissive="#00F0FF" emissiveIntensity={0.35} />
     </instancedMesh>
   );
 }
 
 export function TestTrack() {
   useRegisterTrackLayout(TEST_TRACK_LAYOUT);
-  const ramp = useMemo(() => rampCenter(RAMP_START_Z), []);
+  const grid = useMemo(() => {
+    const texture = neonGridTexture({ cells: 4 }).clone();
+    // One tile = 10 m (2.5 m cells).
+    texture.repeat.set(WIDTH / 10, LENGTH / 10);
+    return texture;
+  }, []);
+  useLayoutEffect(() => () => grid.dispose(), [grid]);
 
   return (
     <group name="test-track">
@@ -83,18 +91,26 @@ export function TestTrack() {
           position={[0, -FLOOR_THICKNESS / 2, START_Z + LENGTH / 2]}
           friction={1}
         />
-        <mesh position={[0, -FLOOR_THICKNESS / 2, START_Z + LENGTH / 2]} receiveShadow>
+        <mesh position={[0, -FLOOR_THICKNESS / 2 - 0.01, START_Z + LENGTH / 2]}>
           <boxGeometry args={[WIDTH, FLOOR_THICKNESS, LENGTH]} />
-          <meshStandardMaterial color="#0b0e18" roughness={0.85} metalness={0.1} />
+          <meshStandardMaterial color="#090c16" roughness={0.9} />
+        </mesh>
+        <mesh position={[0, 0.001, START_Z + LENGTH / 2]} rotation={[-Math.PI / 2, 0, 0]} receiveShadow>
+          <planeGeometry args={[WIDTH, LENGTH]} />
+          <meshStandardMaterial map={grid} emissiveMap={grid} emissive="#00F0FF" emissiveIntensity={0.22} roughness={0.8} metalness={0.15} />
         </mesh>
       </RigidBody>
 
-      <RigidBody type="fixed" colliders={false} name="test-kicker" position={ramp} rotation={[-RAMP_ANGLE, 0, 0]}>
-        <CuboidCollider args={[RAMP_WIDTH / 2, RAMP_THICKNESS / 2, RAMP_LENGTH / 2]} friction={1} />
-        <mesh castShadow receiveShadow>
-          <boxGeometry args={[RAMP_WIDTH, RAMP_THICKNESS, RAMP_LENGTH]} />
-          <meshStandardMaterial color="#1b1030" emissive="#FF2A6D" emissiveIntensity={0.18} />
-        </mesh>
+      <RigidBody type="fixed" colliders={false} name="test-kicker">
+        {RAMP.segments.map((seg, i) => (
+          <group key={i} position={seg.center} rotation={[seg.rotationX, 0, 0]}>
+            <CuboidCollider args={[RAMP_WIDTH / 2, RAMP_THICKNESS / 2, seg.length / 2]} friction={1} />
+            <mesh castShadow receiveShadow>
+              <boxGeometry args={[RAMP_WIDTH, RAMP_THICKNESS, seg.length]} />
+              <meshStandardMaterial color="#1b1030" emissive="#FF2A6D" emissiveIntensity={0.18 + i * 0.06} />
+            </mesh>
+          </group>
+        ))}
       </RigidBody>
 
       <LaneStripes />

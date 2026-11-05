@@ -41,7 +41,7 @@ export interface DrivenWheelOutput {
 /** Wheel + driveline inertia seen at one rear wheel, kg·m². */
 export const DRIVEN_WHEEL_INERTIA = 1.5;
 /** Sliding grip as a fraction of peak grip; < 1 so a spinning tyre needs a lift to hook up again. */
-export const KINETIC_GRIP_RATIO = 0.9;
+export const KINETIC_GRIP_RATIO = 0.93;
 /** "Rev limiter": the tyre surface never outruns the ground by more than this, m/s. */
 export const MAX_SLIP_SPEED = 22;
 /** Free (airborne) wheel spin decay per step. */

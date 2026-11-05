@@ -30,7 +30,7 @@ export function App() {
     <div className="app">
       <Canvas
         className="app__canvas"
-        shadows
+        shadows="percentage"
         dpr={[1, 2]}
         camera={{ fov: 62, near: 0.1, far: 3000, position: [0, 4, -9] }}
         gl={{ antialias: true, powerPreference: 'high-performance' }}

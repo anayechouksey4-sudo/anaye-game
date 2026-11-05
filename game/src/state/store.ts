@@ -219,7 +219,8 @@ export const useGameStore = create<GameState>()((set, get) => {
       const now = Date.now();
       const list = get().uplink;
       const last = list[0];
-      if (last && last.kind === kind && now - last.at < COALESCE_MS) {
+      const mergeable = last && last.kind === kind && (last.text === text || kind === 'controls' || kind === 'physics');
+      if (last && mergeable && now - last.at < COALESCE_MS) {
         set({ uplink: [{ ...last, at: now, text, count: last.count + 1 }, ...list.slice(1)] });
         return;
       }

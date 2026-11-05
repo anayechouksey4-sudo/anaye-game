@@ -138,6 +138,8 @@ export const DEFAULT_SQUAD_CONTROLS: Readonly<SquadControls> = Object.freeze({
  *              With too little wing the net force goes negative and, at high speed, the nose physically lifts.
  *   Rear aero  Fixed rear wing: F_rear = REAR_DOWNFORCE · v_fwd², applied at the rear axle.
  *   Drag       F_drag = −drag · v · |v| at the centre of mass.
+ *   Load shift Drive force acts at the rear contact patch, CG_HEIGHT below the centre of mass, so under
+ *              power it moves driveForce·CG_HEIGHT/WHEELBASE of load off the front axle.
  *   Balance    Shifts the centre of mass (see balanceToFrontWeightFraction) AND re-splits suspension stiffness
  *              between the axles (see balanceToSuspensionStiffness).
  *   Traction   Tyre friction coefficient (wheel friction slip / side stiffness).
@@ -184,6 +186,12 @@ export const SUSPENSION_STIFFNESS_BASE = 30;
 export const SUSPENSION_BALANCE_SPLIT = 0.4;
 /** Speed (km/h) the car must carry off the lip of the big jump to clear its gap. */
 export const BIG_JUMP_LIP_KMH = 185;
+/** Front-wing downforce factor at 100 % Front Wing Aero (the mapping is linear from 0). */
+export const FRONT_WING_DOWNFORCE_MAX = 6.5;
+/** Centre-of-mass height above the ground, metres. */
+export const CG_HEIGHT = 0.45;
+/** Distance between front and rear axles, metres. */
+export const WHEELBASE = 2.7;
 
 export const CAR_PHYSICS_SPECS: { readonly [K in CarPhysicsKey]: RangeSpec } = {
   mass: {
@@ -270,7 +278,7 @@ export function mapSquadControlsToPhysics(input: SquadControls): CarPhysicsParam
     mass: round(1050 + 60 * tierSteps, 1),
     traction: BASE_TRACTION,
     drag: round(2 + 4 * a, 3),
-    frontDownforce: round(6.5 * a, 3),
+    frontDownforce: round(FRONT_WING_DOWNFORCE_MAX * a, 3),
     engineTorque: round(1000 + 550 * tierSteps, 1),
     balance: round(b, 3),
   });
@@ -329,14 +337,16 @@ export function estimateTopSpeedKmh(p: CarPhysicsParams): number {
 }
 
 /**
- * Speed (km/h) above which net front lift exceeds the static front-axle load, i.e. the
- * nose leaves the ground. null if the front wing out-pulls body lift (never lifts).
- * Static estimate — ignores drag pitch moment and load transfer.
+ * Speed (km/h) above which net front lift exceeds the front-axle load at full throttle, i.e. the
+ * nose leaves the ground. null if the front wing out-pulls body lift (never lifts); 0 if the
+ * drive torque alone unloads the front axle. Estimate — ignores the drag pitch moment.
  */
 export function estimateFrontLiftOffKmh(p: CarPhysicsParams): number | null {
   const netLift = FRONT_BODY_LIFT - p.frontDownforce;
   if (netLift <= 1e-6) return null;
-  const frontLoad = p.mass * GRAVITY * balanceToFrontWeightFraction(p.balance);
+  const staticFrontLoad = p.mass * GRAVITY * balanceToFrontWeightFraction(p.balance);
+  const frontLoad = staticFrontLoad - (driveForceN(p) * CG_HEIGHT) / WHEELBASE;
+  if (frontLoad <= 0) return 0;
   return Math.sqrt(frontLoad / netLift) * 3.6;
 }
 

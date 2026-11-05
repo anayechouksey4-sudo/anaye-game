@@ -15,6 +15,7 @@ const KEYS: [string, string][] = [
 
 export function HelpPanel() {
   const open = useGameStore((s) => s.ui.helpOpen);
+  const physicsOpen = useGameStore((s) => s.ui.physicsPanelOpen);
   const camera = useGameStore((s) => s.ui.cameraMode);
   const { toggleHelp, togglePhysicsPanel, cycleCamera } = useGameStore.getState();
   return (
@@ -30,7 +31,7 @@ export function HelpPanel() {
           {open ? 'HIDE' : 'HELP'} [H]
         </button>
       </div>
-      {open && (
+      {open && !physicsOpen && (
         <div className="hud-panel hud-help">
           <div className="hud-panel__title">CONTROLS</div>
           <dl>

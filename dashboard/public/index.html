@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="%LANG_ISO_CODE%">
+  <head>
+    <meta charset="utf-8" />
+    <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no, viewport-fit=cover" />
+    <meta name="color-scheme" content="dark" />
+    <meta name="description" content="SquadHQ: cyberpunk tuning HQ for the GamerFleet racer." />
+    <title>%WEB_TITLE%</title>
+    <!-- react-native-web style reset, plus a dark page so there is no white flash before the bundle runs. -->
+    <style id="expo-reset">
+      html,
+      body {
+        height: 100%;
+        background-color: #05060a;
+      }
+      body {
+        overflow: hidden;
+        margin: 0;
+      }
+      #root {
+        display: flex;
+        height: 100%;
+        flex: 1;
+      }
+      /* Keyboard focus ring for the web build's focusable sliders. */
+      [role='slider']:focus-visible {
+        outline: 1px dashed rgba(0, 240, 255, 0.7);
+        outline-offset: 4px;
+      }
+    </style>
+  </head>
+
+  <body>
+    <noscript>SquadHQ needs JavaScript.</noscript>
+    <div id="root"></div>
+  </body>
+</html>

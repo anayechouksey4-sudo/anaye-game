@@ -13,7 +13,7 @@
     "export:android": "expo export --platform android",
     "typecheck": "tsc --noEmit && tsc --noEmit -p test",
     "test": "tsx --test test/*.test.ts",
-    "doctor": "expo-doctor"
+    "doctor": "npx expo-doctor@latest"
   },
   "dependencies": {
     "@expo-google-fonts/orbitron": "^0.4.2",

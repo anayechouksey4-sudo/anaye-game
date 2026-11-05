@@ -57,7 +57,7 @@ export function CarModel() {
       {/* Main tub */}
       <mesh position={[0, bodyBottom + 0.22, 0]} castShadow receiveShadow>
         <boxGeometry args={[BODY.width - 0.1, 0.44, BODY.length - 0.3]} />
-        <meshStandardMaterial color="#0b1a2a" metalness={0.4} roughness={0.35} />
+        <meshStandardMaterial color="#1d3a5c" metalness={0.35} roughness={0.4} />
       </mesh>
       {/* Wedge nose */}
       <mesh position={[0, bodyBottom + 0.12, BODY.length / 2 - 0.25]} castShadow>

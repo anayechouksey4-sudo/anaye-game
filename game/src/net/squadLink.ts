@@ -71,7 +71,11 @@ export class SquadLink {
     this.unsubscribeStore = useGameStore.subscribe((state, prev) => {
       if (state.physics !== prev.physics || state.controls !== prev.controls) this.scheduleState();
     });
-    this.connect();
+    // Deferred one tick: React StrictMode's throwaway first mount stops us before a socket exists.
+    this.retryTimer = setTimeout(() => {
+      this.retryTimer = null;
+      this.connect();
+    }, 0);
   }
 
   stop(): void {

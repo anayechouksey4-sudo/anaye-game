@@ -16,6 +16,12 @@ const FALLBACK_WEIGHT: Record<FontKey, TextStyle['fontWeight']> = {
   mono: '400',
 };
 
+/** Font style for non-Text components (TextInput) with the same fallback rules as <Txt>. */
+export function useFontStyle(font: FontKey): TextStyle {
+  const ready = useContext(FontsReadyContext);
+  return ready ? { fontFamily: fonts[font] } : { fontFamily: FALLBACK_FAMILY, fontWeight: FALLBACK_WEIGHT[font] };
+}
+
 export interface TxtProps extends TextProps {
   font?: FontKey;
 }
