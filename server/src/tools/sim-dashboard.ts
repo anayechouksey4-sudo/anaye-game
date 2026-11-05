@@ -45,6 +45,8 @@ let current: SquadControls | null = null;
 let lastPhysics: CarPhysicsParams | null = null;
 let lastTelemetry: GameTelemetry | null = null;
 const tty = process.stdout.isTTY;
+/** The relay welcomes on connect and again after our hello; resync once per connection. */
+let welcomed = false;
 let lastPrint = 0;
 
 const client = connectToolClient({
@@ -52,13 +54,18 @@ const client = connectToolClient({
   role: 'dashboard',
   name: values.name,
   reconnect: true,
-  onOpen: () => log(`connected to ${client.url}`),
+  onOpen: () => {
+    welcomed = false;
+    log(`connected to ${client.url}`);
+  },
   onClose: (code, reason, retryInMs) =>
     log(`disconnected (${code}${reason ? ` ${reason}` : ''})${retryInMs !== null ? `, retrying in ${retryInMs} ms` : ''}`),
   onError: (err) => log(`socket error: ${err.message}`),
   onMessage: (message) => {
     switch (message.type) {
       case 'server:welcome':
+        if (welcomed) return;
+        welcomed = true;
         log(`welcome: id ${message.clientId}, role ${message.role}, peers ${formatPeers(message.peers)}`);
         current = null; // resend on (re)connect so the game is in sync immediately
         return;

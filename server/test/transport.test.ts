@@ -1,8 +1,9 @@
 import assert from 'node:assert/strict';
+import type { Socket } from 'node:net';
 import { afterEach, describe, it } from 'node:test';
 import { PROTOCOL_VERSION } from '../../shared/protocol';
 import type { RelayServer } from '../src/relay';
-import { TestClient, connect, startRelay } from './helpers';
+import { TestClient, connect, sampleTelemetry, startRelay } from './helpers';
 
 let relay: RelayServer | undefined;
 let clients: TestClient[] = [];
@@ -71,5 +72,37 @@ describe('heartbeat', () => {
     await new Promise((resolve) => setTimeout(resolve, 450));
     assert.equal(healthy.ws.readyState, healthy.ws.OPEN);
     await healthy.sync();
+  });
+});
+
+describe('backpressure', () => {
+  it('skips telemetry for a client that is not draining its socket, but still serves the others', async () => {
+    relay = await startRelay({
+      telemetryBackpressureBytes: 64 * 1024,
+      rateLimit: { perSecond: 1e6, burst: 1e6 },
+    });
+    const game = await connect(relay, 'game');
+    const stalled = await connect(relay, 'dashboard');
+    const healthy = await connect(relay, 'observer');
+    clients.push(game, stalled, healthy);
+    const stalledSocket = (stalled.ws as unknown as { _socket: Socket })._socket;
+    stalledSocket.pause();
+
+    const frame = JSON.stringify({ type: 'game:telemetry', telemetry: sampleTelemetry });
+    let sent = 0;
+    // Kernel socket buffers absorb an unknown amount first, so flood in batches until skipping starts.
+    while (relay.stats().counters.telemetrySkipped === 0 && sent < 60_000) {
+      for (let i = 0; i < 1000; i++) game.sendRaw(frame);
+      sent += 1000;
+      await game.sync();
+    }
+    const skipped = relay.stats().counters.telemetrySkipped;
+    assert.ok(skipped > 0, `expected skipped telemetry after ${sent} frames`);
+
+    await healthy.sync();
+    assert.equal(healthy.count('game:telemetry'), sent, 'a draining client receives every frame');
+    stalledSocket.resume();
+    await stalled.sync();
+    assert.equal(stalled.count('game:telemetry'), sent - skipped);
   });
 });

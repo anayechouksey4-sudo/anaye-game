@@ -20,7 +20,10 @@ export function formatBanner({ host, port, lan }: BannerInput): string {
   if (!WILDCARD_HOSTS.has(host)) {
     lines.push(`  Bound to ${host} only. Use --host 0.0.0.0 to accept phones on the LAN.`);
   } else if (lan.length === 0) {
-    lines.push('  No LAN IPv4 address found. Connect this machine to Wi-Fi so the phone can reach it.');
+    lines.push(
+      '  No LAN IPv4 address found. Join Wi-Fi so a phone can reach this machine, or look up the IP',
+      `  in the system network settings and enter ws://<that-ip>:${port} in the dashboard.`,
+    );
   } else {
     lines.push('  Enter one of these in the SquadHQ dashboard (phone on the same Wi-Fi):');
     const width = Math.max(...lan.map((a) => `ws://${a.address}:${port}`.length));

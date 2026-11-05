@@ -355,8 +355,10 @@ export function assessBigJump(p: CarPhysicsParams): BigJumpAssessment {
   const topSpeedKmh = estimateTopSpeedKmh(p);
   const liftOffKmh = estimateFrontLiftOffKmh(p);
   const requiredKmh = BIG_JUMP_LIP_KMH;
+  // The nose can only lift if the car actually reaches lift-off speed on the run-up; a car that
+  // tops out below both speeds is simply too slow (more wing would only make it slower).
   let verdict: BigJumpAssessment['verdict'] = 'READY';
-  if (liftOffKmh !== null && liftOffKmh < requiredKmh) verdict = 'NOSE LIFT';
+  if (liftOffKmh !== null && liftOffKmh < Math.min(topSpeedKmh, requiredKmh)) verdict = 'NOSE LIFT';
   else if (topSpeedKmh < requiredKmh) verdict = 'TOO SLOW';
   return { ready: verdict === 'READY', topSpeedKmh, liftOffKmh, requiredKmh, verdict };
 }
@@ -529,6 +531,8 @@ export type OutgoingMessage<M extends ProtocolMessage = ProtocolMessage> = M ext
  *   game:telemetry  → stored as snapshot.telemetry; relayed to every non-game client
  *   ping            → `pong` to sender only
  *   server:*, pong  → never accepted from clients (answered with `server:error` code `forbidden`)
+ *
+ * A relayed frame never goes back to its own sender, whichever rule applies.
  */
 export const RELAY_RULES = {
   'squad:controls': 'others',

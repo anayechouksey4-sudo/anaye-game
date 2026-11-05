@@ -35,6 +35,8 @@ const durationSec = numberArg(values.duration, 'duration', 0, 0, 86_400);
 let controls: SquadControls | null = null;
 let physics: CarPhysicsParams = { ...DEFAULT_CAR_PHYSICS };
 const counts = { controls: 0, physicsSet: 0, state: 0, telemetry: 0 };
+/** The relay welcomes on connect and again after our hello; sync state once per connection. */
+let welcomed = false;
 const applyLog = createThrottledLog(1000, (line) => console.log(line));
 
 function physicsEqual(a: CarPhysicsParams, b: CarPhysicsParams): boolean {
@@ -65,7 +67,10 @@ const client = connectToolClient({
   role: 'game',
   name: values.name,
   reconnect: true,
-  onOpen: () => console.log(`connected to ${client.url}`),
+  onOpen: () => {
+    welcomed = false;
+    console.log(`connected to ${client.url}`);
+  },
   onClose: (code, reason, retryInMs) =>
     console.log(
       `disconnected (${code}${reason ? ` ${reason}` : ''})${retryInMs !== null ? `, retrying in ${retryInMs} ms` : ''}`,
@@ -74,6 +79,8 @@ const client = connectToolClient({
   onMessage: (message) => {
     switch (message.type) {
       case 'server:welcome':
+        if (welcomed) return;
+        welcomed = true;
         console.log(`welcome: id ${message.clientId}, role ${message.role}, peers ${formatPeers(message.peers)}`);
         if (message.snapshot.controls) applyControls(message.snapshot.controls, 'snapshot');
         else publishState();
