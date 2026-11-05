@@ -127,6 +127,21 @@ export const DEFAULT_SQUAD_CONTROLS: Readonly<SquadControls> = Object.freeze({
 // Car physics parameters — what the game's car controller actually consumes
 // ─────────────────────────────────────────────────────────────────────────────
 
+/**
+ * Physics model (implemented by game/, previewed by dashboard/):
+ *
+ *   Drive      Rear-wheel drive. Base torque `engineTorque` (N·m, whole rear axle) is split across the two
+ *              rear wheels; contact-patch force = engineTorque / DRIVE_WHEEL_RADIUS.
+ *   Front aero The front wing's downforce acts AT THE FRONT AXLE and scales with forward speed squared,
+ *              fighting a fixed body lift at the same point:
+ *                  F_front = (frontDownforce − FRONT_BODY_LIFT) · v_fwd²     (+ = pushes down, − = lifts)
+ *              With too little wing the net force goes negative and, at high speed, the nose physically lifts.
+ *   Rear aero  Fixed rear wing: F_rear = REAR_DOWNFORCE · v_fwd², applied at the rear axle.
+ *   Drag       F_drag = −drag · v · |v| at the centre of mass.
+ *   Balance    Shifts the centre of mass (see balanceToFrontWeightFraction) AND re-splits suspension stiffness
+ *              between the axles (see balanceToSuspensionStiffness).
+ *   Traction   Tyre friction coefficient (wheel friction slip / side stiffness).
+ */
 export interface CarPhysicsParams {
   /** Chassis mass in kg. */
   mass: number;
@@ -134,11 +149,11 @@ export interface CarPhysicsParams {
   traction: number;
   /** Aerodynamic drag factor k, in N per (m/s)²: F_drag = −k · v · |v|. */
   drag: number;
-  /** Aerodynamic downforce factor k, in N per (m/s)²: F_down = k · v² (pushes into the track). */
-  downforce: number;
-  /** Peak total drive force in N, split across the driven wheels. */
-  engineForce: number;
-  /** Weight bias, −1 (front-heavy) … +1 (rear-heavy). See `balanceToFrontWeightFraction`. */
+  /** Front-wing downforce factor k at the FRONT AXLE, in N per (m/s)². Net front aero = (k − FRONT_BODY_LIFT)·v². */
+  frontDownforce: number;
+  /** Base drive torque in N·m for the whole rear axle (rear-wheel drive). */
+  engineTorque: number;
+  /** Weight bias, −1 (front-heavy) … +1 (rear-heavy). Drives centre of mass and suspension split. */
   balance: number;
 }
 
@@ -148,10 +163,27 @@ export const CAR_PHYSICS_KEYS: readonly CarPhysicsKey[] = [
   'mass',
   'traction',
   'drag',
-  'downforce',
-  'engineForce',
+  'frontDownforce',
+  'engineTorque',
   'balance',
 ];
+
+// ── Tuning constants ────────────────────────────────────────────────────────
+// The game calibrates these against its simulation; the dashboard uses them for previews.
+// Values may be re-tuned, names and meanings may not.
+
+/** Rear (driven) wheel radius in metres. */
+export const DRIVE_WHEEL_RADIUS = 0.36;
+/** Body/underfloor lift at the front axle, N per (m/s)². The front wing must beat this to keep the nose down. */
+export const FRONT_BODY_LIFT = 3.0;
+/** Fixed rear-wing downforce at the rear axle, N per (m/s)². */
+export const REAR_DOWNFORCE = 2.5;
+/** Neutral per-wheel suspension stiffness (Rapier raycast-vehicle units, mass-normalised). */
+export const SUSPENSION_STIFFNESS_BASE = 30;
+/** How far balance re-splits stiffness: ±1 balance moves each axle by ±this fraction. */
+export const SUSPENSION_BALANCE_SPLIT = 0.4;
+/** Speed (km/h) the car must carry off the lip of the big jump to clear its gap. */
+export const BIG_JUMP_LIP_KMH = 185;
 
 export const CAR_PHYSICS_SPECS: { readonly [K in CarPhysicsKey]: RangeSpec } = {
   mass: {
@@ -168,7 +200,7 @@ export const CAR_PHYSICS_SPECS: { readonly [K in CarPhysicsKey]: RangeSpec } = {
     min: 0.2,
     max: 4,
     step: 0.01,
-    default: 1.43,
+    default: 1.45,
     unit: 'μ',
     description: 'Tyre grip. Low values slide, high values stick.',
   },
@@ -181,23 +213,23 @@ export const CAR_PHYSICS_SPECS: { readonly [K in CarPhysicsKey]: RangeSpec } = {
     unit: 'k',
     description: 'Air resistance, grows with the square of speed. Caps top speed.',
   },
-  downforce: {
-    label: 'Downforce',
+  frontDownforce: {
+    label: 'Front Downforce',
     min: 0,
     max: 15,
     step: 0.05,
-    default: 3.5,
+    default: 3.25,
     unit: 'k',
-    description: 'Aero load pushing the car into the track at speed, adding grip.',
+    description: 'Front-wing load on the front axle, grows with speed². Below body lift the nose rises.',
   },
-  engineForce: {
-    label: 'Engine Force',
-    min: 500,
-    max: 20000,
-    step: 50,
-    default: 6000,
-    unit: 'N',
-    description: 'Peak drive force.',
+  engineTorque: {
+    label: 'Engine Torque',
+    min: 200,
+    max: 8000,
+    step: 10,
+    default: 2100,
+    unit: 'N·m',
+    description: 'Base torque delivered to the rear wheels.',
   },
   balance: {
     label: 'Balance',
@@ -206,7 +238,7 @@ export const CAR_PHYSICS_SPECS: { readonly [K in CarPhysicsKey]: RangeSpec } = {
     step: 0.01,
     default: 0,
     unit: '',
-    description: 'Weight bias front (−1) to rear (+1).',
+    description: 'Weight and spring bias front (−1) to rear (+1).',
   },
 };
 
@@ -216,13 +248,16 @@ export const GRAVITY = 9.81;
 /** Rolling-resistance coefficient used only by `estimateTopSpeedKmh`. */
 export const ROLLING_RESISTANCE = 0.015;
 
+/** Base tyre grip — no slider changes it; aero adds grip physically via axle load. */
+export const BASE_TRACTION = 1.45;
+
 /**
  * THE mapping from dashboard sliders to car physics. Pure and deterministic, so
  * the dashboard can preview exactly what the game will apply.
  *
- *   Front Wing Aero (a = 0…1): drag 2.0→6.0, downforce 0.5→6.5, traction 1.30→1.56
- *   Engine Tier     (t = 1…5): engine force 3000→9000 N, mass +60 kg per tier
- *   Chassis Balance (b = −1…1): balance passthrough (front-heavy … rear-heavy)
+ *   Front Wing Aero (a = 0…1): frontDownforce 0→6.5 (body lift is 3.0, so < ~46 % nets lift), drag 2.0→6.0
+ *   Engine Tier     (t = 1…5): rear-axle torque 1000→3200 N·m, mass +60 kg per tier
+ *   Chassis Balance (b = −1…1): balance passthrough → centre of mass + suspension stiffness split
  *
  * At the default sliders (50 / 3 / 0) this yields DEFAULT_CAR_PHYSICS.
  */
@@ -233,10 +268,10 @@ export function mapSquadControlsToPhysics(input: SquadControls): CarPhysicsParam
   const b = c.chassisBalance / 50;
   return clampPhysics({
     mass: round(1050 + 60 * tierSteps, 1),
-    traction: round(1.3 + 0.26 * a, 3),
+    traction: BASE_TRACTION,
     drag: round(2 + 4 * a, 3),
-    downforce: round(0.5 + 6 * a, 3),
-    engineForce: round(3000 + 1500 * tierSteps, 1),
+    frontDownforce: round(6.5 * a, 3),
+    engineTorque: round(1000 + 550 * tierSteps, 1),
     balance: round(b, 3),
   });
 }
@@ -261,14 +296,69 @@ export function describeChassisBalance(chassisBalance: number): { front: number;
 }
 
 /**
- * Rough steady-state top speed: engineForce = drag·v² + Crr·m·g.
+ * Per-wheel suspension stiffness for a balance value: the heavier end gets stiffer springs.
+ * −1 → front ×1.4 / rear ×0.6, +1 → front ×0.6 / rear ×1.4 (with SUSPENSION_BALANCE_SPLIT = 0.4).
+ */
+export function balanceToSuspensionStiffness(balance: number): { front: number; rear: number } {
+  const b = clamp(balance, -1, 1);
+  return {
+    front: SUSPENSION_STIFFNESS_BASE * (1 - SUSPENSION_BALANCE_SPLIT * b),
+    rear: SUSPENSION_STIFFNESS_BASE * (1 + SUSPENSION_BALANCE_SPLIT * b),
+  };
+}
+
+/** Rear-axle contact-patch drive force in N. */
+export function driveForceN(p: CarPhysicsParams): number {
+  return p.engineTorque / DRIVE_WHEEL_RADIUS;
+}
+
+/** Net vertical aero force at the front axle in N (+ = downforce, − = lift) at a forward speed in m/s. */
+export function frontAeroForceN(p: CarPhysicsParams, forwardSpeedMs: number): number {
+  return (p.frontDownforce - FRONT_BODY_LIFT) * forwardSpeedMs * forwardSpeedMs;
+}
+
+/**
+ * Rough steady-state top speed: driveForce = drag·v² + Crr·m·g.
  * Preview only — the real number emerges from the game's simulation.
  */
 export function estimateTopSpeedKmh(p: CarPhysicsParams): number {
   const resist = ROLLING_RESISTANCE * p.mass * GRAVITY;
-  const net = Math.max(0, p.engineForce - resist);
+  const net = Math.max(0, driveForceN(p) - resist);
   if (p.drag <= 1e-6) return Infinity;
   return Math.sqrt(net / p.drag) * 3.6;
+}
+
+/**
+ * Speed (km/h) above which net front lift exceeds the static front-axle load, i.e. the
+ * nose leaves the ground. null if the front wing out-pulls body lift (never lifts).
+ * Static estimate — ignores drag pitch moment and load transfer.
+ */
+export function estimateFrontLiftOffKmh(p: CarPhysicsParams): number | null {
+  const netLift = FRONT_BODY_LIFT - p.frontDownforce;
+  if (netLift <= 1e-6) return null;
+  const frontLoad = p.mass * GRAVITY * balanceToFrontWeightFraction(p.balance);
+  return Math.sqrt(frontLoad / netLift) * 3.6;
+}
+
+export interface BigJumpAssessment {
+  /** True when the estimate says the car can carry BIG_JUMP_LIP_KMH to the lip with its nose down. */
+  ready: boolean;
+  topSpeedKmh: number;
+  liftOffKmh: number | null;
+  requiredKmh: number;
+  /** Human-readable verdict, e.g. 'TOO SLOW', 'NOSE LIFT', 'READY'. */
+  verdict: 'READY' | 'TOO SLOW' | 'NOSE LIFT';
+}
+
+/** Will this setup clear the big jump? Estimate only (the game is the source of truth). */
+export function assessBigJump(p: CarPhysicsParams): BigJumpAssessment {
+  const topSpeedKmh = estimateTopSpeedKmh(p);
+  const liftOffKmh = estimateFrontLiftOffKmh(p);
+  const requiredKmh = BIG_JUMP_LIP_KMH;
+  let verdict: BigJumpAssessment['verdict'] = 'READY';
+  if (liftOffKmh !== null && liftOffKmh < requiredKmh) verdict = 'NOSE LIFT';
+  else if (topSpeedKmh < requiredKmh) verdict = 'TOO SLOW';
+  return { ready: verdict === 'READY', topSpeedKmh, liftOffKmh, requiredKmh, verdict };
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -292,6 +382,21 @@ export interface GameTelemetry {
   finished: boolean;
   /** Best finish time in ms, or null if none yet. */
   bestMs: number | null;
+  // ── F1-style channels (optional on the wire; parseMessage fills the defaults shown) ──
+  /** Throttle pedal 0…1 (default 0). */
+  throttle: number;
+  /** Brake pedal 0…1 (default 0). */
+  brake: number;
+  /** Net vertical aero force at the front axle, N: + downforce, − lift (default 0). */
+  frontAeroN: number;
+  /** Vertical aero force at the rear axle, N (default 0). */
+  rearAeroN: number;
+  /** True while aero lift has the front wheels off the ground (default false). */
+  noseLift: boolean;
+  /** Rear tyre slip intensity 0…1 — tyre smoke when high (default 0). */
+  rearSlip: number;
+  /** Speed at the big-jump lip on the latest attempt, km/h, or null (default null). */
+  speedTrapKmh: number | null;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -540,6 +645,8 @@ export function sanitizeTelemetry(input: unknown): GameTelemetry | null {
   ) {
     return null;
   }
+  const optNumber = (value: unknown, min: number, max: number, fallback: number): number =>
+    isFiniteNumber(value) ? clamp(value, min, max) : fallback;
   return {
     speedKmh: clamp(speedKmh, 0, 2000),
     wheelsGrounded: clamp(Math.round(wheelsGrounded), 0, 4),
@@ -549,6 +656,13 @@ export function sanitizeTelemetry(input: unknown): GameTelemetry | null {
     falls: clamp(Math.round(falls), 0, 1e6),
     finished,
     bestMs: bestMs === null ? null : clamp(bestMs, 0, 1e9),
+    throttle: optNumber(input.throttle, 0, 1, 0),
+    brake: optNumber(input.brake, 0, 1, 0),
+    frontAeroN: optNumber(input.frontAeroN, -1e6, 1e6, 0),
+    rearAeroN: optNumber(input.rearAeroN, -1e6, 1e6, 0),
+    noseLift: input.noseLift === true,
+    rearSlip: optNumber(input.rearSlip, 0, 1, 0),
+    speedTrapKmh: isFiniteNumber(input.speedTrapKmh) ? clamp(input.speedTrapKmh, 0, 2000) : null,
   };
 }
 
