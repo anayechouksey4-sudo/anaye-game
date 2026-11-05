@@ -1,0 +1,20 @@
+# dependencies
+node_modules/
+
+# build output
+dist/
+build/
+*.tsbuildinfo
+
+# expo / metro
+.expo/
+web-build/
+dashboard/android/
+dashboard/ios/
+
+# logs & env
+npm-debug.log*
+*.log
+.env
+.env.local
+.DS_Store
