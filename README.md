@@ -2,6 +2,11 @@
 
 A voxel racing game you tune live from your phone.
 
+<p>
+  <img src="docs/game-launch.png" alt="Voxel hypercar launching on the GamerFleet Chaos Track with tyre smoke" width="68%">
+  <img src="docs/dashboard.png" alt="SquadHQ dashboard with the Front Wing Aero and Engine Tier sliders" width="28%">
+</p>
+
 | Folder | What it is | Stack |
 | --- | --- | --- |
 | [`game/`](game/README.md) | 3D racer: voxel hypercar, the **GamerFleet Chaos Track** over a bottomless void, F1-style aero and drivetrain physics | Vite, React Three Fiber, @react-three/rapier |
