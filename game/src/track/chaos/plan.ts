@@ -31,7 +31,7 @@ import { int, mulberry32, pick, range, shuffle, stepped, type Rng } from './rng'
 // ── Plan types ───────────────────────────────────────────────────────────────────────────────
 
 export type HazardKind = 'gap' | 'tiles' | 'pendulums' | 'sliders';
-export type SegmentKind = 'start' | 'straight' | 'chicane' | 'leadIn' | HazardKind | 'bigJump' | 'finish';
+export type SegmentKind = 'start' | 'straight' | 'chicane' | 'leadIn' | HazardKind | 'bigJump';
 export type DeckStyle = 'start' | 'deck' | 'stripes' | 'hazard' | 'ramp' | 'landing' | 'finish';
 export type GlowColor = 'cyan' | 'magenta' | 'yellow' | 'green' | 'orange';
 
@@ -82,7 +82,7 @@ export interface SegmentBase {
 }
 
 export interface SimpleSegment extends SegmentBase {
-  kind: 'start' | 'straight' | 'leadIn' | 'finish';
+  kind: 'start' | 'straight' | 'leadIn';
 }
 
 export interface ChicaneSegment extends SegmentBase {
@@ -236,9 +236,10 @@ export interface ChaosTrackPlan {
 const DEG = Math.PI / 180;
 const r3 = (v: number) => Math.round(v * 1000) / 1000;
 const snapTile = (v: number) => Math.round(v / DECK.tile) * DECK.tile;
-const smoothstep = (t: number) => {
+/** Lateral S-curve profile 0 → 1 (half cosine: peak curvature π²/2 vs 6 for smoothstep). */
+const sCurve = (t: number) => {
   const x = Math.min(1, Math.max(0, t));
-  return x * x * (3 - 2 * x);
+  return (1 - Math.cos(Math.PI * x)) / 2;
 };
 
 /** ω of a box bob on a massless arm swinging about the hinge axis, with the large-amplitude correction. */
@@ -332,7 +333,7 @@ class PlanBuilder {
       });
     }
     if (fill) {
-      // Solid-looking voxel mass under the plates (visual only): one column per plate down to the base.
+      // Voxel mass under the plates: one column per plate down to the base.
       let zPrev = z0;
       let yPrev = y0;
       for (const seg of build.segments) {
@@ -342,11 +343,10 @@ class PlanBuilder {
         const top = Math.min(yPrev, yEnd) - thickness * Math.cos(angle);
         const bottom = Math.min(y0, build.lip[1]) - DECK.thickness;
         if (top - bottom > 0.05) {
-          this.trims.push({
+          // Solid (collider + visual) so a car sliding off a ramp edge can't clip through the support.
+          this.solids.push({
             center: [r3(x), r3((top + bottom) / 2), r3((zPrev + zEnd) / 2)],
             size: [width - 0.6, r3(top - bottom), r3(zEnd - zPrev + 0.02)],
-            color: '#120c1c',
-            glow: 0,
           });
         }
         zPrev = zEnd;
@@ -364,6 +364,23 @@ class PlanBuilder {
       this.trims.push({
         center: [r3(x - width / 2 + (i + 0.5) * w), r3(y + 0.02), r3(z)],
         size: [r3(w - 0.04), 0.06, depth],
+        color: i % 2 === 0 ? '#F5E663' : '#0b0b0f',
+        glow: i % 2 === 0 ? 0.35 : 0,
+      });
+    }
+  }
+
+  /** Yellow/black kerb lying on a ramp's last plate, ending at the lip (pitched with the plate). */
+  lipKerb(lip: Vec3, takeoff: number, width: number, depth: number): void {
+    const n = Math.max(2, Math.round(width));
+    const w = width / n;
+    const z = lip[2] - (depth / 2) * Math.cos(takeoff);
+    const y = lip[1] - (depth / 2) * Math.sin(takeoff) + 0.03;
+    for (let i = 0; i < n; i++) {
+      this.trims.push({
+        center: [r3(lip[0] - width / 2 + (i + 0.5) * w), r3(y), r3(z)],
+        size: [r3(w - 0.04), 0.06, depth],
+        rotation: [-takeoff, 0, 0],
         color: i % 2 === 0 ? '#F5E663' : '#0b0b0f',
         glow: i % 2 === 0 ? 0.35 : 0,
       });
@@ -408,7 +425,7 @@ class PlanBuilder {
     const n = Math.ceil(length / 4);
     for (let i = 1; i < n; i++) {
       const t = i / n;
-      this.centerline.push([r3(this.z + t * length), r3(x0 + shift * smoothstep(t))]);
+      this.centerline.push([r3(this.z + t * length), r3(x0 + shift * sCurve(t))]);
     }
     this.advance(length, x1);
   }
@@ -418,7 +435,7 @@ class PlanBuilder {
     const len = (z1 - z0) / n;
     for (let i = 0; i < n; i++) {
       const t = (i + 0.5) / n;
-      const xc = x0 + (x1 - x0) * smoothstep(t);
+      const xc = x0 + (x1 - x0) * sCurve(t);
       this.flatDeck(z0 + i * len, z0 + (i + 1) * len, xc, width, style, edge, this.y, i % 3 === 0);
     }
   }
@@ -441,11 +458,11 @@ class PlanBuilder {
     const gapM = pick(rng, GAP.lengths);
     const profile: RampSegmentSpec[] = [...GAP.approachDeg, lipAngle].map((angleDeg) => ({ angleDeg, length: GAP.pieceLength }));
     const toe = this.z;
-    const kick = this.ramp(toe, this.x, this.y, profile, GAP.width, GAP.thickness, 'ramp', 'magenta', false);
+    const kick = this.ramp(toe, this.x, this.y, profile, GAP.width, GAP.thickness, 'ramp', 'magenta', true);
     const lipZ = kick.lip[2];
     // Base deck under the kicker ends exactly at the lip.
     this.flatDeck(toe, lipZ, this.x, DECK.width, 'hazard', 'magenta');
-    this.kerbAcross(lipZ - 0.5, this.x, GAP.width, kick.lip[1] + 0.01, 0.9);
+    this.lipKerb(kick.lip, kick.takeoff, GAP.width, 0.9);
     const landingZ = lipZ + gapM;
     const end = landingZ + GAP.landingLength;
     this.flatDeck(landingZ, end, this.x, DECK.width, 'landing', 'green');
@@ -611,8 +628,16 @@ class PlanBuilder {
     this.slices(shiftStart, shiftEnd, fromX, toX, J.RUNUP_WIDTH, 'deck', 'yellow');
     const kick = this.ramp(toeZ, toX, this.y, J.KICKER_PROFILE, J.KICKER_WIDTH, J.KICKER_THICKNESS, 'ramp', 'magenta', true);
     const lipZ = kick.lip[2];
+    // Base deck under the kicker ends exactly at the lip.
     this.flatDeck(shiftEnd, lipZ, toX, J.RUNUP_WIDTH, 'deck', 'magenta');
-    this.kerbAcross(lipZ - 0.6, toX, J.KICKER_WIDTH, kick.lip[1] + 0.01, 1.0);
+    this.lipKerb(kick.lip, kick.takeoff, J.KICKER_WIDTH, 1.0);
+    // Speed-trap timing gantry at the lip: posts + a laser beam high above the take-off line.
+    for (const side of [-1, 1]) {
+      const px = toX + side * (J.KICKER_WIDTH / 2 + 0.9);
+      this.trims.push({ center: [r3(px), r3(kick.lip[1] - 6), r3(lipZ)], size: [0.8, 18, 0.8], color: '#141826', glow: 0 });
+      this.trims.push({ center: [r3(px), r3(kick.lip[1] + 3.2), r3(lipZ)], size: [1.0, 0.5, 1.0], color: '#FF2A6D', glow: 3 });
+    }
+    this.trims.push({ center: [r3(toX), r3(kick.lip[1] + 3.2), r3(lipZ)], size: [J.KICKER_WIDTH + 1.8, 0.05, 0.05], color: '#00F0FF', glow: 4 });
 
     // Landing hill: knoll edge exactly GAP_M past the lip, eased down-slope, then the run-out.
     const knollZ = lipZ + J.GAP_M;
@@ -662,7 +687,7 @@ class PlanBuilder {
     this.centerline.push([r3(shiftStart), r3(fromX)]);
     for (let i = 1; i < n; i++) {
       const t = i / n;
-      this.centerline.push([r3(shiftStart + t * J.LANE_SHIFT_LENGTH_M), r3(fromX + (toX - fromX) * smoothstep(t))]);
+      this.centerline.push([r3(shiftStart + t * J.LANE_SHIFT_LENGTH_M), r3(fromX + (toX - fromX) * sCurve(t))]);
     }
     this.centerline.push([r3(shiftEnd), r3(toX)]);
 
@@ -708,16 +733,19 @@ const HAZARDS: readonly HazardKind[] = ['gap', 'tiles', 'pendulums', 'sliders'];
 
 export function generateChaosTrack(seed: number = DEFAULT_CHAOS_SEED): ChaosTrackPlan {
   const rng = mulberry32(seed);
-  const b = new PlanBuilder(rng, -32);
-  b.start(80, 0);
+  const b = new PlanBuilder(rng, -24);
+  b.start(64, 0);
 
   const order = shuffle(rng, HAZARDS);
-  // At least one chicane per layout; which connector gets it is seeded.
-  const forcedChicane = int(rng, 1, order.length);
+  // At least one chicane per layout; which connector gets it is seeded (never the one right after the gap).
+  const chicaneSlots = order.map((_, i) => i).filter((i) => i > 0 && order[i - 1] !== 'gap');
+  const forcedChicane = pick(rng, chicaneSlots);
   order.forEach((hazard, i) => {
     const connector = i === 0 ? rng() < 0.5 : true;
+    // Fast cars fly far off the sky gap: what follows it stays straight.
+    const afterGap = order[i - 1] === 'gap';
     if (connector || i === forcedChicane) {
-      const chicane = i === forcedChicane || rng() < 0.45;
+      const chicane = !afterGap && (i === forcedChicane || rng() < 0.45);
       if (chicane) {
         let shift = stepped(rng, CONNECTOR.shiftMin, CONNECTOR.shiftMax, 1) * (rng() < 0.5 ? -1 : 1);
         if (Math.abs(b.x + shift) > CONNECTOR.maxOffset) shift = -shift;
@@ -730,7 +758,6 @@ export function generateChaosTrack(seed: number = DEFAULT_CHAOS_SEED): ChaosTrac
     b[hazard]();
   });
 
-  b.straight(stepped(rng, CONNECTOR.straightMin, CONNECTOR.straightMax, DECK.tile));
   b.bigJump();
 
   const lowestTop = Math.min(

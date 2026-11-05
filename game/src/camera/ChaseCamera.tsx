@@ -94,13 +94,27 @@ function FollowRig({ mode }: { mode: Exclude<CameraMode, 'orbit'> }) {
 function OrbitRig() {
   const controls = useRef<ComponentRef<typeof OrbitControls>>(null);
   const camera = useThree((s) => s.camera);
-  const last = useRef<Vector3 | null>(null);
+  const last = useRef(new Vector3());
+  // Re-frame the car on entry and after every teleport (respawn / restart): carrying the old
+  // offset across a teleport could leave the camera far from the car or inside scenery.
+  const snap = useRef(true);
+  useEffect(() => onGameEvent('teleported', () => (snap.current = true)), []);
 
   useFrame(() => {
     const c = controls.current;
     if (!c || !readCarPose()) return;
-    if (last.current) camera.position.add(_look.copy(_carPos).sub(last.current));
-    else last.current = new Vector3();
+    if (snap.current) {
+      _fwd.set(0, 0, 1).applyQuaternion(_carQuat);
+      _fwd.y = 0;
+      if (_fwd.lengthSq() < 1e-4) _fwd.set(0, 0, 1);
+      _fwd.normalize();
+      camera.position.copy(_carPos).addScaledVector(_fwd, -9);
+      camera.position.y += 4;
+      snap.current = false;
+    } else {
+      // Ride along with the car so the user's orbit angle and distance are kept.
+      camera.position.add(_look.copy(_carPos).sub(last.current));
+    }
     last.current.copy(_carPos);
     c.target.copy(_carPos);
     c.update();

@@ -44,12 +44,14 @@ export function Car({ spawn }: CarProps) {
     const body = bodyRef.current;
     if (!body) return;
     const controller = new CarController(world, rapier, body);
+    controller.setChassisCollider(colliderRef.current);
     controller.applyParams(gameState().physics);
     controllerRef.current = controller;
     carRuntime.bodyHandle = body.handle;
     carRuntime.chassisColliderHandle = colliderRef.current?.handle ?? null;
     carRuntime.chassisObject = chassisRef.current;
     carDebug.info = () => ({
+      bodyHandle: body.handle,
       mass: body.mass(),
       localCom: body.localCom(),
       suspensionStiffness: WHEELS.map((w) => controller.vehicle.wheelSuspensionStiffness(w.index) ?? 0),

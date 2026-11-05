@@ -1,15 +1,17 @@
 /**
  * Everything static: deck/ramp colliders (one fixed body), the merged voxel scenery mesh, and the
- * checkpoint / finish trigger sensors. The RunController also evaluates the same gate volumes
+ * checkpoint / finish / lip speed-trap sensors. The RunController also evaluates the same volumes
  * from the registered layout every step; the sensors are an event-driven second path and both
- * end in the idempotent store actions (reachCheckpoint only accepts higher indices).
+ * end in idempotent store actions (reachCheckpoint only accepts higher indices, and the trap
+ * sensor trips at the same instant as the RunController's lip-plane check).
  */
 import { useEffect, useMemo } from 'react';
 import { CuboidCollider, RigidBody, type IntersectionEnterPayload } from '@react-three/rapier';
-import { isCarCollider } from '../../car/runtime';
+import { carRuntime, isCarCollider } from '../../car/runtime';
+import { CHASSIS_COLLIDER } from '../../car/vehicleSpec';
 import { gameState } from '../../state/store';
 import { DECK_COLLISION_GROUPS } from './config';
-import type { ChaosTrackPlan } from './plan';
+import type { BigJumpSegment, ChaosTrackPlan } from './plan';
 import { buildStaticScenery } from './scenery';
 import { createVoxelMaterial } from './voxel';
 
@@ -17,8 +19,13 @@ function carEntered(payload: IntersectionEnterPayload): boolean {
   return isCarCollider(payload.other.collider?.handle);
 }
 
+/** Chassis-box nose ahead of the body origin: the trap volume starts this far past the lip so it trips as the centre of mass crosses the lip plane (the RunController's own trap instant). */
+const NOSE_AHEAD = CHASSIS_COLLIDER.halfExtents[2] + CHASSIS_COLLIDER.offset[2];
+
 function GateTriggers({ plan }: { plan: ChaosTrackPlan }) {
-  const { checkpoints, finish } = plan.layout;
+  const { checkpoints, finish, bigJump } = plan.layout;
+  const jump = plan.segments.find((s): s is BigJumpSegment => s.kind === 'bigJump');
+  const trapOffset = NOSE_AHEAD * Math.cos(((jump?.takeoffDeg ?? 0) * Math.PI) / 180) + 0.25;
   return (
     <RigidBody type="fixed" colliders={false} name="chaos-gate-sensors">
       {checkpoints.slice(1).map((cp) => (
@@ -42,6 +49,16 @@ function GateTriggers({ plan }: { plan: ChaosTrackPlan }) {
           if (carEntered(e) && !gameState().run.finished) gameState().finishRun();
         }}
       />
+      {bigJump && (
+        <CuboidCollider
+          sensor
+          args={[bigJump.halfWidth ?? 15, 3, 0.25]}
+          position={[bigJump.lipPosition[0], bigJump.lipPosition[1] + 2, bigJump.lipPosition[2] + trapOffset]}
+          onIntersectionEnter={(e) => {
+            if (carEntered(e)) gameState().recordSpeedTrap(carRuntime.speedKmh);
+          }}
+        />
+      )}
     </RigidBody>
   );
 }

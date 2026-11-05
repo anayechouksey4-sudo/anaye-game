@@ -1,15 +1,29 @@
 /**
- * PLACEHOLDER car visual — a few boxes plus blocky wheels. The car-visuals agent replaces the
- * body with the voxel hypercar; keep the wheel-driving pattern (`useWheelPose`) and the
- * chassis-frame convention from vehicleSpec.ts (+Z forward, +Y up, origin RIDE_HEIGHT above ground).
+ * The voxel hypercar, drawn in the chassis frame (+Z forward, +Y up, origin RIDE_HEIGHT above the
+ * ground at rest). Draw calls: body 1, front-wing elements 2, wheels 4, exhaust flame 1.
+ *
+ * Everything live is driven from useFrame — never React state — so dashboard changes show up on
+ * the next frame without re-rendering:
+ *   front wing   angle + chord follow physics.frontDownforce (Front Wing Aero)
+ *   aero LEDs    cyan when the wing beats body lift, magenta when the nose is net-lifting; brightness
+ *                follows the live front-axle aero load, blinking while the nose is up
+ *   exhaust      colour cyan → yellow → magenta with engineTorque (Engine Tier), glow and flame
+ *                length with throttle, a backfire pop on sharp lift-offs at high tiers
+ *   tail lights  brighten under braking
+ *   wheels       spin / steer / suspension travel from carRuntime (useWheelPose)
  */
-import { useRef } from 'react';
+import { useEffect, useRef } from 'react';
 import { useFrame } from '@react-three/fiber';
-import type { Group } from 'three';
+import { Color, type Group, type Mesh, type Object3D } from 'three';
+import { FRONT_BODY_LIFT } from '@shared/protocol';
+import { gameState } from '../../state/store';
 import { carRuntime } from '../runtime';
-import { BODY, RIDE_HEIGHT, WHEELS, type WheelSpec } from '../vehicleSpec';
-
-const GROUND_Y = -RIDE_HEIGHT;
+import { WHEELS, type WheelSpec } from '../vehicleSpec';
+import { getCarAssets } from './carAssets';
+import { carFxDebug, useCarFxDebugHandle, type CarFxLiveState } from './carFxDebug';
+import { CAR_COLORS, CH, setChannel } from './carMaterial';
+import { EXHAUST_OUTLETS } from './hypercarShape';
+import { MAIN_CHORD, MAIN_PIVOT, UPPER_HINGE_OVERLAP, UPPER_HINGE_Y, frontWingPose, type FrontWingPose } from './frontWing';
 
 /**
  * Drives a wheel group from the runtime every frame: suspension travel, steering and spin.
@@ -31,68 +45,181 @@ export function useWheelPose(wheel: WheelSpec) {
   return { mountRef, spinRef };
 }
 
-function PlaceholderWheel({ wheel }: { wheel: WheelSpec }) {
+function VoxelWheel({ wheel }: { wheel: WheelSpec }) {
   const { mountRef, spinRef } = useWheelPose(wheel);
+  const assets = getCarAssets();
+  const geometry = assets.wheels[wheel.index];
   return (
-    <group ref={mountRef}>
+    <group ref={mountRef} position={wheel.connection}>
       <group ref={spinRef}>
-        <mesh rotation={[0, 0, Math.PI / 2]} castShadow>
-          <cylinderGeometry args={[wheel.radius, wheel.radius, wheel.width, 8]} />
-          <meshStandardMaterial color="#14161f" roughness={0.9} />
-        </mesh>
-        {/* Off-centre hub block so rotation is visible. */}
-        <mesh position={[wheel.side === 'left' ? wheel.width / 2 : -wheel.width / 2, wheel.radius * 0.45, 0]}>
-          <boxGeometry args={[0.04, wheel.radius * 0.5, wheel.radius * 0.5]} />
-          <meshStandardMaterial color="#F5E663" emissive="#F5E663" emissiveIntensity={0.6} />
-        </mesh>
+        <mesh geometry={geometry} material={assets.material.material} castShadow dispose={null} />
       </group>
     </group>
   );
 }
 
+// Preallocated colours for the per-frame channel updates.
+const HEADLIGHT = new Color('#BDF6FF');
+const CYAN = new Color(CAR_COLORS.cyan);
+const MAGENTA = new Color(CAR_COLORS.magenta);
+const YELLOW = new Color(CAR_COLORS.yellow);
+const BACKFIRE = new Color('#FFE9A8');
+const _exhaust = new Color();
+const _aero = new Color();
+
+/** Engine torque → 0 (tier 1) … 1 (tier 5), continuing past 1 for physics-panel values. */
+function tierFraction(engineTorque: number): number {
+  return Math.max(0, (engineTorque - 1000) / 2200);
+}
+
+/** cyan (tier 1) → yellow (tier 3) → magenta (tier 5). */
+function exhaustColor(t: number, out: Color): Color {
+  if (t <= 0.5) return out.copy(CYAN).lerp(YELLOW, t / 0.5);
+  return out.copy(YELLOW).lerp(MAGENTA, Math.min((t - 0.5) / 0.5, 1));
+}
+
+const BACKFIRE_SECONDS = 0.16;
+
+/** Visible meshes under the car (= colour-pass draw calls) and how many also cast shadows. */
+function countDrawables(root: Object3D | null): { meshes: number; shadowCasters: number } {
+  let meshes = 0;
+  let shadowCasters = 0;
+  root?.traverseVisible((o) => {
+    if (!(o as Mesh).isMesh) return;
+    meshes++;
+    if (o.castShadow) shadowCasters++;
+  });
+  return { meshes, shadowCasters };
+}
+
 export function CarModel() {
-  const bodyBottom = GROUND_Y + BODY.groundClearance;
+  const assets = getCarAssets();
+  const mainRef = useRef<Group>(null);
+  const mainMeshRef = useRef<Mesh>(null);
+  const upperMountRef = useRef<Group>(null);
+  const upperRef = useRef<Group>(null);
+  const upperMeshRef = useRef<Mesh>(null);
+  const flameRef = useRef<Mesh>(null);
+  const rootRef = useRef<Group>(null);
+  const fx = useRef({
+    pose: { mainAngle: 0, mainChordScale: 1, upperAngle: 0, upperChordScale: 1 } as FrontWingPose,
+    target: { mainAngle: 0, mainChordScale: 1, upperAngle: 0, upperChordScale: 1 } as FrontWingPose,
+    initialised: false,
+    time: 0,
+    prevThrottle: 0,
+    backfire: 0,
+    flameLength: 0,
+  });
+
+  useCarFxDebugHandle();
+  useEffect(() => {
+    const state = fx.current;
+    const channels = assets.material.channels;
+    carFxDebug.model = () => assets.stats;
+    carFxDebug.live = (): CarFxLiveState => ({
+      wingMainDeg: (state.pose.mainAngle * 180) / Math.PI,
+      wingUpperDeg: (state.pose.upperAngle * 180) / Math.PI,
+      wingMainChord: state.pose.mainChordScale,
+      wingUpperChord: state.pose.upperChordScale,
+      channels: channels.map((c) => [c.x, c.y, c.z]),
+      flameLength: state.flameLength,
+      drawables: countDrawables(rootRef.current),
+    });
+    return () => {
+      carFxDebug.model = null;
+      carFxDebug.live = null;
+    };
+  }, [assets]);
+
+  useFrame((_, delta) => {
+    const dt = Math.min(delta, 0.1);
+    const state = fx.current;
+    state.time += dt;
+    const physics = gameState().physics;
+    const rt = carRuntime;
+    const handle = assets.material;
+
+    // Front wing: servo toward the pose for the live downforce factor.
+    frontWingPose(physics.frontDownforce, state.target);
+    const k = state.initialised ? 1 - Math.exp(-dt * 9) : 1;
+    state.initialised = true;
+    const pose = state.pose;
+    pose.mainAngle += (state.target.mainAngle - pose.mainAngle) * k;
+    pose.mainChordScale += (state.target.mainChordScale - pose.mainChordScale) * k;
+    pose.upperAngle += (state.target.upperAngle - pose.upperAngle) * k;
+    pose.upperChordScale += (state.target.upperChordScale - pose.upperChordScale) * k;
+    if (mainRef.current && mainMeshRef.current && upperMountRef.current && upperRef.current && upperMeshRef.current) {
+      mainRef.current.rotation.x = pose.mainAngle;
+      mainMeshRef.current.scale.z = pose.mainChordScale;
+      upperMountRef.current.position.set(0, UPPER_HINGE_Y, -MAIN_CHORD * pose.mainChordScale + UPPER_HINGE_OVERLAP);
+      upperRef.current.rotation.x = pose.upperAngle - pose.mainAngle;
+      upperMeshRef.current.scale.z = pose.upperChordScale;
+    }
+
+    // Aero-status LEDs: setup verdict (colour) × live front-axle aero load (brightness).
+    _aero.copy(physics.frontDownforce >= FRONT_BODY_LIFT ? CYAN : MAGENTA);
+    let aeroIntensity = 0.7 + 1.8 * Math.min(Math.abs(rt.frontAeroN) / 3000, 1);
+    if (rt.noseLift) aeroIntensity = Math.sin(state.time * 38) > 0 ? 3.2 : 0.25;
+    setChannel(handle, CH.aero, _aero, aeroIntensity);
+
+    setChannel(handle, CH.headlight, HEADLIGHT, 2.4);
+    setChannel(handle, CH.tail, MAGENTA, rt.brake > 0.05 || rt.handbrake > 0.05 ? 4.2 : 1.4);
+
+    // Exhaust: tier sets the colour, throttle the glow and flame length.
+    const tier = tierFraction(physics.engineTorque);
+    const throttle = rt.throttle;
+    if (state.prevThrottle > 0.75 && throttle < 0.2 && rt.speedKmh > 70 && tier >= 0.7) state.backfire = BACKFIRE_SECONDS;
+    state.prevThrottle = throttle;
+    state.backfire = Math.max(0, state.backfire - dt);
+    const flicker = 0.82 + 0.18 * Math.sin(state.time * 61) * Math.sin(state.time * 23.7);
+    exhaustColor(Math.min(tier, 1), _exhaust);
+    if (state.backfire > 0) _exhaust.lerp(BACKFIRE, 0.6);
+    const exhaustGlow = (0.3 + 2.2 * throttle) * (0.6 + 0.6 * Math.min(tier, 1.5)) * flicker + state.backfire * 18;
+    setChannel(handle, CH.exhaust, _exhaust, exhaustGlow);
+
+    const flame = flameRef.current;
+    if (flame) {
+      const length = throttle * (0.35 + 0.8 * Math.min(tier, 1.5)) * flicker + state.backfire * 9;
+      state.flameLength = length;
+      flame.visible = length > 0.04;
+      if (flame.visible) {
+        const girth = 0.7 + 0.3 * Math.min(length, 1.2);
+        flame.scale.set(girth, girth, Math.max(length, 0.05));
+        assets.flameMaterial.color.copy(_exhaust);
+        assets.flameMaterial.opacity = Math.min(0.35 + 0.5 * length, 0.95);
+      }
+    }
+  });
+
+  const material = assets.material.material;
+  const [, outletY, outletZ] = EXHAUST_OUTLETS[0] ?? [0, 0, 0];
   return (
-    <group name="car-model">
-      {/* Main tub */}
-      <mesh position={[0, bodyBottom + 0.22, 0]} castShadow receiveShadow>
-        <boxGeometry args={[BODY.width - 0.1, 0.44, BODY.length - 0.3]} />
-        <meshStandardMaterial color="#1d3a5c" metalness={0.35} roughness={0.4} />
-      </mesh>
-      {/* Wedge nose */}
-      <mesh position={[0, bodyBottom + 0.12, BODY.length / 2 - 0.25]} castShadow>
-        <boxGeometry args={[BODY.width - 0.3, 0.2, 0.5]} />
-        <meshStandardMaterial color="#00F0FF" emissive="#00F0FF" emissiveIntensity={0.35} />
-      </mesh>
-      {/* Front wing */}
-      <mesh position={[0, bodyBottom + 0.02, BODY.length / 2 - 0.05]} castShadow>
-        <boxGeometry args={[BODY.width, 0.05, 0.35]} />
-        <meshStandardMaterial color="#FF2A6D" emissive="#FF2A6D" emissiveIntensity={0.4} />
-      </mesh>
-      {/* Canopy */}
-      <mesh position={[0, bodyBottom + 0.62, 0.15]} castShadow>
-        <boxGeometry args={[1.2, 0.38, 1.7]} />
-        <meshStandardMaterial color="#071018" metalness={0.8} roughness={0.15} />
-      </mesh>
-      {/* Rear wing on struts */}
-      <mesh position={[0, GROUND_Y + BODY.height - 0.05, -BODY.length / 2 + 0.35]} castShadow>
-        <boxGeometry args={[BODY.width - 0.15, 0.06, 0.45]} />
-        <meshStandardMaterial color="#FF2A6D" emissive="#FF2A6D" emissiveIntensity={0.4} />
-      </mesh>
-      {[-0.5, 0.5].map((x) => (
-        <mesh key={x} position={[x, GROUND_Y + BODY.height - 0.3, -BODY.length / 2 + 0.4]}>
-          <boxGeometry args={[0.06, 0.45, 0.12]} />
-          <meshStandardMaterial color="#1a1d29" />
-        </mesh>
-      ))}
-      {/* Tail light bar */}
-      <mesh position={[0, bodyBottom + 0.3, -BODY.length / 2 + 0.14]}>
-        <boxGeometry args={[BODY.width - 0.3, 0.06, 0.04]} />
-        <meshStandardMaterial color="#FF2A6D" emissive="#FF2A6D" emissiveIntensity={2} />
-      </mesh>
+    <group ref={rootRef} name="car-model">
+      <mesh name="car-body" geometry={assets.body} material={material} castShadow receiveShadow dispose={null} />
+      <group position={MAIN_PIVOT}>
+        <group ref={mainRef}>
+          <mesh ref={mainMeshRef} name="car-front-wing-main" geometry={assets.wingMain} material={material} dispose={null} />
+          <group ref={upperMountRef}>
+            <group ref={upperRef}>
+              <mesh ref={upperMeshRef} name="car-front-wing-upper" geometry={assets.wingUpper} material={material} dispose={null} />
+            </group>
+          </group>
+        </group>
+      </group>
       {WHEELS.map((wheel) => (
-        <PlaceholderWheel key={wheel.id} wheel={wheel} />
+        <VoxelWheel key={wheel.id} wheel={wheel} />
       ))}
+      {/* Flame geometry already carries the outlets' x offsets; only the outlet plane is placed here. */}
+      <mesh
+        ref={flameRef}
+        name="car-exhaust-flame"
+        position={[0, outletY, outletZ]}
+        geometry={assets.flame}
+        material={assets.flameMaterial}
+        visible={false}
+        renderOrder={2}
+        dispose={null}
+      />
     </group>
   );
 }

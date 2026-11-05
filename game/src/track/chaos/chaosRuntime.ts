@@ -1,7 +1,9 @@
 /**
  * Live hazard state published by the mounted hazard components for `window.__CHAOS__` and
- * tests. Hazards register on mount and unregister on unmount; nothing here drives gameplay.
+ * tests. Hazards register on mount and unregister on unmount; apart from the pendulum drive
+ * gains (read every step, overridable for calibration) nothing here drives gameplay.
  */
+import { PENDULUM } from './config';
 
 export type TileState = 'solid' | 'armed' | 'falling' | 'gone';
 
@@ -12,7 +14,10 @@ export interface TileProbe {
   /** Physics step at which a wheel / the chassis first touched it (since this tile's last reset). */
   touchedStep: number | null;
   droppedStep: number | null;
+  /** Body height and its collider's height (they differ only if a reset failed to sync the collider). */
   y: number;
+  colliderY: number;
+  enabled: boolean;
 }
 
 export interface CollapseRecord {
@@ -30,7 +35,7 @@ export interface PendulumProbe {
   id: string;
   /** Measured swing angle about the hinge (track) axis, deg; + swings toward +X. */
   angleDeg: number;
-  /** Motor target angle for the same instant, deg. */
+  /** Drive target (ideal free swing) at the start of the latest step, deg. */
   targetDeg: number;
   angularVelocity: number;
   bob: { x: number; y: number; z: number };
@@ -49,6 +54,8 @@ interface Source<T> {
 }
 
 export const chaosRuntime = {
+  /** Live pendulum hinge-drive gains (from PENDULUM.drive; `__CHAOS__.setPendulumDrive` overrides them). */
+  pendulumDrive: { ...PENDULUM.drive } as { stiffness: number; damping: number; maxAccel: number },
   tileSources: new Set<Source<TileProbe>>(),
   pendulumSources: new Set<Source<PendulumProbe>>(),
   shutterSources: new Set<Source<ShutterProbe>>(),

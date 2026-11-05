@@ -28,8 +28,8 @@ export const DECK = {
   slabInset: 0.05,
 } as const;
 
-/** Respawn plane: this far below the lowest driving surface. */
-export const KILL_DEPTH = 22;
+/** Respawn plane: this far below the lowest driving surface (the big jump's run-out). */
+export const KILL_DEPTH = 18;
 
 /** Gate trigger volumes: [width across, height, depth]. Depth ≥ 2 m so a 60 Hz step at 200 km/h can't skip it. */
 export const GATE_HEIGHT = 9;
@@ -65,7 +65,8 @@ export const GAP = {
   lengths: [8, 9, 10] as const,
   width: 14,
   thickness: 0.6,
-  landingLength: 28,
+  /** Long enough that a tier-5 car at full speed (≈70 m flights) still lands on straight deck. */
+  landingLength: 48,
 } as const;
 
 // ── Collapsing tiles ─────────────────────────────────────────────────────────────────────────
@@ -97,17 +98,22 @@ export const PENDULUM = {
   bobSize: [3.6, 3.0, 3.2] as const,
   /** Pivot → bob centre, m. */
   armLength: 11,
-  /** Bob bottom above the deck at the lowest point of the swing, m (the car's chassis is 0.28–0.88 m up). */
-  clearance: 0.3,
+  /**
+   * Bob bottom above the deck at the lowest point of the swing, m. Below the chassis box's floor
+   * (0.28 m at ride height) so a car can never be driven in underneath and pinned.
+   */
+  clearance: 0.15,
+  /** A car stopped under a bob for this long is respawned (a crushed car can't free itself), s. */
+  pinnedRespawnS: 1.5,
   amplitudeDegMin: 48,
   amplitudeDegMax: 54,
   /**
-   * Joint motor (AccelerationBased: 1/s² and 1/s, independent of the bob's inertia). It tracks the
-   * free-swing trajectory, so in steady state it adds almost no torque — gravity does the work
-   * and the motor only replaces losses and pulls the bob back into phase after impacts.
+   * Hinge drive tracking the free-swing trajectory θ*(t): angular acceleration (about the hinge)
+   * = clamp(stiffness·(θ*−θ) + damping·(θ̇*−θ̇), ±maxAccel). In steady state it adds almost no
+   * torque — gravity does the work; it only pulls the bob back into amplitude/phase after hits.
+   * maxAccel stays well below gravity's own restoring acceleration at full swing (≈0.67 rad/s²).
    */
-  motorStiffness: 0.9,
-  motorDamping: 0.9,
+  drive: { stiffness: 0.5, damping: 0.6, maxAccel: 0.25 },
   /** Car speed the phase stagger is designed around ("green wave"), m/s. */
   designSpeed: 26,
   countMin: 2,
@@ -147,10 +153,10 @@ export const SLIDERS = {
 // ── Connectors ───────────────────────────────────────────────────────────────────────────────
 
 export const CONNECTOR = {
-  straightMin: 24,
-  straightMax: 44,
-  chicaneMin: 48,
-  chicaneMax: 72,
+  straightMin: 16,
+  straightMax: 32,
+  chicaneMin: 40,
+  chicaneMax: 60,
   shiftMin: 4,
   shiftMax: 8,
   /** Lateral offset of the centreline never exceeds this, m. */
@@ -160,39 +166,40 @@ export const CONNECTOR = {
 } as const;
 
 // ── THE MASSIVE JUMP (calibration constants) ─────────────────────────────────────────────────
-// Clearing it means carrying ≈ BIG_JUMP_LIP_KMH off the lip with the nose down:
-//   * the run-up is long enough for Engine Tier 5 to approach its top speed from a standstill
-//     (respawns put you at the run-up checkpoint, stopped);
-//   * the "aero kink" (a lateral S-bend late in the run-up) needs front grip: with too little
-//     front wing the nose lifts at speed, the front tyres leave the deck and the car can't steer;
-//   * the gap is sized so a nose-down tier-5 car at ≈185 km/h reaches the knoll, while slower
-//     (more wing / lower tier) setups fall into the void.
+// Clearing it means carrying BIG_JUMP_LIP_KMH off the lip with the nose down, and the dashboard's
+// assessBigJump() (top speed vs BIG_JUMP_LIP_KMH, lift-off speed) must agree with the sim:
+//   * the run-up is long enough that a car reaches the kicker within ~1 % of its top speed even
+//     from a standstill (respawns put you at the run-up checkpoint, stopped), so "top speed ≥
+//     required" in the estimate really means "fast enough at the lip";
+//   * the run-up is dead flat: at top speed a front-light car has only ~5 % of its weight on the
+//     front axle, so any crest would lift the nose of setups the estimate rightly calls READY;
+//   * the kicker is short and low (2.3 m): climbing it at top speed costs ≈ 2·g·h of v², so a
+//     tall kicker would put the lip speed well below the top speed the estimate works with;
+//   * the "aero kink" (a lateral S-bend wider than the deck's slack, so there is no straight line
+//     through it) needs steering at speed: a car whose nose has lifted can't steer and runs off;
+//   * the gap is sized so BIG_JUMP_LIP_KMH at the lip is what it takes to reach the knoll.
+// Measured calibration grid: game/README.md → "The massive jump".
 
 export const BIG_JUMP = {
   /** Checkpoint gate → kicker toe, m. */
-  RUNUP_M: 520,
-  /** Lateral offset of the aero kink, m (> deck half-width, so a car that can't steer runs off the edge). */
-  LANE_SHIFT_M: 10,
-  LANE_SHIFT_LENGTH_M: 112,
+  RUNUP_M: 825,
+  /** Lateral offset of the aero kink, m. > 2 × (deck half-width − car half-width) = 12, so a car that can't steer runs off. */
+  LANE_SHIFT_M: 16,
+  LANE_SHIFT_LENGTH_M: 240,
   /** Distance from the end of the kink to the kicker toe, m (time to straighten up). */
-  LANE_SHIFT_END_BEFORE_KICKER_M: 48,
+  LANE_SHIFT_END_BEFORE_KICKER_M: 185,
   RUNUP_WIDTH: 14,
   KICKER_WIDTH: 14,
   KICKER_THICKNESS: 0.8,
-  /** Eased in 1.5° steps — a single sharp kink scrubs ~14 km/h and slams the suspension. */
+  /** Eased in 2.5° steps over 6 m (≈2 g on the springs at 190 km/h): lip only 2.3 m above the toe, 10° take-off. */
   KICKER_PROFILE: [
-    { angleDeg: 1.5, length: 6 },
-    { angleDeg: 3, length: 6 },
-    { angleDeg: 4.5, length: 6 },
-    { angleDeg: 6, length: 6 },
+    { angleDeg: 2.5, length: 6 },
+    { angleDeg: 5, length: 6 },
     { angleDeg: 7.5, length: 6 },
-    { angleDeg: 9, length: 6 },
-    { angleDeg: 10.5, length: 6 },
-    { angleDeg: 12, length: 6 },
-    { angleDeg: 13.5, length: 8 },
+    { angleDeg: 10, length: 10 },
   ] as readonly RampSegmentSpec[],
   /** Horizontal distance lip → knoll (start of the landing deck), m. */
-  GAP_M: 92,
+  GAP_M: 95,
   /** Knoll top below the lip, m. */
   LANDING_DROP_M: 3,
   /** Landing hill below the knoll (eased down-slope), local ramp profile. */
@@ -229,13 +236,13 @@ export const COLORS = {
   green: '#39FF14',
   orange: '#FF8A1F',
   red: '#FF2A2A',
-  deck: '#161d33',
-  deckAlt: '#1b2440',
+  deck: '#2a3454',
+  deckAlt: '#3b4a7a',
   slab: '#0a0d18',
-  hazardDeck: '#241a33',
-  ramp: '#2a1532',
-  landing: '#132b30',
-  startDeck: '#1a1f2e',
+  hazardDeck: '#3a2850',
+  ramp: '#43204e',
+  landing: '#1d4248',
+  startDeck: '#2a3043',
   steel: '#1a1f2c',
   black: '#0b0b0f',
 } as const;

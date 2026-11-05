@@ -7,7 +7,7 @@
  * (belly flops, sideways slides). Bodies are created imperatively so the tile ↔ collider mapping,
  * body-type switches and resets are fully under our control; visuals are one InstancedMesh.
  */
-import { useEffect, useLayoutEffect, useMemo, useRef } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef } from 'react';
 import { useFrame } from '@react-three/fiber';
 import { useAfterPhysicsStep, useRapier } from '@react-three/rapier';
 import type { Collider, RigidBody } from '@dimforge/rapier3d-compat';
@@ -35,6 +35,8 @@ interface TileRuntime {
   touchedStep: number | null;
   touchedBy: 'wheel' | 'chassis';
   droppedStep: number | null;
+  /** Set while a reset tile waits (disabled) for its clean re-insertion. */
+  enableAtStep: number | null;
   baseColor: Color;
 }
 
@@ -70,6 +72,7 @@ export function CollapsingTiles({ segment }: { segment: TilesSegment }) {
         touchedStep: null,
         touchedBy: 'wheel',
         droppedStep: null,
+        enableAtStep: null,
         baseColor: base,
       };
     });
@@ -116,12 +119,18 @@ export function CollapsingTiles({ segment }: { segment: TilesSegment }) {
     const resetTile = (tile: TileRuntime) => {
       const body = tile.body;
       if (!body) return;
-      body.setEnabled(true);
-      body.setBodyType(rapier.RigidBodyType.Fixed, true);
-      body.setTranslation(tile.home, true);
-      body.setRotation({ x: 0, y: 0, z: 0, w: 1 }, true);
-      body.setLinvel({ x: 0, y: 0, z: 0 }, true);
-      body.setAngvel({ x: 0, y: 0, z: 0 }, true);
+      if (tile.state === 'solid' && body.isFixed() && tile.enableAtStep === null) return;
+      // Turning a falling (dynamic) body back into a fixed one in place leaves a stale entry in
+      // Rapier's scene-query BVH: the chassis still collides with the restored tile but the wheel
+      // rays drive straight through it. Parking it disabled for a step before re-enabling forces
+      // a clean re-insertion (the re-enable happens in the after-step callback).
+      body.setEnabled(false);
+      body.setBodyType(rapier.RigidBodyType.Fixed, false);
+      body.setTranslation(tile.home, false);
+      body.setRotation({ x: 0, y: 0, z: 0, w: 1 }, false);
+      body.setLinvel({ x: 0, y: 0, z: 0 }, false);
+      body.setAngvel({ x: 0, y: 0, z: 0 }, false);
+      tile.enableAtStep = stepRef.current + 2;
       tile.state = 'solid';
       tile.touchedStep = null;
       tile.droppedStep = null;
@@ -145,22 +154,26 @@ export function CollapsingTiles({ segment }: { segment: TilesSegment }) {
             touchedStep: t.touchedStep,
             droppedStep: t.droppedStep,
             y: t.body ? t.body.translation().y : t.home.y,
+            colliderY: t.collider ? t.collider.translation().y : t.home.y,
+            enabled: t.body ? t.body.isEnabled() : false,
           })),
       }),
     ];
     return () => offs.forEach((off) => off());
   }, [rapier, tiles, segment]);
 
+  // Stable (not re-created every step); reads the step counter the after-step hook just advanced.
+  const arm = useCallback((tile: TileRuntime, by: 'wheel' | 'chassis') => {
+    if (tile.state !== 'solid') return;
+    tile.state = 'armed';
+    tile.touchedStep = stepRef.current;
+    tile.touchedBy = by;
+    dirtyRef.current = true;
+  }, []);
+
   useAfterPhysicsStep(() => {
     const step = ++stepRef.current;
     const map = byHandle.current;
-    const arm = (tile: TileRuntime, by: 'wheel' | 'chassis') => {
-      if (tile.state !== 'solid') return;
-      tile.state = 'armed';
-      tile.touchedStep = step;
-      tile.touchedBy = by;
-      dirtyRef.current = true;
-    };
 
     if (carRuntime.ready) {
       for (const wheel of carRuntime.wheels) {
@@ -174,6 +187,13 @@ export function CollapsingTiles({ segment }: { segment: TilesSegment }) {
     for (const tile of tiles) {
       const body = tile.body;
       if (!body) continue;
+      if (tile.enableAtStep !== null) {
+        if (step >= tile.enableAtStep) {
+          body.setEnabled(true);
+          tile.enableAtStep = null;
+        }
+        continue;
+      }
       if (tile.state === 'armed' && tile.touchedStep !== null && step - tile.touchedStep >= DELAY_STEPS) {
         body.setBodyType(rapier.RigidBodyType.Dynamic, true);
         // A little tumble so a falling floor reads as debris, not an elevator.
@@ -263,7 +283,7 @@ export function CollapsingTiles({ segment }: { segment: TilesSegment }) {
         _m.compose(_p, _q, _s.set(size, segment.thickness, size));
         const flash = 0.5 + 0.5 * Math.sin(time * (14 + 26 * progress));
         _c.copy(ORANGE).lerp(RED, progress);
-        g = (0.6 + 1.8 * flash) * (0.6 + 0.6 * progress);
+        g = (0.4 + 1.2 * flash) * (0.6 + 0.5 * progress);
       } else {
         _m.compose(tile.home, _q.identity(), _s.set(size, segment.thickness, size));
       }

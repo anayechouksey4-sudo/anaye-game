@@ -5,13 +5,14 @@
  *   drive      RWD, (engineTorque / 2) per rear wheel through the wheelspin model (drivetrain.ts)
  *   front aero (frontDownforce − FRONT_BODY_LIFT)·v_fwd² along −up AT THE FRONT AXLE (lift if < 0)
  *   rear aero  REAR_DOWNFORCE·v_fwd² at the rear axle
+ *              (both × a ground-effect factor: 1 on the ground, fading with height in flight)
  *   drag       −drag·v·|v| at the centre of mass (+ rolling resistance while grounded)
  *   balance    centre of mass along the axis + per-axle spring/damper split
  *   traction   friction slip / side stiffness on every tyre
  *
  * Every parameter is read from the store each step, so changes apply on the next step.
  */
-import type { Collider, DynamicRayCastVehicleController, RigidBody, World } from '@dimforge/rapier3d-compat';
+import type { Collider, DynamicRayCastVehicleController, Ray, RigidBody, World } from '@dimforge/rapier3d-compat';
 import type { RapierContext } from '@react-three/rapier';
 import { Quaternion, Vector3 } from 'three';
 import {
@@ -19,6 +20,7 @@ import {
   GRAVITY,
   REAR_DOWNFORCE,
   ROLLING_RESISTANCE,
+  balanceToFrontWeightFraction,
   balanceToSuspensionStiffness,
   type CarPhysicsParams,
 } from '@shared/protocol';
@@ -72,6 +74,12 @@ export class CarController {
   private appliedBalance = NaN;
   private steerAngle = 0;
   private frontOffTime = 0;
+  /** A front tyre has touched since the car was last fully airborne (landings are not nose lifts). */
+  private frontTouchedSinceAirborne = true;
+  /** Ground-effect factor per axle, [front, rear]. */
+  private readonly groundEffect = [1, 1];
+  private chassisCollider: Collider | null = null;
+  private readonly groundRay: Ray;
   private readonly driven: DrivenWheelState[] = WHEELS.map(() => createDrivenWheelState());
   private readonly prevRapierRotation: number[] = WHEELS.map(() => 0);
   private readonly rawInput: DriverInput = { throttle: 0, brake: 0, steer: 0, handbrake: 0 };
@@ -90,6 +98,7 @@ export class CarController {
   private readonly normal = new Vector3();
   private readonly relVel = new Vector3();
   private readonly point = { x: 0, y: 0, z: 0 };
+  private readonly speeds = { along: 0, lateral: 0 };
   private readonly impulse = { x: 0, y: 0, z: 0 };
 
   constructor(world: World, rapier: Rapier, body: RigidBody) {
@@ -108,6 +117,12 @@ export class CarController {
       vehicle.setWheelMaxSuspensionForce(wheel.index, MAX_SUSPENSION_FORCE);
     }
     this.vehicle = vehicle;
+    this.groundRay = new rapier.Ray({ x: 0, y: 0, z: 0 }, { x: 0, y: -1, z: 0 });
+  }
+
+  /** The chassis collider, so the ground-effect probe never hits the car itself. */
+  setChassisCollider(collider: Collider | null): void {
+    this.chassisCollider = collider;
   }
 
   dispose(): void {
@@ -245,18 +260,20 @@ export class CarController {
     }
 
     vehicle.updateVehicle(dt, this.rapier.QueryFilterFlags.EXCLUDE_SENSORS);
+    let grounded = 0;
+    for (const wheel of WHEELS) if (vehicle.wheelIsInContact(wheel.index)) grounded++;
 
     // ── Aero + drag as per-step impulses (addForce would persist across steps) ──
     const t = body.translation();
+    const frontGround = this.updateGroundEffect(0, t, FRONT_AXLE_Z, vehicle.wheelIsInContact(0) || vehicle.wheelIsInContact(1), dt);
+    const rearGround = this.updateGroundEffect(1, t, REAR_AXLE_Z, vehicle.wheelIsInContact(2) || vehicle.wheelIsInContact(3), dt);
     const v2 = vFwd * vFwd;
-    const frontAero = (p.frontDownforce - FRONT_BODY_LIFT) * v2;
-    const rearAero = REAR_DOWNFORCE * v2;
+    const frontAero = (p.frontDownforce - FRONT_BODY_LIFT) * v2 * frontGround;
+    const rearAero = REAR_DOWNFORCE * v2 * rearGround;
     this.applyVerticalImpulseAt(t, FRONT_AXLE_Z, frontAero * dt);
     this.applyVerticalImpulseAt(t, REAR_AXLE_Z, rearAero * dt);
 
     const speed = vel.length();
-    let grounded = 0;
-    for (const wheel of WHEELS) if (vehicle.wheelIsInContact(wheel.index)) grounded++;
     // Rolling resistance (part of the protocol's top-speed estimate), faded in near standstill.
     const rolling = speed > 0.05 ? ROLLING_RESISTANCE * mass * GRAVITY * (grounded / 4) * Math.min(1, speed / 0.5) : 0;
     const dragMag = p.drag * speed * speed;
@@ -280,7 +297,8 @@ export class CarController {
     rt.frontAeroN = frontAero;
     rt.rearAeroN = rearAero;
     rt.dragN = dragMag;
-    this.updateWheelRuntime(dt, vFwd, frontAero);
+    rt.groundEffect = 0.5 * (frontGround + rearGround);
+    this.updateWheelRuntime(dt, vFwd, frontAero, mass * GRAVITY * balanceToFrontWeightFraction(p.balance));
   }
 
   /** Pose/velocity after the world integrated. Runs inside useAfterPhysicsStep. */
@@ -317,6 +335,9 @@ export class CarController {
     body.resetTorques(true);
     this.steerAngle = 0;
     this.frontOffTime = 0;
+    this.frontTouchedSinceAirborne = true;
+    this.groundEffect[0] = 1;
+    this.groundEffect[1] = 1;
     for (const wheel of WHEELS) {
       resetDrivenWheel(this.driven[wheel.index]!);
       this.vehicle.setWheelSteering(wheel.index, 0);
@@ -331,6 +352,38 @@ export class CarController {
     rt.speedKmh = 0;
     rt.noseLift = false;
     rt.airborneTime = 0;
+  }
+
+  /**
+   * Ground-effect factor for one axle's vertical aero force. Full strength while that axle's
+   * tyres touch or it is within groundEffectFullRise of its normal height above the surface below
+   * (so a wheelie keeps its lift); beyond that it decays exponentially, to groundEffectMin over
+   * the void. Per axle, so at a lip the front wing loses its ground effect as soon as it is over
+   * the edge instead of levering the car up while the rear tyres are still on the ramp.
+   */
+  private updateGroundEffect(axle: 0 | 1, t: { x: number; y: number; z: number }, axleZ: number, axleGrounded: boolean, dt: number): number {
+    let target = 1;
+    if (!axleGrounded) {
+      this.tmp.set(0, 0, axleZ).applyQuaternion(this.q);
+      const ray = this.groundRay;
+      ray.origin.x = t.x + this.tmp.x;
+      ray.origin.y = t.y + this.tmp.y;
+      ray.origin.z = t.z + this.tmp.z;
+      const hit = this.world.castRay(
+        ray,
+        RIDE_HEIGHT + T.groundEffectRange,
+        true,
+        this.rapier.QueryFilterFlags.EXCLUDE_SENSORS,
+        undefined,
+        this.chassisCollider ?? undefined,
+        this.body,
+      );
+      const rise = hit ? hit.timeOfImpact - RIDE_HEIGHT - T.groundEffectFullRise : Infinity;
+      if (rise > 0) target = T.groundEffectMin + (1 - T.groundEffectMin) * Math.exp(-rise / T.groundEffectHeight);
+    }
+    const f = this.groundEffect[axle]! + (target - this.groundEffect[axle]!) * Math.min(1, dt / T.groundEffectTau);
+    this.groundEffect[axle] = f;
+    return f;
   }
 
   private applyVerticalImpulseAt(t: { x: number; y: number; z: number }, axleZ: number, downImpulse: number): void {
@@ -370,11 +423,15 @@ export class CarController {
    * Contact-patch velocity of wheel i relative to whatever it stands on, decomposed along the
    * tyre's rolling direction and its axle (projected onto the contact plane).
    */
-  private contactSpeeds(i: number): { along: number; lateral: number } {
-    const { vehicle, body } = this;
+  private contactSpeeds(i: number): { readonly along: number; readonly lateral: number } {
+    const { vehicle, body, speeds } = this;
     const cp = vehicle.wheelContactPoint(i);
     const cn = vehicle.wheelContactNormal(i);
-    if (!cp || !cn) return { along: 0, lateral: 0 };
+    if (!cp || !cn) {
+      speeds.along = 0;
+      speeds.lateral = 0;
+      return speeds;
+    }
     this.contact.set(cp.x, cp.y, cp.z);
     this.normal.set(cn.x, cn.y, cn.z);
     const v = body.velocityAtPoint(cp);
@@ -392,10 +449,12 @@ export class CarController {
     this.wheelLat.set(Math.cos(steer), 0, -Math.sin(steer)).applyQuaternion(this.q);
     this.wheelFwd.addScaledVector(this.normal, -this.wheelFwd.dot(this.normal)).normalize();
     this.wheelLat.addScaledVector(this.normal, -this.wheelLat.dot(this.normal)).normalize();
-    return { along: this.relVel.dot(this.wheelFwd), lateral: this.relVel.dot(this.wheelLat) };
+    speeds.along = this.relVel.dot(this.wheelFwd);
+    speeds.lateral = this.relVel.dot(this.wheelLat);
+    return speeds;
   }
 
-  private updateWheelRuntime(dt: number, vFwd: number, frontAero: number): void {
+  private updateWheelRuntime(dt: number, vFwd: number, frontAero: number, staticFrontLoad: number): void {
     const { vehicle } = this;
     const rt = carRuntime;
     let grounded = 0;
@@ -459,10 +518,15 @@ export class CarController {
 
     const frontOff = !rt.wheels[0]!.inContact && !rt.wheels[1]!.inContact;
     const rearOn = rt.wheels[2]!.inContact || rt.wheels[3]!.inContact;
-    const lifting = frontAero < 0 && Math.abs(vFwd) > T.noseLiftMinSpeed;
+    if (grounded === 0) this.frontTouchedSinceAirborne = false;
+    else if (!frontOff) this.frontTouchedSinceAirborne = true;
+    // Aero must be doing the lifting: a landing bounce at modest lift is not a nose lift.
+    const lifting = frontAero < -T.noseLiftMinLiftRatio * staticFrontLoad && Math.abs(vFwd) > T.noseLiftMinSpeed;
     this.frontOffTime = frontOff && lifting ? this.frontOffTime + dt : 0;
-    // Latched while the front stays up under lift, even if the rear follows it into the air.
-    rt.noseLift = this.frontOffTime >= T.noseLiftDebounce && (rearOn || rt.noseLift);
+    // A lift must start from all four tyres down (a rear-first landing is not a nose lift), and
+    // stays latched while the front is up under lift, even if the rear follows it into the air.
+    rt.noseLift =
+      this.frontOffTime >= T.noseLiftDebounce && (rt.noseLift || (rearOn && this.frontTouchedSinceAirborne));
   }
 }
 

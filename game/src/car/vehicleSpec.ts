@@ -8,6 +8,7 @@
  * Rapier vehicle: indexUpAxis = 1 (Y), indexForwardAxis = 2 (Z).
  */
 import {
+  CG_HEIGHT,
   DRIVE_WHEEL_RADIUS,
   GRAVITY,
   SUSPENSION_STIFFNESS_BASE,
@@ -63,8 +64,8 @@ export const CHASSIS_COLLIDER = {
   restitution: 0.05,
 } as const;
 
-/** Centre-of-mass height in the chassis frame (≈ 0.45 m above the ground at rest). */
-export const COM_HEIGHT = -0.18;
+/** Centre-of-mass height in the chassis frame: exactly the protocol's CG_HEIGHT above the ground at rest. */
+export const COM_HEIGHT = CG_HEIGHT - RIDE_HEIGHT;
 /** Box used for the principal inertia (w × h × l): not the collider, a closer match to a car's mass spread. */
 export const INERTIA_BOX: Tuple3 = [1.9, 0.9, 4.4];
 

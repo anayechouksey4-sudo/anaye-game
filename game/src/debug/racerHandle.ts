@@ -44,6 +44,8 @@ export interface RacerState {
   noseLift: boolean;
   frontAeroN: number;
   rearAeroN: number;
+  /** Ground-effect factor on the vertical aero forces (1 on the ground, → 0.1 high over the void). */
+  groundEffect: number;
   rearSlip: number;
   frontAxleLoadN: number;
   rearAxleLoadN: number;
@@ -121,6 +123,7 @@ function snapshot(): RacerState {
     noseLift: rt.noseLift,
     frontAeroN: rt.frontAeroN,
     rearAeroN: rt.rearAeroN,
+    groundEffect: rt.groundEffect,
     rearSlip: rt.rearSlip,
     frontAxleLoadN: rt.frontAxleLoadN,
     rearAxleLoadN: rt.rearAxleLoadN,

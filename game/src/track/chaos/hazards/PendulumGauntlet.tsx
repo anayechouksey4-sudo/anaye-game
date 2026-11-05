@@ -2,21 +2,22 @@
  * PENDULUM ALLEY: giant wrecking blocks on Rapier revolute (hinge) joints, swinging ACROSS the
  * track (hinge axis = driving direction, +Z). Each bob is a real 15 t dynamic body: gravity
  * swings it, contacts with the car are solved normally (the car gets thrown, the bob barely
- * notices), and a joint motor that tracks the ideal free swing replaces friction losses and pulls
- * it back into phase after an impact — so the timing windows stay readable forever.
+ * notices), and a gentle hinge drive tracks the ideal free swing so impacts are recovered from
+ * and the staggered timing windows stay readable forever.
+ *
+ * The drive is an explicit, clamped PD torque on the bob rather than Rapier's joint motor: the
+ * AccelerationBased motor scales its gains by the bob's own centre-of-mass inertia (~25 t·m²)
+ * instead of the pendulum's inertia about the hinge (~2.2 kt·m²), so it is ~90× weaker than
+ * configured, and its soft-constraint coupling bled energy out of the swing (50° → 19° in 4 min).
+ * The bare hinge is nearly lossless, so in steady state the drive does almost no work.
  */
 import { useEffect, useMemo, useRef, type RefObject } from 'react';
-import {
-  CuboidCollider,
-  RigidBody,
-  useBeforePhysicsStep,
-  useRapier,
-  useRevoluteJoint,
-  type RapierRigidBody,
-} from '@react-three/rapier';
+import { CuboidCollider, RigidBody, useAfterPhysicsStep, useBeforePhysicsStep, useRevoluteJoint, type RapierRigidBody } from '@react-three/rapier';
 import type { BufferGeometry } from 'three';
 import { PHYSICS_DT } from '../../../config';
+import { carRuntime } from '../../../car/runtime';
 import { onGameEvent } from '../../../game/events';
+import { gameState } from '../../../state/store';
 import { COLORS, PENDULUM } from '../config';
 import { chaosRuntime, register, type PendulumProbe } from '../chaosRuntime';
 import { hazardClock } from '../hazardClock';
@@ -27,6 +28,13 @@ const HINGE_AXIS: [number, number, number] = [0, 0, 1];
 const RAD = 180 / Math.PI;
 
 /** Pose + velocity of the free swing at time t (world space). */
+/** θ and θ̇ of the ideal free swing at hazard time t, written into `out` (no allocation: runs every step). */
+export function pendulumSwingAt(spec: PendulumSpec, t: number, out: { theta: number; thetaDot: number }): void {
+  const arg = spec.omega * t + spec.phase;
+  out.theta = spec.amplitude * Math.sin(arg);
+  out.thetaDot = spec.amplitude * spec.omega * Math.cos(arg);
+}
+
 export function pendulumStateAt(spec: PendulumSpec, t: number) {
   const arg = spec.omega * t + spec.phase;
   const theta = spec.amplitude * Math.sin(arg);
@@ -71,18 +79,26 @@ function buildBobGeometry(spec: PendulumSpec): BufferGeometry {
   return v.build();
 }
 
+/** Moment of inertia about the hinge per unit mass (box bob on a massless arm), m². */
+function hingeInertiaPerKg(spec: PendulumSpec): number {
+  const [a, b] = spec.bobSize;
+  return (a * a + b * b) / 12 + spec.armLength * spec.armLength;
+}
+
 function Pendulum({ spec }: { spec: PendulumSpec }) {
-  const { rapier } = useRapier();
   const anchorRef = useRef<RapierRigidBody>(null);
   const bobRef = useRef<RapierRigidBody>(null);
-  const configured = useRef(false);
   const targetRef = useRef(0);
+  const torque = useRef({ x: 0, y: 0, z: 0 });
+  const swing = useRef({ theta: 0, thetaDot: 0 });
+  const pinnedTime = useRef(0);
   // r3r types the refs as non-null; the joint is only created once both bodies exist.
-  const joint = useRevoluteJoint(anchorRef as RefObject<RapierRigidBody>, bobRef as RefObject<RapierRigidBody>, [
+  useRevoluteJoint(anchorRef as RefObject<RapierRigidBody>, bobRef as RefObject<RapierRigidBody>, [
     [0, 0, 0],
     [0, spec.armLength, 0],
     HINGE_AXIS,
   ]);
+  const hingeInertia = useMemo(() => spec.mass * hingeInertiaPerKg(spec), [spec]);
   const initial = useMemo(() => pendulumStateAt(spec, 0), [spec]);
   const geometry = useMemo(() => buildBobGeometry(spec), [spec]);
   const material = useMemo(() => createVoxelMaterial({ roughness: 0.55, metalness: 0.35 }), []);
@@ -101,7 +117,13 @@ function Pendulum({ spec }: { spec: PendulumSpec }) {
     };
     place(hazardClock.time);
     const offs = [
-      onGameEvent('restart', () => place(0)),
+      onGameEvent('restart', () => {
+        place(0);
+        pinnedTime.current = 0;
+      }),
+      onGameEvent('respawn', () => {
+        pinnedTime.current = 0;
+      }),
       register(chaosRuntime.pendulumSources, {
         probe: (): PendulumProbe[] => {
           const body = bobRef.current;
@@ -126,15 +148,34 @@ function Pendulum({ spec }: { spec: PendulumSpec }) {
   }, [spec]);
 
   useBeforePhysicsStep(() => {
-    const j = joint.current;
-    if (!j) return;
-    if (!configured.current) {
-      j.configureMotorModel(rapier.MotorModel.AccelerationBased);
-      configured.current = true;
-    }
-    const s = pendulumStateAt(spec, hazardClock.time + PHYSICS_DT);
+    const body = bobRef.current;
+    if (!body) return;
+    // Track the free swing at the START of this step (the state the integrator begins from).
+    const s = swing.current;
+    pendulumSwingAt(spec, hazardClock.time, s);
     targetRef.current = s.theta;
-    j.configureMotor(s.theta, s.thetaDot, PENDULUM.motorStiffness, PENDULUM.motorDamping);
+    const r = body.rotation();
+    const theta = 2 * Math.atan2(r.z, r.w);
+    const thetaDot = body.angvel().z;
+    const { stiffness, damping, maxAccel } = chaosRuntime.pendulumDrive;
+    const accel = Math.max(-maxAccel, Math.min(maxAccel, stiffness * (s.theta - theta) + damping * (s.thetaDot - thetaDot)));
+    torque.current.z = hingeInertia * accel * PHYSICS_DT;
+    body.applyTorqueImpulse(torque.current, true);
+  });
+
+  // Safety net: a car crushed under a 15 t bob can't drive out, and nothing else would respawn it.
+  useAfterPhysicsStep(() => {
+    const body = bobRef.current;
+    if (!body || !carRuntime.ready) return;
+    const b = body.translation();
+    const c = carRuntime.position;
+    const [bw, , bd] = spec.bobSize;
+    const underBob = Math.abs(c.x - b.x) < bw / 2 + 1.2 && Math.abs(c.z - b.z) < bd / 2 + 2.4 && c.y < b.y;
+    pinnedTime.current = underBob && carRuntime.velocity.length() < 1 ? pinnedTime.current + PHYSICS_DT : 0;
+    if (pinnedTime.current > PENDULUM.pinnedRespawnS) {
+      pinnedTime.current = 0;
+      gameState().respawn('flipped');
+    }
   });
 
   const [w, h, d] = spec.bobSize;

@@ -51,11 +51,11 @@ function tileColor(style: DeckStyle, ix: number, iz: number, rng: Rng): { color:
     return (ix + iz) % 2 === 0 ? { color: COLORS.yellow, glow: 0.22 } : { color: COLORS.black, glow: 0 };
   }
   const roll = rng();
-  if (roll < 0.025) return { color: style === 'ramp' ? '#4a1f4f' : COLORS.deckAlt, glow: 0.35 };
+  if (roll < 0.04) return { color: style === 'ramp' ? '#5a2a63' : COLORS.deckAlt, glow: 0.3 };
   _c.set(TILE_BASE[style]);
   const hsl = { h: 0, s: 0, l: 0 };
   _c.getHSL(hsl);
-  _c.setHSL(hsl.h + (rng() - 0.5) * 0.02, hsl.s, Math.max(0, hsl.l * (0.86 + rng() * 0.28)));
+  _c.setHSL(hsl.h + (rng() - 0.5) * 0.03, hsl.s, Math.max(0, hsl.l * (0.78 + rng() * 0.44)));
   return { color: `#${_c.getHexString()}`, glow: 0 };
 }
 

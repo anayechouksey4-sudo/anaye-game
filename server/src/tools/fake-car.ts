@@ -30,7 +30,7 @@ export const FAKE_TRACK = {
   tiles: { fromM: 150, toM: 300 },
   brakeZone: { fromM: 290, toM: 350, targetKmh: 140 },
   pendulums: { fromM: 350, toM: 500 },
-  jump: { lipM: 1300, gapM: 70 },
+  jump: { lipM: 1300, gapM: 95 },
 } as const;
 
 const SUBSTEP_S = 0.01;

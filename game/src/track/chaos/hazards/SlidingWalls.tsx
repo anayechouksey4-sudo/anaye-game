@@ -66,8 +66,12 @@ function Wall({ spec, side }: { spec: ShutterSpec; side: 1 | -1 }) {
   const y = spec.position[1] + spec.height / 2 + 0.02;
   const xAt = (t: number) => spec.position[0] + side * (innerEdge(spec, shutterClosure(spec, t)) + spec.wallLength / 2);
 
+  const target = useMemo(() => ({ x: 0, y: 0, z: 0 }), []);
   useBeforePhysicsStep(() => {
-    ref.current?.setNextKinematicTranslation({ x: xAt(hazardClock.time + PHYSICS_DT), y, z: spec.position[2] });
+    target.x = xAt(hazardClock.time + PHYSICS_DT);
+    target.y = y;
+    target.z = spec.position[2];
+    ref.current?.setNextKinematicTranslation(target);
   });
 
   return (

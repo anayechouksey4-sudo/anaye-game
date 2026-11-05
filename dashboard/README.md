@@ -64,11 +64,11 @@ on Engine Tier), and Home/End for min/max.
 | Panel | What it shows |
 | --- | --- |
 | **Connection** | Relay URL, Connect/Disconnect, `CONNECTING` / `ONLINE` / `OFFLINE` / `RETRY IN Ns`, round-trip latency (ping every ~2 s), `GAME LINKED ×n` or `NO GAME LINKED`, count of other squad dashboards. |
-| **Front Wing Aero** 0–100 % | Front-wing downforce factor vs the body lift (3.0). The magenta zone below ~46 % is where the front nets **lift** at speed. |
-| **Engine Tier** T1–T5 | Rear-axle torque (1000→3200 N·m), contact-patch drive force, mass (+60 kg per tier). |
+| **Front Wing Aero** 0–100 % | Front-wing downforce factor vs the body lift (2.7). The magenta zone below ~42 % is where the front nets **lift** at speed. |
+| **Engine Tier** T1–T5 | Rear-axle torque (700→3500 N·m), contact-patch drive force, mass (+60 kg per tier). |
 | **Chassis Balance** −50…+50 | Front/rear weight split (`describeChassisBalance`) and spring split (`balanceToSuspensionStiffness`). Has a centre notch at 0. |
 | **Presets** | BALANCED 50/3/0 · MAX DOWNFORCE 100/2/−10 · TOP SPEED 0/5/+10 · JUMP ATTEMPT 20/5/−20 (READY), plus RESET. Each preset shows its big-jump verdict. |
-| **Big Jump Readiness** | `assessBigJump`: **READY** / **TOO SLOW** / **NOSE LIFT**, estimated top speed vs the 185 km/h lip, and the nose-lift speed. After the game reports `speedTrapKmh`, it also shows the real lip speed, e.g. `CLEARED +7` or `SHORT −5`. |
+| **Big Jump Readiness** | `assessBigJump`: **READY** / **TOO SLOW** / **NOSE LIFT**, estimated top speed vs the 183 km/h lip, and the nose-lift speed. After the game reports `speedTrapKmh`, it also shows the real lip speed, e.g. `CLEARED +7` or `SHORT −5`. |
 | **Tune Preview** | `mapSquadControlsToPhysics` applied to your sliders: top speed, nose-lift speed (`NEVER` when the wing beats body lift; warns if the nose lifts below top speed), front aero at 200 km/h, drag, torque, weight and springs. **Applied in game** shows what the racer reports in `game:state`, with a badge: `SYNCED` / `SYNCING` / `OVERRIDE` (physics:set on top) / `UNCONFIRMED` / `LAST KNOWN`. |
 | **F1 Telemetry** | Speed, throttle and brake bars, front and rear aero load (front turns magenta **LIFT** when negative), flashing **NOSE LIFT** warning, rear slip meter (**TYRE SMOKE** at ≥ 50 %), wheels down, checkpoint, falls, run timer, best lap. Shows `NO SIGNAL` if telemetry stops for 2.5 s and `NO GAME LINKED` with no game on the relay. |
 

@@ -26,7 +26,8 @@ import { isNetworkDisabled, resolveServerUrl } from '../config';
 import { gameState, useGameStore } from '../state/store';
 import { buildTelemetry } from './telemetry';
 
-const STATE_DEBOUNCE_MS = 100;
+/** game:state goes out at most this often (and this long after the first change of a burst). */
+const STATE_THROTTLE_MS = 100;
 const PING_INTERVAL_MS = 3000;
 /** No frame at all for this long (despite our pings) ⇒ treat the socket as dead. */
 const SILENCE_TIMEOUT_MS = 10_000;
@@ -227,12 +228,16 @@ export class SquadLink {
     this.send({ type: 'ping', nonce });
   }
 
+  /**
+   * Throttle, not debounce: while a dashboard drags a slider (~30 Hz) a restarting debounce would
+   * never fire. At most one game:state per STATE_THROTTLE_MS, always carrying the latest values.
+   */
   private scheduleState(): void {
-    if (this.stateTimer) clearTimeout(this.stateTimer);
+    if (this.stateTimer) return;
     this.stateTimer = setTimeout(() => {
       this.stateTimer = null;
       this.sendState();
-    }, STATE_DEBOUNCE_MS);
+    }, STATE_THROTTLE_MS);
   }
 
   private sendState(): void {

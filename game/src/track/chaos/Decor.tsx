@@ -199,12 +199,13 @@ function Debris({ plan }: { plan: ChaosTrackPlan }) {
     const mesh = ref.current;
     if (!mesh) return;
     const t = state.clock.elapsedTime;
-    debris.forEach((d, i) => {
+    for (let i = 0; i < debris.length; i++) {
+      const d = debris[i]!;
       const a = t * d.speed + d.phase;
       _q.setFromEuler(_e.set(d.rotation[0] + a * 0.3, d.rotation[1] + a * 0.5, d.rotation[2]));
       _m.compose(_p.set(d.position[0], d.position[1] + Math.sin(a) * d.bob, d.position[2]), _q, _s.set(d.size, d.size, d.size));
       mesh.setMatrixAt(i, _m);
-    });
+    }
     mesh.instanceMatrix.needsUpdate = true;
   });
 

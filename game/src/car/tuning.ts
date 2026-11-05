@@ -63,6 +63,24 @@ export const CAR_TUNING = {
   /** Seconds after take-off over which the airborne moments fade in. */
   airBlendTime: 0.2,
 
+  // ── Ground effect ────────────────────────────────────────────────────────────────────────
+  // The protocol's aero terms (front wing + body lift at the front axle, rear wing at the rear
+  // axle) are treated as ground-effect aero: each axle's force is full strength while that axle's
+  // tyres touch or the surface is close below it, and fades once the axle is high above the
+  // ground or over the void. Without this, wing setting would change the gravity a car "feels" in
+  // flight by up to ±0.2 g and lever it up at the lip, so the big jump's required lip speed would
+  // depend on aero and BIG_JUMP_LIP_KMH could not be one honest number. Drag is unaffected.
+  /** Fraction of the aero forces left far from the ground. */
+  groundEffectMin: 0,
+  /** Rise above normal ride height that still counts as "on the ground" (covers a ~20° wheelie), m. */
+  groundEffectFullRise: 1.0,
+  /** e-folding height of the fade beyond groundEffectFullRise, m. */
+  groundEffectHeight: 0.6,
+  /** Downward probe length below an axle, m (beyond it: no ground). */
+  groundEffectRange: 14,
+  /** Smoothing time constant, s (about one step: a lip edge is a genuine step). */
+  groundEffectTau: 0.02,
+
   // ── Telemetry thresholds ─────────────────────────────────────────────────────────────────
   /** Combined slip speed where slip01 starts rising / reaches 1, m/s. */
   slipStart: 1.2,
@@ -70,4 +88,9 @@ export const CAR_TUNING = {
   /** Nose-lift flag needs this forward speed (m/s) and both front wheels off for noseLiftDebounce s. */
   noseLiftMinSpeed: 11,
   noseLiftDebounce: 0.12,
+  /**
+   * …and net front lift ≥ this fraction of the static front-axle load. A genuine lift-off happens
+   * at ≥ 57 % (full-throttle load transfer covers the rest); bounces at low speed never get there.
+   */
+  noseLiftMinLiftRatio: 0.5,
 } as const;

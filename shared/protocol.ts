@@ -143,6 +143,10 @@ export const DEFAULT_SQUAD_CONTROLS: Readonly<SquadControls> = Object.freeze({
  *   Balance    Shifts the centre of mass (see balanceToFrontWeightFraction) AND re-splits suspension stiffness
  *              between the axles (see balanceToSuspensionStiffness).
  *   Traction   Tyre friction coefficient (wheel friction slip / side stiffness).
+ *
+ *   In game/ the two vertical aero terms are ground-effect forces: full strength while an axle's tyres are on
+ *   (or within ~1 m of) the ground, fading with height in flight (game/src/car/carController.ts). The preview
+ *   formulas here are the on-ground values, which is all the estimates below need.
  */
 export interface CarPhysicsParams {
   /** Chassis mass in kg. */
@@ -177,15 +181,15 @@ export const CAR_PHYSICS_KEYS: readonly CarPhysicsKey[] = [
 /** Rear (driven) wheel radius in metres. */
 export const DRIVE_WHEEL_RADIUS = 0.36;
 /** Body/underfloor lift at the front axle, N per (m/s)². The front wing must beat this to keep the nose down. */
-export const FRONT_BODY_LIFT = 3.0;
+export const FRONT_BODY_LIFT = 2.7;
 /** Fixed rear-wing downforce at the rear axle, N per (m/s)². */
 export const REAR_DOWNFORCE = 2.5;
 /** Neutral per-wheel suspension stiffness (Rapier raycast-vehicle units, mass-normalised). */
-export const SUSPENSION_STIFFNESS_BASE = 30;
+export const SUSPENSION_STIFFNESS_BASE = 50;
 /** How far balance re-splits stiffness: ±1 balance moves each axle by ±this fraction. */
 export const SUSPENSION_BALANCE_SPLIT = 0.4;
 /** Speed (km/h) the car must carry off the lip of the big jump to clear its gap. */
-export const BIG_JUMP_LIP_KMH = 185;
+export const BIG_JUMP_LIP_KMH = 183;
 /** Front-wing downforce factor at 100 % Front Wing Aero (the mapping is linear from 0). */
 export const FRONT_WING_DOWNFORCE_MAX = 6.5;
 /** Centre-of-mass height above the ground, metres. */
@@ -217,7 +221,7 @@ export const CAR_PHYSICS_SPECS: { readonly [K in CarPhysicsKey]: RangeSpec } = {
     min: 0,
     max: 12,
     step: 0.05,
-    default: 4,
+    default: 3.88,
     unit: 'k',
     description: 'Air resistance, grows with the square of speed. Caps top speed.',
   },
@@ -263,8 +267,8 @@ export const BASE_TRACTION = 1.45;
  * THE mapping from dashboard sliders to car physics. Pure and deterministic, so
  * the dashboard can preview exactly what the game will apply.
  *
- *   Front Wing Aero (a = 0…1): frontDownforce 0→6.5 (body lift is 3.0, so < ~46 % nets lift), drag 2.0→6.0
- *   Engine Tier     (t = 1…5): rear-axle torque 1000→3200 N·m, mass +60 kg per tier
+ *   Front Wing Aero (a = 0…1): frontDownforce 0→6.5 (body lift is 2.7, so < ~42 % nets lift), drag 2.98→4.78
+ *   Engine Tier     (t = 1…5): rear-axle torque 700→3500 N·m, mass +60 kg per tier
  *   Chassis Balance (b = −1…1): balance passthrough → centre of mass + suspension stiffness split
  *
  * At the default sliders (50 / 3 / 0) this yields DEFAULT_CAR_PHYSICS.
@@ -277,9 +281,9 @@ export function mapSquadControlsToPhysics(input: SquadControls): CarPhysicsParam
   return clampPhysics({
     mass: round(1050 + 60 * tierSteps, 1),
     traction: BASE_TRACTION,
-    drag: round(2 + 4 * a, 3),
+    drag: round(2.98 + 1.8 * a, 3),
     frontDownforce: round(FRONT_WING_DOWNFORCE_MAX * a, 3),
-    engineTorque: round(1000 + 550 * tierSteps, 1),
+    engineTorque: round(700 + 700 * tierSteps, 1),
     balance: round(b, 3),
   });
 }

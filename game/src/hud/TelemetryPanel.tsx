@@ -7,9 +7,22 @@ import { formatKiloNewton, setFill, setText, toggleClass, useRafLoop } from './h
 /** Scale for the aero bars: ±this many newtons fills the bar. */
 const AERO_FULL_SCALE = 15000;
 
-export function TelemetryPanel() {
+/** Only this line depends on the physics params, so a 30 Hz slider drag re-renders just it. */
+function JumpVerdict() {
   const physics = useGameStore((s) => s.physics);
   const jump = useMemo(() => assessBigJump(physics), [physics]);
+  return (
+    <div className={`hud-jump hud-jump--${jump.verdict.replace(' ', '-').toLowerCase()}`} title="Static estimate from shared/protocol.ts">
+      <label>BIG JUMP</label>
+      <b>{jump.verdict}</b>
+      <span>
+        top {Math.round(jump.topSpeedKmh)} · lift {jump.liftOffKmh === null ? 'never' : Math.round(jump.liftOffKmh)} · need {jump.requiredKmh}
+      </span>
+    </div>
+  );
+}
+
+export function TelemetryPanel() {
   const refs = {
     throttle: useRef<HTMLDivElement>(null),
     brake: useRef<HTMLDivElement>(null),
@@ -97,13 +110,7 @@ export function TelemetryPanel() {
           <b ref={refs.loadR}>—</b>
         </div>
       </div>
-      <div className={`hud-jump hud-jump--${jump.verdict.replace(' ', '-').toLowerCase()}`} title="Static estimate from shared/protocol.ts">
-        <label>BIG JUMP</label>
-        <b>{jump.verdict}</b>
-        <span>
-          top {Math.round(jump.topSpeedKmh)} · lift {jump.liftOffKmh === null ? 'never' : Math.round(jump.liftOffKmh)} · need {jump.requiredKmh}
-        </span>
-      </div>
+      <JumpVerdict />
     </div>
   );
 }

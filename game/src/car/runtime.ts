@@ -67,6 +67,8 @@ export interface CarRuntime {
   rearAeroN: number;
   /** Aero drag magnitude, N. */
   dragN: number;
+  /** Ground-effect factor applied to the vertical aero forces, 0…1 (1 = on/near the ground). */
+  groundEffect: number;
   /** Aero lift has both front wheels off the ground at speed. */
   noseLift: boolean;
 
@@ -123,6 +125,7 @@ export const carRuntime: CarRuntime = {
   frontAeroN: 0,
   rearAeroN: 0,
   dragN: 0,
+  groundEffect: 1,
   noseLift: false,
   wheelsGrounded: 0,
   frontAxleLoadN: 0,
