@@ -13,11 +13,12 @@ import { PHYSICS_DT } from '../config';
 import { emitGameEvent, onGameEvent } from '../game/events';
 import { gameState } from '../state/store';
 import type { Vec3 } from '../track/types';
+import { carDebug } from './carDebug';
 import { CarController, yawToQuaternion } from './carController';
 import { CarModel } from './model/CarModel';
 import { carRuntime } from './runtime';
 import { TireSmoke } from './smoke/TireSmoke';
-import { CHASSIS_COLLIDER, RIDE_HEIGHT } from './vehicleSpec';
+import { CHASSIS_COLLIDER, RIDE_HEIGHT, WHEELS } from './vehicleSpec';
 
 interface CarProps {
   spawn: { position: Vec3; yaw: number };
@@ -48,6 +49,13 @@ export function Car({ spawn }: CarProps) {
     carRuntime.bodyHandle = body.handle;
     carRuntime.chassisColliderHandle = colliderRef.current?.handle ?? null;
     carRuntime.chassisObject = chassisRef.current;
+    carDebug.info = () => ({
+      mass: body.mass(),
+      localCom: body.localCom(),
+      suspensionStiffness: WHEELS.map((w) => controller.vehicle.wheelSuspensionStiffness(w.index) ?? 0),
+      suspensionCompression: WHEELS.map((w) => controller.vehicle.wheelSuspensionCompression(w.index) ?? 0),
+      suspensionRelaxation: WHEELS.map((w) => controller.vehicle.wheelSuspensionRelaxation(w.index) ?? 0),
+    });
 
     const placeAt = (position: Vec3, yaw: number) => {
       controller.teleport(position, yaw);
@@ -68,6 +76,7 @@ export function Car({ spawn }: CarProps) {
       offRespawn();
       offRestart();
       controllerRef.current = null;
+      carDebug.info = null;
       controller.dispose();
       carRuntime.ready = false;
       carRuntime.bodyHandle = null;

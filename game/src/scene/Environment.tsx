@@ -5,7 +5,7 @@
 import { useEffect, useMemo, useRef } from 'react';
 import { useFrame } from '@react-three/fiber';
 import { Stars } from '@react-three/drei';
-import { Object3D, type DirectionalLight, type GridHelper } from 'three';
+import { Object3D, type DirectionalLight, type GridHelper, type Group } from 'three';
 import { carRuntime } from '../car/runtime';
 
 export const PALETTE = {
@@ -66,6 +66,19 @@ function VoidGrid() {
   return <gridHelper ref={grid} args={[2400, 2400 / VOID_GRID_SPACING, PALETTE.magenta, '#2a0c3a']} />;
 }
 
+/** Stars centred on the camera so the sky never runs out along a long track. */
+function StarField() {
+  const group = useRef<Group>(null);
+  useFrame(({ camera }) => {
+    group.current?.position.copy(camera.position);
+  });
+  return (
+    <group ref={group}>
+      <Stars radius={500} depth={80} count={2500} factor={5} saturation={0.6} fade speed={0.4} />
+    </group>
+  );
+}
+
 export function Environment() {
   return (
     <>
@@ -74,7 +87,7 @@ export function Environment() {
       <hemisphereLight args={['#7fe6ff', '#24081f', 0.7]} />
       <ambientLight intensity={0.18} />
       <FollowSun />
-      <Stars radius={500} depth={80} count={2500} factor={5} saturation={0.6} fade speed={0.4} />
+      <StarField />
       <VoidGrid />
     </>
   );
