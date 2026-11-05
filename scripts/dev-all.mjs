@@ -5,7 +5,7 @@
 //   npm run start:all   same, but skip the install check
 //   npm run setup       install only
 //
-// Flags: --fresh (reinstall every package)  --only=relay,game,dashboard  --no-install  --setup-only
+// Flags: --fresh (delete node_modules and reinstall every package)  --only=relay,game,dashboard  --no-install  --setup-only
 //
 // Built to run unattended on a phone (Termux) as well as on a laptop:
 //   - installs packages one at a time (three parallel npm installs can exhaust a phone's memory)
@@ -17,7 +17,7 @@
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { createSocket } from 'node:dgram';
-import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
@@ -107,6 +107,8 @@ function ensureInstalled(dir, label, env, force) {
     return;
   }
   log(`${label}: installing dependencies (${reason}) …`);
+  // A plain `npm install` keeps whatever is there, including a half-extracted tree from an interrupted install.
+  if (force) rmSync(path.join(dir, 'node_modules'), { recursive: true, force: true });
   if (!runNpm(['install', '--no-audit', '--no-fund'], dir, env)) fail(`npm install failed in ${label}/ — fix the error above and rerun.`);
   writeFileSync(path.join(dir, 'node_modules', INSTALL_STAMP), manifestHash(dir));
 }
@@ -269,6 +271,28 @@ if (lan.ip) env.SQUAD_LAN_IP = lan.ip;
 if (lan.restricted && !env.REACT_NATIVE_PACKAGER_HOSTNAME) env.REACT_NATIVE_PACKAGER_HOSTNAME = lan.ip ?? '127.0.0.1';
 if (lan.restricted) log(`network interface listing is blocked here (normal on Android); using ${lan.ip ?? '127.0.0.1'}`);
 
+// Check the ports before installing: a busy port means an earlier dev:all is probably still running, and
+// `--fresh` must not delete the node_modules those live services are using.
+if (!flags['setup-only']) {
+  const busy = [];
+  for (const service of selected) if (!(await portIsFree(service.port))) busy.push(service);
+  if (busy.length) {
+    const ports = busy.map((s) => s.port);
+    const freeCommand =
+      process.platform === 'darwin'
+        ? `pkill -f dev-all; lsof -t ${ports.map((p) => `-i tcp:${p}`).join(' ')} | xargs kill`
+        : `pkill -f dev-all; fuser -k ${ports.map((p) => `${p}/tcp`).join(' ')}    (no fuser? ${
+            process.platform === 'android' ? 'pkg install psmisc' : 'install psmisc'
+          })`;
+    fail(
+      `port(s) already in use: ${busy.map((s) => `${s.port} (${s.key})`).join(', ')}.\n` +
+        '  An earlier dev:all may still be running — stop it (Ctrl+C in its terminal) and retry.\n' +
+        '  If its terminal is gone, or the launcher was killed and left its services behind, free the port(s) with:\n' +
+        `    ${freeCommand}`,
+    );
+  }
+}
+
 if (!flags['no-install']) {
   ensureInstalled(ROOT, 'root', env, flags.fresh);
   for (const service of selected) ensureInstalled(path.join(ROOT, service.dir), service.dir, env, flags.fresh);
@@ -278,18 +302,9 @@ if (flags['setup-only']) {
   process.exit(0);
 }
 
-const busy = [];
-for (const service of selected) if (!(await portIsFree(service.port))) busy.push(service);
-if (busy.length) {
-  fail(
-    `port(s) already in use: ${busy.map((s) => `${s.port} (${s.key})`).join(', ')}.\n` +
-      '  An earlier dev:all may still be running — stop it (Ctrl+C in its terminal, or `pkill -f dev-all`) and retry.',
-  );
-}
-
 const { concurrently } = await import('concurrently');
 const npmPrefix = npmCommand.map(quote).join(' ');
-const { result } = concurrently(
+const { result, commands } = concurrently(
   selected.map((service) => ({
     name: service.key,
     command: `${npmPrefix} ${service.npmArgs.map(quote).join(' ')}`,
@@ -305,6 +320,24 @@ const { result } = concurrently(
     shell: pickShell(),
   },
 );
+
+// concurrently only treats SIGINT as a deliberate stop: after SIGTERM (`pkill`) or SIGHUP (closing the Termux
+// session) it sees the services' non-zero exits and restarts them. Route both through the SIGINT path, and stop
+// anything a restart that was already pending brings back once shutdown has begun.
+let shuttingDown = false;
+process.on('SIGINT', () => {
+  shuttingDown = true;
+});
+for (const signal of ['SIGTERM', 'SIGHUP']) {
+  process.removeAllListeners(signal);
+  process.on(signal, () => process.emit('SIGINT', 'SIGINT'));
+}
+for (const command of commands) {
+  command.stateChange.subscribe((state) => {
+    // start() reports 'started' before it records the child's pid, so kill once it has.
+    if (shuttingDown && state === 'started') queueMicrotask(() => command.kill('SIGINT'));
+  });
+}
 
 log(`starting ${selected.map((s) => s.key).join(' + ')} …`);
 const pending = new Set(selected);

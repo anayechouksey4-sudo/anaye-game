@@ -12,7 +12,16 @@
  * The bare hinge is nearly lossless, so in steady state the drive does almost no work.
  */
 import { useEffect, useMemo, useRef, type RefObject } from 'react';
-import { CuboidCollider, RigidBody, useAfterPhysicsStep, useBeforePhysicsStep, useRevoluteJoint, type RapierRigidBody } from '@react-three/rapier';
+import {
+  CuboidCollider,
+  RigidBody,
+  useAfterPhysicsStep,
+  useBeforePhysicsStep,
+  useRevoluteJoint,
+  type RapierCollider,
+  type RapierRigidBody,
+} from '@react-three/rapier';
+import type { World } from '@dimforge/rapier3d-compat';
 import type { BufferGeometry } from 'three';
 import { PHYSICS_DT } from '../../../config';
 import { carRuntime } from '../../../car/runtime';
@@ -79,6 +88,19 @@ function buildBobGeometry(spec: PendulumSpec): BufferGeometry {
   return v.build();
 }
 
+/** Is the car's chassis collider touching `collider` (narrow phase of the step just taken)? */
+function touchesCar(world: World, collider: RapierCollider | null): boolean {
+  const handle = carRuntime.chassisColliderHandle;
+  if (!collider || handle === null) return false;
+  const chassis = world.getCollider(handle);
+  if (!chassis) return false;
+  let touching = false;
+  world.contactPair(chassis, collider, (manifold) => {
+    if (manifold.numContacts() > 0) touching = true;
+  });
+  return touching;
+}
+
 /** Moment of inertia about the hinge per unit mass (box bob on a massless arm), m². */
 function hingeInertiaPerKg(spec: PendulumSpec): number {
   const [a, b] = spec.bobSize;
@@ -88,6 +110,7 @@ function hingeInertiaPerKg(spec: PendulumSpec): number {
 function Pendulum({ spec }: { spec: PendulumSpec }) {
   const anchorRef = useRef<RapierRigidBody>(null);
   const bobRef = useRef<RapierRigidBody>(null);
+  const bobColliderRef = useRef<RapierCollider>(null);
   const targetRef = useRef(0);
   const torque = useRef({ x: 0, y: 0, z: 0 });
   const swing = useRef({ theta: 0, thetaDot: 0 });
@@ -164,14 +187,17 @@ function Pendulum({ spec }: { spec: PendulumSpec }) {
   });
 
   // Safety net: a car crushed under a 15 t bob can't drive out, and nothing else would respawn it.
-  useAfterPhysicsStep(() => {
+  // Only while the bob actually bears on the car: a car stopped at the deck edge is swept over with
+  // clearance for seconds per half-swing, and must not be sent back to the checkpoint for waiting.
+  useAfterPhysicsStep((world) => {
     const body = bobRef.current;
     if (!body || !carRuntime.ready) return;
     const b = body.translation();
     const c = carRuntime.position;
     const [bw, , bd] = spec.bobSize;
     const underBob = Math.abs(c.x - b.x) < bw / 2 + 1.2 && Math.abs(c.z - b.z) < bd / 2 + 2.4 && c.y < b.y;
-    pinnedTime.current = underBob && carRuntime.velocity.length() < 1 ? pinnedTime.current + PHYSICS_DT : 0;
+    const pinned = underBob && carRuntime.velocity.length() < 1 && touchesCar(world, bobColliderRef.current);
+    pinnedTime.current = pinned ? pinnedTime.current + PHYSICS_DT : 0;
     if (pinnedTime.current > PENDULUM.pinnedRespawnS) {
       pinnedTime.current = 0;
       gameState().respawn('flipped');
@@ -193,7 +219,7 @@ function Pendulum({ spec }: { spec: PendulumSpec }) {
         angularDamping={0}
         name={spec.id}
       >
-        <CuboidCollider args={[w / 2, h / 2, d / 2]} mass={spec.mass} friction={PENDULUM.friction} restitution={PENDULUM.restitution} />
+        <CuboidCollider ref={bobColliderRef} args={[w / 2, h / 2, d / 2]} mass={spec.mass} friction={PENDULUM.friction} restitution={PENDULUM.restitution} />
         <mesh geometry={geometry} material={material} castShadow />
       </RigidBody>
     </>

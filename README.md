@@ -42,14 +42,14 @@ This one command:
 ────────────────────────────────────────────────────────────────────────
 ```
 
-Press Ctrl+C to stop all three services.
+Press Ctrl+C to stop all three services. Closing the terminal (or the Termux session) or `pkill -f dev-all` stops them too. If the launcher itself was killed (for example by Android's low-memory killer) and left a service holding its port, free the ports with `fuser -k 8787/tcp 5173/tcp 8081/tcp` (`pkg install psmisc` on Termux if `fuser` is missing).
 
 | Command | Does |
 | --- | --- |
 | `npm run dev:all` (or `npm start`) | Install what's missing, then run all three |
 | `npm run start:all` | Run all three without the install check |
 | `npm run setup` | Install only |
-| `node scripts/dev-all.mjs --fresh` | Reinstall every package |
+| `node scripts/dev-all.mjs --fresh` | Delete `node_modules` and reinstall every package from scratch (repairs an interrupted install) |
 | `node scripts/dev-all.mjs --only=relay,game` | Run only some services |
 | `npm run dev:relay` / `dev:game` / `dev:dashboard` | Run one service on its own |
 | `npm test`, `npm run typecheck`, `npm run build` | Relay and dashboard tests, typecheck all three, production build of the game |

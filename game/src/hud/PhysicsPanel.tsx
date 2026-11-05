@@ -38,7 +38,16 @@ export function PhysicsPanel() {
         const spec = CAR_PHYSICS_SPECS[key];
         const value = physics[key];
         return (
-          <label key={key} className={`hud-slider${flashing.has(key) ? ' is-flash' : ''}`} title={spec.description}>
+          <label
+            key={key}
+            className={`hud-slider${flashing.has(key) ? ' is-flash' : ''}`}
+            title={spec.description}
+            // Clicking the name/value text would focus the slider via the label (after pointerup, so the blur
+            // below never runs) and swallow the driving keys. Only the slider itself should take focus.
+            onClick={(e) => {
+              if (!(e.target instanceof HTMLInputElement)) e.preventDefault();
+            }}
+          >
             <span className="hud-slider__head">
               <span>{spec.label}</span>
               <b data-testid={`physics-value-${key}`}>
@@ -53,6 +62,8 @@ export function PhysicsPanel() {
               step={spec.step}
               value={value}
               onChange={(e) => patchPhysics({ [key]: Number(e.currentTarget.value) }, 'local')}
+              // A focused slider swallows the driving keys (and arrows would retune it): hand them back on release.
+              onPointerUp={(e) => e.currentTarget.blur()}
             />
           </label>
         );

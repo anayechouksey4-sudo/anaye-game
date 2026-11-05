@@ -31,6 +31,8 @@ const STATE_THROTTLE_MS = 100;
 const PING_INTERVAL_MS = 3000;
 /** No frame at all for this long (despite our pings) ⇒ treat the socket as dead. */
 const SILENCE_TIMEOUT_MS = 10_000;
+/** Give up on a socket stuck in CONNECTING (an attempt started mid-outage can hang for minutes). */
+const CONNECT_TIMEOUT_MS = 8_000;
 const CLIENT_NAME = 'GamerFleet Racer';
 
 export function describeControls(c: SquadControls): string {
@@ -51,6 +53,7 @@ export class SquadLink {
   private attempt = 0;
   private seq = 0;
   private retryTimer: ReturnType<typeof setTimeout> | null = null;
+  private connectTimer: ReturnType<typeof setTimeout> | null = null;
   private stateTimer: ReturnType<typeof setTimeout> | null = null;
   private telemetryTimer: ReturnType<typeof setInterval> | null = null;
   private pingTimer: ReturnType<typeof setInterval> | null = null;
@@ -86,16 +89,7 @@ export class SquadLink {
     this.clearTimers();
     if (this.retryTimer) clearTimeout(this.retryTimer);
     this.retryTimer = null;
-    const ws = this.ws;
-    this.ws = null;
-    if (ws) {
-      ws.onopen = ws.onmessage = ws.onclose = ws.onerror = null;
-      try {
-        ws.close(1000, 'client stopped');
-      } catch {
-        // Already closing.
-      }
-    }
+    this.dropSocket(1000, 'client stopped');
     gameState().setLinkStatus('disconnected');
   }
 
@@ -124,8 +118,15 @@ export class SquadLink {
       return;
     }
     this.ws = ws;
+    this.connectTimer = setTimeout(() => {
+      this.connectTimer = null;
+      if (this.ws === ws && ws.readyState !== WebSocket.OPEN) this.handleDead('relay unreachable — connect timed out');
+    }, CONNECT_TIMEOUT_MS);
 
     ws.onopen = () => {
+      if (this.ws !== ws) return;
+      if (this.connectTimer) clearTimeout(this.connectTimer);
+      this.connectTimer = null;
       this.attempt = 0;
       this.stats.connects++;
       this.lastFrameAt = performance.now();
@@ -138,6 +139,7 @@ export class SquadLink {
     };
 
     ws.onmessage = (event: MessageEvent) => {
+      if (this.ws !== ws) return;
       this.lastFrameAt = performance.now();
       if (typeof event.data !== 'string') return;
       const message = parseMessage(event.data);
@@ -215,8 +217,7 @@ export class SquadLink {
 
   private ping(): void {
     if (performance.now() - this.lastFrameAt > SILENCE_TIMEOUT_MS) {
-      gameState().pushUplink('link', 'relay silent — reconnecting');
-      this.ws?.close(4000, 'silent');
+      this.handleDead('relay silent — reconnecting');
       return;
     }
     const nonce = ++this.pingNonce;
@@ -245,6 +246,33 @@ export class SquadLink {
     this.send({ type: 'game:state', physics, controls });
   }
 
+  /**
+   * The socket is unusable (silent / stuck connecting): abandon it now instead of waiting for a close
+   * event that can take a minute on a dead path, and retry on a fresh socket.
+   */
+  private handleDead(reason: string): void {
+    this.dropSocket(4000, 'silent');
+    this.clearTimers();
+    const s = gameState();
+    s.setLinkStatus('disconnected');
+    s.setRtt(null);
+    s.pushUplink('link', reason);
+    this.scheduleReconnect();
+  }
+
+  /** Detach and close the current socket so none of its late events reach us. */
+  private dropSocket(code: number, reason: string): void {
+    const ws = this.ws;
+    this.ws = null;
+    if (!ws) return;
+    ws.onopen = ws.onmessage = ws.onclose = ws.onerror = null;
+    try {
+      ws.close(code, reason);
+    } catch {
+      // Already closing.
+    }
+  }
+
   private scheduleReconnect(): void {
     if (this.stopped || this.retryTimer) return;
     const delay = backoffDelay(this.attempt++);
@@ -256,6 +284,8 @@ export class SquadLink {
   }
 
   private clearTimers(): void {
+    if (this.connectTimer) clearTimeout(this.connectTimer);
+    this.connectTimer = null;
     if (this.stateTimer) clearTimeout(this.stateTimer);
     if (this.telemetryTimer) clearInterval(this.telemetryTimer);
     if (this.pingTimer) clearInterval(this.pingTimer);

@@ -1,7 +1,8 @@
 /**
  * Camera rig. 'chase' (default) trails the car, 'hood' rides on the nose, 'orbit' lets the
  * mouse orbit around the moving car. `C` cycles (see game/hotkeys.ts). Follows the car's
- * interpolated render transform, never React state.
+ * interpolated render transform (its physics pose for a couple of steps after a teleport), never
+ * React state.
  */
 import { useEffect, useRef, type ComponentRef } from 'react';
 import { useFrame, useThree } from '@react-three/fiber';
@@ -21,12 +22,37 @@ const _carQuat = new Quaternion();
 const _fwd = new Vector3();
 const _desired = new Vector3();
 const _look = new Vector3();
+/** Physics steps after a teleport before the interpolated render pose is trusted again. */
+const TELEPORT_SETTLE_STEPS = 2;
 
-function readCarPose(): boolean {
+/**
+ * Step count until which the rig keeps snapping after the latest teleport. A respawn usually
+ * teleports the car inside a physics step (RunController's kill plane), so @react-three/rapier
+ * still interpolates the render pose from the pre-teleport pose (down in the void) until the
+ * physics has stepped past it; snapping to that would frame a point half-way up from the void.
+ */
+function useTeleportSettle() {
+  const settleUntil = useRef(-1);
+  useEffect(() => onGameEvent('teleported', () => (settleUntil.current = carRuntime.stepCount + TELEPORT_SETTLE_STEPS)), []);
+  return settleUntil;
+}
+
+/**
+ * Car pose into _carPos/_carQuat: the interpolated render transform, or while `settling` after a
+ * teleport the physics pose the teleport wrote (the car mesh is hidden meanwhile, as it is still
+ * drawn part-way between the old and the new pose).
+ */
+function readCarPose(settling: boolean): boolean {
   const obj = carRuntime.chassisObject;
   if (!obj) return false;
-  obj.getWorldPosition(_carPos);
-  obj.getWorldQuaternion(_carQuat);
+  obj.visible = !settling;
+  if (settling) {
+    _carPos.copy(carRuntime.position);
+    _carQuat.copy(carRuntime.quaternion);
+  } else {
+    obj.getWorldPosition(_carPos);
+    obj.getWorldQuaternion(_carQuat);
+  }
   return true;
 }
 
@@ -36,6 +62,7 @@ function FollowRig({ mode }: { mode: Exclude<CameraMode, 'orbit'> }) {
   const offset = useRef(new Vector3(0, 2.4, -7));
   const smoothY = useRef(0);
   const snap = useRef(true);
+  const settleUntil = useTeleportSettle();
 
   useEffect(() => onGameEvent('teleported', () => (snap.current = true)), []);
   useEffect(() => {
@@ -43,7 +70,9 @@ function FollowRig({ mode }: { mode: Exclude<CameraMode, 'orbit'> }) {
   }, [mode]);
 
   useFrame((_, delta) => {
-    if (!readCarPose()) return;
+    const settling = carRuntime.stepCount < settleUntil.current;
+    if (!readCarPose(settling)) return;
+    if (settling) snap.current = true;
     const dt = Math.min(delta, 0.1);
     _fwd.set(0, 0, 1).applyQuaternion(_carQuat);
 
@@ -98,11 +127,14 @@ function OrbitRig() {
   // Re-frame the car on entry and after every teleport (respawn / restart): carrying the old
   // offset across a teleport could leave the camera far from the car or inside scenery.
   const snap = useRef(true);
+  const settleUntil = useTeleportSettle();
   useEffect(() => onGameEvent('teleported', () => (snap.current = true)), []);
 
   useFrame(() => {
     const c = controls.current;
-    if (!c || !readCarPose()) return;
+    const settling = carRuntime.stepCount < settleUntil.current;
+    if (!c || !readCarPose(settling)) return;
+    if (settling) snap.current = true;
     if (snap.current) {
       _fwd.set(0, 0, 1).applyQuaternion(_carQuat);
       _fwd.y = 0;

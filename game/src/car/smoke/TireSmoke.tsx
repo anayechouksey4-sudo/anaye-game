@@ -11,6 +11,7 @@
 import { useEffect, useMemo } from 'react';
 import { useFrame } from '@react-three/fiber';
 import { BoxGeometry, InstancedMesh, Vector3 } from 'three';
+import { PHYSICS_DT } from '../../config';
 import { onGameEvent } from '../../game/events';
 import { carFxDebug } from '../model/carFxDebug';
 import { carRuntime } from '../runtime';
@@ -75,10 +76,11 @@ export function TireSmoke() {
     emitter.rate = 0;
 
     if (rt.ready && rt.chassisObject) {
-      // Contact points are end-of-step physics positions; the rendered car is interpolated a little
-      // behind. Shift spawns by that gap so puffs leave the wheel you actually see.
+      // Contact points are recorded before the step integrates (pose one step behind rt.position),
+      // and the rendered car is interpolated a little behind rt.position. Shift spawns by both gaps
+      // so puffs leave the wheel you actually see.
       rt.chassisObject.getWorldPosition(_render);
-      _offset.subVectors(_render, rt.position);
+      _offset.subVectors(_render, rt.position).addScaledVector(rt.velocity, PHYSICS_DT);
       const v = rt.velocity;
       const f = rt.forward;
       const right = rt.right;

@@ -15,5 +15,5 @@ export const TRACKS: Readonly<Record<string, ComponentType>> = {
 export const DEFAULT_TRACK_ID = 'chaos';
 
 export function resolveTrackId(param: string | null): string {
-  return param && param in TRACKS ? param : DEFAULT_TRACK_ID;
+  return param && Object.hasOwn(TRACKS, param) ? param : DEFAULT_TRACK_ID;
 }
