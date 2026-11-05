@@ -1,0 +1,24 @@
+{
+  "name": "squadhq-racer-monorepo",
+  "private": true,
+  "description": "SquadHQ: a voxel racing game (React Three Fiber + Rapier), a local WebSocket relay, and an Expo control-panel dashboard.",
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "start": "node scripts/dev-all.mjs",
+    "dev:all": "node scripts/dev-all.mjs",
+    "start:all": "node scripts/dev-all.mjs --no-install",
+    "setup": "node scripts/dev-all.mjs --setup-only",
+    "dev:relay": "npm --prefix server start",
+    "dev:game": "npm --prefix game run dev -- --host 0.0.0.0",
+    "dev:dashboard": "npm --prefix dashboard start",
+    "test": "npm --prefix server test",
+    "typecheck": "npm --prefix server run typecheck && npm --prefix game run typecheck && npm --prefix dashboard run typecheck",
+    "build": "npm --prefix game run build"
+  },
+  "devDependencies": {
+    "concurrently": "^10.0.6"
+  }
+}
