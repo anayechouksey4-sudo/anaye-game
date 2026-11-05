@@ -1,6 +1,12 @@
 {
   "extends": "expo/tsconfig.base",
   "compilerOptions": {
-    "strict": true
-  }
+    "strict": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noFallthroughCasesInSwitch": true,
+    // App code runs on React Native / web, not Node: keep Node's globals out of it.
+    "types": []
+  },
+  "include": ["index.ts", "src/**/*.ts", "src/**/*.tsx", "../shared/**/*.ts"]
 }

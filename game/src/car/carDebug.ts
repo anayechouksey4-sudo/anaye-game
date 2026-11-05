@@ -8,4 +8,8 @@ export interface CarDebugInfo {
 }
 
 /** Filled by Car.tsx while mounted. */
-export const carDebug: { info: (() => CarDebugInfo) | null } = { info: null };
+export const carDebug: {
+  info: (() => CarDebugInfo) | null;
+  /** Put the car at a ground point facing yaw, stopped (does not touch run progress). */
+  place: ((groundPosition: [number, number, number], yaw: number) => void) | null;
+} = { info: null, place: null };

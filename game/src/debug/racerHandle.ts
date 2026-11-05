@@ -74,6 +74,8 @@ export interface RacerHandle {
   respawn(): void;
   restart(): void;
   teleport(checkpointIndex: number): void;
+  /** Put the car at an arbitrary ground point facing `yaw` (run progress untouched). */
+  placeAt(position: [number, number, number], yaw?: number): void;
   /** Partial driver input override; null hands control back to keyboard/gamepad. */
   setInput(input: Partial<DriverInput> | null): void;
   /** Same path as a `physics:set` frame (clamped). Returns the resulting params. */
@@ -154,6 +156,7 @@ export function useRacerHandle(): void {
       respawn: () => gameState().respawn('debug'),
       restart: () => gameState().restart(),
       teleport: (checkpointIndex) => gameState().teleportToCheckpoint(checkpointIndex),
+      placeAt: (position, yaw = 0) => carDebug.place?.(position, yaw),
       setInput: (input) => setInputOverride(input),
       setPhysics: (patch) => {
         const clean = sanitizePhysicsPatch(patch);

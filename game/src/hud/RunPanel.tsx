@@ -1,10 +1,23 @@
 import { useRef } from 'react';
+import { useShallow } from 'zustand/react/shallow';
 import { runClock } from '../game/runClock';
 import { useGameStore } from '../state/store';
 import { formatRaceTime, setText, useRafLoop } from './hudUtils';
 
 export function RunPanel() {
-  const run = useGameStore((s) => s.run);
+  // Field-level selection: the run object is refreshed at ~10 Hz for the timer mirror.
+  const run = useGameStore(
+    useShallow((s) => ({
+      checkpoint: s.run.checkpoint,
+      totalCheckpoints: s.run.totalCheckpoints,
+      falls: s.run.falls,
+      bestMs: s.run.bestMs,
+      speedTrapKmh: s.run.speedTrapKmh,
+      started: s.run.started,
+      finished: s.run.finished,
+      pristine: s.run.elapsedMs === 0,
+    })),
+  );
   const trackName = useGameStore((s) => s.trackLayout?.name ?? '—');
   const timerRef = useRef<HTMLSpanElement>(null);
 
@@ -39,7 +52,7 @@ export function RunPanel() {
           <b>{run.speedTrapKmh === null ? '—' : `${run.speedTrapKmh.toFixed(0)}`}</b>
         </div>
       </div>
-      {!run.started && !run.finished && run.elapsedMs === 0 && <div className="hud-run__hint">THROTTLE TO START</div>}
+      {!run.started && !run.finished && run.pristine && <div className="hud-run__hint">THROTTLE TO START</div>}
     </div>
   );
 }

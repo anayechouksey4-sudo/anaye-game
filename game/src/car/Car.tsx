@@ -61,6 +61,7 @@ export function Car({ spawn }: CarProps) {
       controller.teleport(position, yaw);
       emitGameEvent('teleported', { position, yaw });
     };
+    carDebug.place = placeAt;
     const offRespawn = onGameEvent('respawn', ({ checkpoint }) => {
       const layout = gameState().trackLayout;
       const cp = layout?.checkpoints[checkpoint] ?? layout?.checkpoints[0];
@@ -77,6 +78,7 @@ export function Car({ spawn }: CarProps) {
       offRestart();
       controllerRef.current = null;
       carDebug.info = null;
+      carDebug.place = null;
       controller.dispose();
       carRuntime.ready = false;
       carRuntime.bodyHandle = null;

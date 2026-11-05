@@ -1,17 +1,28 @@
 {
   "expo": {
-    "name": "dashboard",
-    "slug": "dashboard",
+    "name": "SquadHQ",
+    "slug": "squadhq",
+    "description": "Cyberpunk tuning HQ for the GamerFleet racer: three sliders broadcast live over WebSocket.",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
-    "userInterfaceStyle": "light",
+    "userInterfaceStyle": "dark",
+    "backgroundColor": "#05060A",
+    "primaryColor": "#00F0FF",
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "bundleIdentifier": "dev.squadhq.dashboard",
+      "infoPlist": {
+        "NSLocalNetworkUsageDescription": "SquadHQ connects to the race relay running on a computer on your local network.",
+        "NSAppTransportSecurity": {
+          "NSAllowsLocalNetworking": true
+        }
+      }
     },
     "android": {
+      "package": "dev.squadhq.dashboard",
       "adaptiveIcon": {
-        "backgroundColor": "#E6F4FE",
+        "backgroundColor": "#05060A",
         "foregroundImage": "./assets/android-icon-foreground.png",
         "backgroundImage": "./assets/android-icon-background.png",
         "monochromeImage": "./assets/android-icon-monochrome.png"
@@ -19,10 +30,35 @@
       "predictiveBackGestureEnabled": false
     },
     "web": {
-      "favicon": "./assets/favicon.png"
+      "favicon": "./assets/favicon.png",
+      "name": "SquadHQ",
+      "shortName": "SquadHQ",
+      "themeColor": "#05060A",
+      "backgroundColor": "#05060A"
     },
     "plugins": [
-      "expo-font"
+      "expo-font",
+      [
+        "expo-splash-screen",
+        {
+          "backgroundColor": "#05060A",
+          "image": "./assets/splash-icon.png",
+          "imageWidth": 200,
+          "resizeMode": "contain",
+          "dark": {
+            "backgroundColor": "#05060A",
+            "image": "./assets/splash-icon.png"
+          }
+        }
+      ],
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "usesCleartextTraffic": true
+          }
+        }
+      ]
     ]
   }
 }

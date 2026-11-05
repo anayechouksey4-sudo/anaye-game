@@ -1,0 +1,204 @@
+.hud {
+  --bg: #05060a;
+  --panel: rgba(8, 10, 18, 0.74);
+  --line: rgba(0, 240, 255, 0.35);
+  --cyan: #00f0ff;
+  --magenta: #ff2a6d;
+  --yellow: #f5e663;
+  --green: #39ff14;
+  --text: #d8f7ff;
+  --dim: rgba(216, 247, 255, 0.5);
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  color: var(--text);
+  font-family: 'JetBrains Mono', 'SFMono-Regular', ui-monospace, Menlo, Consolas, monospace;
+  font-size: 12px;
+  letter-spacing: 0.04em;
+  user-select: none;
+  z-index: 10;
+}
+
+.hud-corner-tl,
+.hud-corner-tr,
+.hud-corner-bl,
+.hud-corner-br,
+.hud-top,
+.hud-bottom {
+  position: absolute;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.hud-corner-tl { top: 14px; left: 14px; width: 290px; }
+.hud-corner-tr { top: 14px; right: 14px; width: 300px; align-items: stretch; }
+.hud-corner-bl { bottom: 14px; left: 14px; width: 310px; }
+.hud-corner-br { bottom: 14px; right: 14px; align-items: flex-end; }
+.hud-top { top: 14px; left: 50%; transform: translateX(-50%); align-items: center; }
+.hud-bottom { bottom: 18px; left: 50%; transform: translateX(-50%); align-items: center; }
+
+.hud-panel {
+  position: relative;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  padding: 10px 12px;
+  backdrop-filter: blur(6px);
+  clip-path: polygon(0 0, calc(100% - 12px) 0, 100% 12px, 100% 100%, 12px 100%, 0 calc(100% - 12px));
+  box-shadow: inset 0 0 24px rgba(0, 240, 255, 0.06);
+}
+.hud-panel__title {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-weight: 700;
+  font-size: 11px;
+  letter-spacing: 0.2em;
+  color: var(--cyan);
+  margin-bottom: 8px;
+  text-shadow: 0 0 8px rgba(0, 240, 255, 0.6);
+}
+.hud-dim { color: var(--dim); }
+.hud label { color: var(--dim); font-size: 10px; letter-spacing: 0.14em; }
+
+/* ── Link ───────────────────────────────────────────── */
+.hud-status { display: inline-flex; align-items: center; gap: 6px; font-size: 10px; }
+.hud-status i { width: 8px; height: 8px; border-radius: 50%; background: var(--dim); }
+.hud-status--connected { color: var(--green); }
+.hud-status--connected i { background: var(--green); box-shadow: 0 0 10px var(--green); animation: hud-pulse 1.6s infinite; }
+.hud-status--connecting { color: var(--yellow); }
+.hud-status--connecting i { background: var(--yellow); animation: hud-pulse 0.6s infinite; }
+.hud-status--disconnected { color: var(--magenta); }
+.hud-status--disconnected i { background: var(--magenta); }
+.hud-kv { display: grid; grid-template-columns: 60px 1fr; gap: 3px 8px; margin: 0 0 8px; }
+.hud-kv dt { color: var(--dim); font-size: 10px; letter-spacing: 0.14em; }
+.hud-kv dd { margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hud-link__url { color: var(--cyan); }
+.hud-squad { border-top: 1px dashed var(--line); padding-top: 8px; display: grid; gap: 6px; }
+.hud-squad__item { display: grid; grid-template-columns: 112px 1fr 48px; align-items: center; gap: 8px; }
+.hud-squad__item b { text-align: right; color: var(--yellow); }
+.hud-pips { display: flex; gap: 3px; }
+.hud-pips i { flex: 1; height: 8px; background: rgba(245, 230, 99, 0.15); }
+.hud-pips i.on { background: var(--yellow); box-shadow: 0 0 6px var(--yellow); }
+.hud-balance { position: relative; height: 8px; background: linear-gradient(90deg, rgba(0, 240, 255, 0.35), rgba(255, 255, 255, 0.05) 50%, rgba(255, 42, 109, 0.35)); }
+.hud-balance i { position: absolute; top: -3px; width: 3px; height: 14px; margin-left: -1px; background: #fff; box-shadow: 0 0 6px #fff; }
+
+/* ── Bars ───────────────────────────────────────────── */
+.hud-bar { --fill: 0%; position: relative; height: 8px; background: rgba(255, 255, 255, 0.07); overflow: hidden; }
+.hud-bar::after { content: ''; position: absolute; inset: 0 auto 0 0; width: var(--fill); background: var(--cyan); box-shadow: 0 0 8px var(--cyan); }
+.hud-bar--magenta::after { background: var(--magenta); box-shadow: 0 0 8px var(--magenta); }
+.hud-bar--cyan::after { background: var(--cyan); }
+.hud-bar--speed { width: 260px; height: 6px; }
+.hud-bar--speed::after { background: linear-gradient(90deg, var(--cyan), var(--yellow) 75%, var(--magenta)); }
+/* Centre-zero bar: a marker that sits at --fill (50% = zero). */
+.hud-bar--center::before { content: ''; position: absolute; left: 50%; top: 0; bottom: 0; width: 1px; background: rgba(255, 255, 255, 0.4); }
+.hud-bar--center::after { left: calc(var(--fill) - 2px); width: 4px; background: var(--green); box-shadow: 0 0 8px var(--green); }
+.is-lift .hud-bar--center::after { background: var(--magenta); box-shadow: 0 0 8px var(--magenta); }
+.hud-vbar { --fill: 0%; position: relative; width: 14px; height: 64px; background: rgba(255, 255, 255, 0.07); }
+.hud-vbar::after { content: ''; position: absolute; left: 0; right: 0; bottom: 0; height: var(--fill); }
+.hud-vbar--throttle::after { background: var(--green); box-shadow: 0 0 8px var(--green); }
+.hud-vbar--brake::after { background: var(--magenta); box-shadow: 0 0 8px var(--magenta); }
+
+/* ── Run panel ──────────────────────────────────────── */
+.hud-run { min-width: 360px; text-align: center; }
+.hud-run__track { font-size: 10px; letter-spacing: 0.3em; color: var(--magenta); }
+.hud-run__timer { font-size: 34px; font-weight: 700; color: #fff; text-shadow: 0 0 12px rgba(0, 240, 255, 0.7); font-variant-numeric: tabular-nums; }
+.hud-run__timer.is-finished { color: var(--green); text-shadow: 0 0 14px var(--green); }
+.hud-run__stats { display: flex; justify-content: space-around; gap: 12px; }
+.hud-run__stats div { display: flex; flex-direction: column; align-items: center; }
+.hud-run__stats b { font-size: 14px; color: var(--yellow); font-variant-numeric: tabular-nums; }
+.hud-run__stats b.is-bad { color: var(--magenta); }
+.hud-run__hint { margin-top: 6px; color: var(--green); font-size: 10px; letter-spacing: 0.3em; animation: hud-pulse 1.2s infinite; }
+
+/* ── Speedometer ────────────────────────────────────── */
+.hud-speedo { text-align: center; padding: 8px 18px 10px; }
+.hud-speedo__row { display: flex; align-items: baseline; justify-content: center; gap: 10px; }
+.hud-speedo__value { font-size: 64px; font-weight: 800; line-height: 1; color: #fff; min-width: 3ch; text-align: right; font-variant-numeric: tabular-nums; text-shadow: 0 0 18px rgba(0, 240, 255, 0.8); }
+.hud-speedo__unit { color: var(--cyan); font-size: 12px; letter-spacing: 0.2em; }
+.hud-speedo__gear { color: var(--yellow); font-size: 18px; font-weight: 700; min-width: 3ch; }
+.hud-speedo__est { margin-top: 4px; font-size: 10px; color: var(--dim); letter-spacing: 0.2em; }
+.hud-speedo.is-redline .hud-speedo__value { color: var(--magenta); text-shadow: 0 0 18px var(--magenta); }
+
+/* ── Telemetry ──────────────────────────────────────── */
+.hud-pedals { display: flex; align-items: flex-end; gap: 10px; margin-bottom: 8px; }
+.hud-pedal { display: flex; flex-direction: column; align-items: center; gap: 3px; }
+.hud-wheels { margin-left: auto; display: grid; grid-template-columns: 14px 14px; gap: 22px 18px; padding: 4px 10px; border: 1px dashed var(--line); }
+.hud-wheels i { width: 14px; height: 20px; background: rgba(255, 255, 255, 0.1); border: 1px solid rgba(255, 255, 255, 0.2); }
+.hud-wheels i.is-down { background: rgba(57, 255, 20, 0.6); border-color: var(--green); }
+.hud-wheels i.is-slip { background: var(--magenta); border-color: var(--magenta); box-shadow: 0 0 8px var(--magenta); }
+.hud-tele-row { display: grid; grid-template-columns: 82px 1fr 70px; align-items: center; gap: 8px; margin: 5px 0; position: relative; }
+.hud-tele-row b { text-align: right; font-variant-numeric: tabular-nums; }
+.hud-lift-tag { display: none; position: absolute; right: 74px; top: -9px; font-size: 9px; color: var(--magenta); letter-spacing: 0.2em; }
+.hud-tele-row.is-lift .hud-lift-tag { display: block; }
+.hud-tele-row.is-lift b { color: var(--magenta); }
+.hud-tele-row.is-nose-up { animation: hud-alarm 0.4s infinite; }
+.hud-tele-loads { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 6px; }
+.hud-tele-loads div { display: flex; flex-direction: column; }
+.hud-tele-loads b { font-variant-numeric: tabular-nums; }
+.hud-jump { margin-top: 8px; padding-top: 6px; border-top: 1px dashed var(--line); display: grid; grid-template-columns: 70px auto; gap: 2px 8px; align-items: baseline; }
+.hud-jump span { grid-column: 1 / -1; color: var(--dim); font-size: 10px; }
+.hud-jump--ready b { color: var(--green); }
+.hud-jump--too-slow b { color: var(--yellow); }
+.hud-jump--nose-lift b { color: var(--magenta); }
+
+/* ── Feed ───────────────────────────────────────────── */
+.hud-feed ol { list-style: none; margin: 0; padding: 0; display: grid; gap: 3px; }
+.hud-feed__item { display: grid; grid-template-columns: 62px 1fr; gap: 6px; font-size: 11px; }
+.hud-feed__item time { color: var(--dim); }
+.hud-feed__item span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hud-feed__item em { color: var(--yellow); font-style: normal; }
+.hud-feed__item--controls span { color: var(--cyan); }
+.hud-feed__item--physics span { color: var(--yellow); }
+.hud-feed__item--error span { color: var(--magenta); }
+.hud-feed__item--presence span { color: var(--green); }
+
+/* ── Physics panel ──────────────────────────────────── */
+.hud-physics { pointer-events: auto; display: grid; gap: 8px; }
+.hud-slider { display: grid; gap: 3px; padding: 4px 6px; transition: background 0.3s, box-shadow 0.3s; }
+.hud-slider__head { display: flex; justify-content: space-between; font-size: 11px; }
+.hud-slider__head small { color: var(--dim); }
+.hud-slider input { width: 100%; accent-color: var(--cyan); }
+.hud-slider.is-flash { background: rgba(245, 230, 99, 0.16); box-shadow: inset 2px 0 0 var(--yellow); }
+.hud-slider.is-flash b { color: var(--yellow); text-shadow: 0 0 8px var(--yellow); }
+
+/* ── Buttons / help ─────────────────────────────────── */
+.hud-buttons { display: flex; gap: 6px; pointer-events: auto; }
+.hud-btn {
+  pointer-events: auto;
+  font: inherit;
+  font-size: 10px;
+  letter-spacing: 0.16em;
+  color: var(--cyan);
+  background: rgba(0, 240, 255, 0.08);
+  border: 1px solid var(--line);
+  padding: 6px 10px;
+  cursor: pointer;
+}
+.hud-btn:hover { background: rgba(0, 240, 255, 0.2); color: #fff; }
+.hud-btn--ghost { border: none; background: none; padding: 0 2px; font-size: 12px; }
+.hud-help dl { margin: 0; display: grid; gap: 2px; }
+.hud-help dl div { display: grid; grid-template-columns: 82px 1fr; gap: 8px; }
+.hud-help dt { color: var(--yellow); }
+.hud-help dd { margin: 0; color: var(--dim); }
+
+/* ── Banners ────────────────────────────────────────── */
+.hud-banners { position: absolute; top: 34%; left: 50%; transform: translateX(-50%); display: flex; flex-direction: column; align-items: center; gap: 10px; }
+.hud-banner { opacity: 0; font-size: 22px; font-weight: 800; letter-spacing: 0.25em; padding: 8px 22px; border: 1px solid currentColor; background: rgba(5, 6, 10, 0.7); text-align: center; transition: opacity 0.15s; }
+.hud-banner.is-visible { opacity: 1; }
+.hud-banner small { display: block; margin-top: 4px; font-size: 11px; letter-spacing: 0.2em; color: var(--text); }
+.hud-banner--lift { color: var(--magenta); text-shadow: 0 0 12px var(--magenta); }
+.hud-banner--lift.is-visible { animation: hud-alarm 0.35s infinite; }
+.hud-banner--bad { color: var(--magenta); }
+.hud-banner--good { color: var(--green); font-size: 16px; }
+.hud-banner--info { color: var(--yellow); font-size: 16px; }
+.hud-banner--finish { color: var(--green); font-size: 30px; text-shadow: 0 0 16px var(--green); }
+.hud-banner.is-pop { animation: hud-pop 0.25s ease-out; }
+
+@keyframes hud-pulse { 50% { opacity: 0.35; } }
+@keyframes hud-alarm { 50% { opacity: 0.45; } }
+@keyframes hud-pop { from { transform: scale(1.25); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+
+@media (max-width: 900px) {
+  .hud-corner-bl, .hud-corner-tr .hud-feed, .hud-help { display: none; }
+  .hud-corner-tl { width: 230px; }
+  .hud-run { min-width: 0; }
+}

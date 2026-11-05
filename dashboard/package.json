@@ -1,7 +1,20 @@
 {
-  "name": "dashboard",
+  "name": "squadhq-dashboard",
   "version": "1.0.0",
+  "private": true,
+  "description": "SquadHQ: cyberpunk Expo control panel that tunes the racer live over WebSocket.",
   "main": "index.ts",
+  "scripts": {
+    "start": "expo start",
+    "android": "expo start --android",
+    "ios": "expo start --ios",
+    "web": "expo start --web",
+    "export:web": "expo export --platform web",
+    "export:android": "expo export --platform android",
+    "typecheck": "tsc --noEmit && tsc --noEmit -p test",
+    "test": "tsx --test test/*.test.ts",
+    "doctor": "expo-doctor"
+  },
   "dependencies": {
     "@expo-google-fonts/orbitron": "^0.4.2",
     "@expo-google-fonts/share-tech-mono": "^0.4.1",
@@ -9,11 +22,14 @@
     "@react-native-async-storage/async-storage": "2.2.0",
     "@react-native-community/slider": "5.2.1",
     "expo": "~58.0.23",
+    "expo-build-properties": "~58.0.12",
     "expo-constants": "~58.0.15",
     "expo-font": "~58.0.11",
     "expo-haptics": "~58.0.7",
     "expo-linear-gradient": "~58.0.3",
+    "expo-splash-screen": "~58.0.13",
     "expo-status-bar": "~58.0.4",
+    "expo-system-ui": "~58.0.7",
     "react": "19.3.0",
     "react-dom": "19.3.0",
     "react-native": "0.88.1",
@@ -21,14 +37,9 @@
     "react-native-web": "^0.21.4"
   },
   "devDependencies": {
+    "@types/node": "^22.20.5",
     "@types/react": "~19.3.0",
+    "tsx": "^4.23.15",
     "typescript": "~6.0.3"
-  },
-  "scripts": {
-    "start": "expo start",
-    "android": "expo start --android",
-    "ios": "expo start --ios",
-    "web": "expo start --web"
-  },
-  "private": true
+  }
 }

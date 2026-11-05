@@ -12,7 +12,7 @@
  * Every parameter is read from the store each step, so changes apply on the next step.
  */
 import type { Collider, DynamicRayCastVehicleController, RigidBody, World } from '@dimforge/rapier3d-compat';
-import type * as RapierModule from '@dimforge/rapier3d-compat';
+import type { RapierContext } from '@react-three/rapier';
 import { Quaternion, Vector3 } from 'three';
 import {
   FRONT_BODY_LIFT,
@@ -49,7 +49,7 @@ import {
   type Tuple3,
 } from './vehicleSpec';
 
-type Rapier = typeof RapierModule;
+type Rapier = RapierContext['rapier'];
 
 const IDENTITY_ROTATION = { x: 0, y: 0, z: 0, w: 1 };
 const clamp = (v: number, lo: number, hi: number) => (v < lo ? lo : v > hi ? hi : v);
@@ -249,8 +249,8 @@ export class CarController {
     const v2 = vFwd * vFwd;
     const frontAero = (p.frontDownforce - FRONT_BODY_LIFT) * v2;
     const rearAero = REAR_DOWNFORCE * v2;
-    this.applyVerticalImpulseAt(t, FRONT_AXLE_Z, -frontAero * dt);
-    this.applyVerticalImpulseAt(t, REAR_AXLE_Z, -rearAero * dt);
+    this.applyVerticalImpulseAt(t, FRONT_AXLE_Z, frontAero * dt);
+    this.applyVerticalImpulseAt(t, REAR_AXLE_Z, rearAero * dt);
 
     const speed = vel.length();
     let grounded = 0;

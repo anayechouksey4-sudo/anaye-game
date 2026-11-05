@@ -17,6 +17,18 @@ export default defineConfig({
   preview: { host: true },
   build: {
     target: 'es2022',
-    chunkSizeWarningLimit: 2500,
+    // Rapier ships its WASM inlined as base64 (~2 MB); it gets its own long-cacheable chunk.
+    chunkSizeWarningLimit: 2600,
+    rolldownOptions: {
+      output: {
+        codeSplitting: {
+          groups: [
+            { name: 'rapier', test: /node_modules[\\/]@dimforge/, priority: 3 },
+            { name: 'three', test: /node_modules[\\/](three|three-stdlib|@react-three)[\\/]/, priority: 2 },
+            { name: 'vendor', test: /node_modules/, priority: 1 },
+          ],
+        },
+      },
+    },
   },
 });
