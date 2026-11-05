@@ -39,9 +39,23 @@ export function formatPeers(p: PeerCounts): string {
 
 export function formatTelemetry(t: GameTelemetry): string {
   const best = t.bestMs === null ? '–' : `${(t.bestMs / 1000).toFixed(2)}s`;
-  return (
-    `${t.speedKmh.toFixed(0).padStart(3)} km/h · wheels ${t.wheelsGrounded} · ` +
-    `cp ${t.checkpoint}/${t.totalCheckpoints} · ${(t.elapsedMs / 1000).toFixed(1)}s · ` +
-    `falls ${t.falls}${t.finished ? ' · FINISHED' : ''} · best ${best}`
-  );
+  const parts = [
+    `${t.speedKmh.toFixed(0).padStart(3)} km/h`,
+    `thr ${pct(t.throttle)} brk ${pct(t.brake)}`,
+    `aero F${signed(Math.round(t.frontAeroN))}N R${signed(Math.round(t.rearAeroN))}N`,
+    `wheels ${t.wheelsGrounded}`,
+    `cp ${t.checkpoint}/${t.totalCheckpoints}`,
+    `${(t.elapsedMs / 1000).toFixed(1)}s`,
+    `falls ${t.falls}`,
+    `best ${best}`,
+  ];
+  if (t.noseLift) parts.push('NOSE LIFT');
+  if (t.rearSlip >= 0.05) parts.push(`slip ${t.rearSlip.toFixed(2)}`);
+  if (t.speedTrapKmh !== null) parts.push(`trap ${t.speedTrapKmh.toFixed(0)} km/h`);
+  if (t.finished) parts.push('FINISHED');
+  return parts.join(' · ');
+}
+
+function pct(fraction: number): string {
+  return `${Math.round(fraction * 100)}%`.padStart(4);
 }
