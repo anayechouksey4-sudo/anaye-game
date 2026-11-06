@@ -9,7 +9,7 @@ A voxel racing game you tune live from your phone.
 
 ## Play online
 
-**https://anayechouksey4-sudo.github.io/make-an-app-like-claude-and-chatgpt-mixed/**
+**https://anayechouksey4-sudo.github.io/anaye-game/**
 
 GitHub Pages serves the game from this branch's [`docs/`](docs/) folder. One-time setup in the repository: Settings → Pages → Build and deployment → Source **Deploy from a branch** → Branch `claude/racing-game-physics-dashboard-fzyqvv`, folder **/docs** → Save, then wait a minute or two. The hosted copy plays offline (an https page can't reach a plain `ws://` relay), so tune the car with ☰ MENU → PHYSICS; `?ws=wss://…` still connects a relay that has TLS. After a game change, rebuild it with `node scripts/build-pages.mjs` and commit `docs/`.
 
@@ -66,13 +66,13 @@ Press Ctrl+C to stop all three services. Closing the terminal (or the Termux ses
 
 ```bash
 pkg update && pkg install nodejs-lts git
-git clone --depth 1 -b claude/racing-game-physics-dashboard-fzyqvv https://github.com/anayechouksey4-sudo/make-an-app-like-claude-and-chatgpt-mixed.git
-cd make-an-app-like-claude-and-chatgpt-mixed
+git clone --depth 1 -b claude/racing-game-physics-dashboard-fzyqvv https://github.com/anayechouksey4-sudo/anaye-game.git
+cd anaye-game
 termux-wake-lock
 npm run dev:all
 ```
 
-Later, to update and start again: `cd ~/make-an-app-like-claude-and-chatgpt-mixed && git pull && npm run dev:all`.
+Later, to update and start again: `cd ~/anaye-game && git pull && npm run dev:all`.
 
 The launcher handles the parts of Termux that usually break Node dev servers:
 
