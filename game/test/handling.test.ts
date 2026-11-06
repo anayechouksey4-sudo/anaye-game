@@ -126,8 +126,8 @@ test('protocol estimates use the same engine function as the controller: top spe
     const lo2 = estimateFrontLiftOffKmh(p, car);
     if (lo !== null && lo2 !== null && lo > 0) assert.ok(lo2 <= lo + 1e-6, `lift-off ${lo2} > legacy ${lo}`);
   }
-  // Without an engine model the legacy formulas are untouched.
-  const boosted = CAR_CLASSES.muscle;
+  // Without an engine model the legacy formulas are untouched (a boosted sample: every class has an engine now).
+  const boosted: CarClass = { ...CAR_CLASSES.hypercar, launchBoost: 1.8, launchFadeKmh: 90, engine: undefined };
   const p = mapSquadControlsToPhysics({ frontWingAero: 50, engineTier: 3, chassisBalance: 0 }, boosted);
   close(driveForceAtSpeedN(p, 0, boosted), driveForceN(p, boosted) * boosted.launchBoost);
 });

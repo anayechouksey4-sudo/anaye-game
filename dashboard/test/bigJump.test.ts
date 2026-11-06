@@ -106,12 +106,10 @@ describe('big-jump hints match their verdict', () => {
       ['hypercar', '12/4/0', 3.79], // nose up at 171.5 km/h, off the track
       ['rally', '5/4/30', 2.51], // nose up at 163.4 (v2: 164.6)
       ['muscle', '18/4/36', 6.5], // nose up at 163.9
+      ['formula', '1/4/-40', 2.0], // nose up at 183.6
       ['hypercar', '27/4/50', 13.44], // nose up at 166.6: the largest gap that lifted
       ['muscle', '20/4/40', 8.7], // nose up at 163.9
-      // Formula re-pinned for its Handling v2 aero (shared/cars/formula.ts: 4.0 × wing − 1.0 body lift, rear 1.4,
-      // μ 1.4, sized to the plan's 1.6 g / 2.4 g lateral row): gap 4.6 → 2.35; the v2 sim still lifts at 182.2 and
-      // runs off. Its 1/4/−40 (gap 2.0 before) now has lift-off 33.7 km/h above top speed: planted list below.
-      ['formula', '6/4/20', 2.35], // fell before the lip
+      ['formula', '6/4/20', 4.6], // fell before the lip
     ];
     // Rally 17/5/50 ran off at the kink on both trees (v2: no nose-lift flag before it left the road), but its v2
     // estimate puts lift-off 12.6 km/h above top speed, past the rally's 10 km/h reserve, so the hint no longer
@@ -145,8 +143,7 @@ describe('big-jump hints match their verdict', () => {
       ['hypercar', '6/4/-40'], // gap 14.9, lip 174.6, short
       ['muscle', '11/4/0'], // gap 14.9
       ['rally', '1/4/0'], // gap 14.5
-      ['formula', '5/4/0'], // gap 20.6 (13.2 before the v2 aero); sim: short at 183.4
-      ['formula', '1/4/-40'], // gap 33.7 (2.0 before the v2 aero, when it lifted at 183.6); v2 sim: no lift, clears from 188.3
+      ['formula', '5/4/0'], // gap 13.2
       ['hypercar', '50/3/0'], // never lifts
     ];
     for (const [car, setting] of planted) {
@@ -221,15 +218,12 @@ describe('big-jump hints match their verdict', () => {
     }
     // rally 335 (360 before Handling v2: its geared engine lifts the nose a little later above top speed, so the
     // window where "less wing lifts the nose" is narrower) + muscle 108 on chaos (the lift-off window, then NOSE
-    // LIFT while too slow) + kart 29 on the Isles (its only reachable jump, where its JUMP
-    // ATTEMPT 10/T5/−30 is READY; 37 before its single-speed v2 curve — 98 % of the top-end torque at the launch
-    // floor, 104 % at 80 % of the redline — moved a few low-wing / rearward lift-off estimates past the 8 km/h
-    // reserve). The four newer road cars add none: their presets sit inside wide READY windows (the coupe's v2
-    // engine briefly added 22 at its old 1.5 μ; at 1.27 μ the grip cap in the lift-off estimate puts them back).
+    // LIFT while too slow) + kart 37 on the Isles (its only reachable jump, where its JUMP ATTEMPT 10/T5/−30 is
+    // READY). The four newer road cars add none: their presets sit inside wide READY windows.
     assert.equal(fixesByCar.rally, 335, 'rally on chaos');
     assert.equal(fixesByCar.muscle, 108, 'muscle on chaos');
-    assert.equal(fixesByCar.kart, 29, 'kart on the Isles');
-    assert.equal(topTierFixes, 335 + 108 + 29, 'rally + muscle on chaos, kart on the Isles');
+    assert.equal(fixesByCar.kart, 37, 'kart on the Isles');
+    assert.equal(topTierFixes, 335 + 108 + 37, 'rally + muscle on chaos, kart on the Isles');
   });
 
   it("tells the Dune Goblin player that no setup reaches either jump, with the car's best", () => {
