@@ -7,6 +7,12 @@ A voxel racing game you tune live from your phone.
   <img src="docs/dashboard.png" alt="SquadHQ dashboard with the Front Wing Aero and Engine Tier sliders" width="28%">
 </p>
 
+## Play online
+
+**https://anayechouksey4-sudo.github.io/make-an-app-like-claude-and-chatgpt-mixed/**
+
+GitHub Pages serves the game from this branch's [`docs/`](docs/) folder. One-time setup in the repository: Settings → Pages → Build and deployment → Source **Deploy from a branch** → Branch `claude/racing-game-physics-dashboard-fzyqvv`, folder **/docs** → Save, then wait a minute or two. The hosted copy plays offline (an https page can't reach a plain `ws://` relay), so tune the car with ☰ MENU → PHYSICS; `?ws=wss://…` still connects a relay that has TLS. After a game change, rebuild it with `node scripts/build-pages.mjs` and commit `docs/`.
+
 | Folder | What it is | Stack |
 | --- | --- | --- |
 | [`game/`](game/README.md) | 3D racer: voxel hypercar, the **GamerFleet Chaos Track** over a bottomless void, race-car aero and drivetrain physics | Vite, React Three Fiber, @react-three/rapier |

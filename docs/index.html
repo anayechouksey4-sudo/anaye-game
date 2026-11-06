@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="theme-color" content="#05060A" />
+    <meta name="description" content="GamerFleet Chaos Track: a voxel hypercar racer tuned live from the SquadHQ dashboard." />
+    <link rel="icon" href="./favicon.svg" type="image/svg+xml" />
+    <title>GamerFleet Racer</title>
+    <script>
+      // Hosted copy: play offline unless the address names a relay (?ws=…). ☰ MENU → PHYSICS tunes the car.
+      (function () {
+        try {
+          if (/[?&]ws=/.test(location.search)) return;
+          var url = new URL(location.href);
+          url.searchParams.set('ws', 'off');
+          history.replaceState(null, '', url.toString());
+        } catch (e) {
+          /* no history access: the game shows OFFLINE MODE and keeps playing */
+        }
+      })();
+    </script>
+    <script type="module" crossorigin src="./assets/index-W-BoQXy-.js"></script>
+    <link rel="modulepreload" crossorigin href="./assets/rolldown-runtime-XKyaHtl9.js">
+    <link rel="modulepreload" crossorigin href="./assets/rapier-bS7P-_9I.js">
+    <link rel="modulepreload" crossorigin href="./assets/three-CNaA4S55.js">
+    <link rel="modulepreload" crossorigin href="./assets/vendor-hSmng2Bw.js">
+    <link rel="stylesheet" crossorigin href="./assets/index-7CPzChKe.css">
+  </head>
+  <body>
+    <div id="root"></div>
+  </body>
+</html>
