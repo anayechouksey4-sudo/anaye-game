@@ -25,7 +25,12 @@ export function resetHazardClock(): void {
 export function HazardClockDriver() {
   useEffect(() => {
     resetHazardClock();
-    return onGameEvent('restart', resetHazardClock);
+    const off = onGameEvent('restart', resetHazardClock);
+    return () => {
+      off();
+      // The next map starts its hazards from t = 0.
+      resetHazardClock();
+    };
   }, []);
   useAfterPhysicsStep(() => {
     hazardClock.steps += 1;

@@ -4,6 +4,7 @@ import {
   CAR_PHYSICS_SPECS,
   describeChassisBalance,
   type CarPhysicsParams,
+  type GameSessionInfo,
   type GameTelemetry,
   type PeerCounts,
   type SquadControls,
@@ -30,6 +31,15 @@ export function formatPhysics(p: Partial<CarPhysicsParams>): string {
     const unit = CAR_PHYSICS_SPECS[key].unit;
     parts.push(`${key} ${Number(value.toFixed(3))}${unit ? ` ${unit}` : ''}`);
   }
+  return parts.join(' · ');
+}
+
+/** `car rally · map chaos · jump 183 km/h` from a game:state's optional session fields ('' if none). */
+export function formatSession(s: GameSessionInfo): string {
+  const parts: string[] = [];
+  if (s.carId !== undefined) parts.push(`car ${s.carId}`);
+  if (s.trackId !== undefined) parts.push(`map ${s.trackId}`);
+  if (s.bigJumpKmh !== undefined) parts.push(s.bigJumpKmh === null ? 'no big jump' : `jump ${s.bigJumpKmh} km/h`);
   return parts.join(' · ');
 }
 

@@ -9,7 +9,7 @@ A voxel racing game you tune live from your phone.
 
 | Folder | What it is | Stack |
 | --- | --- | --- |
-| [`game/`](game/README.md) | 3D racer: voxel hypercar, the **GamerFleet Chaos Track** over a bottomless void, F1-style aero and drivetrain physics | Vite, React Three Fiber, @react-three/rapier |
+| [`game/`](game/README.md) | 3D racer: voxel hypercar, the **GamerFleet Chaos Track** over a bottomless void, race-car aero and drivetrain physics | Vite, React Three Fiber, @react-three/rapier |
 | [`dashboard/`](dashboard/README.md) | Cyberpunk control panel with **Front Wing Aero**, **Engine Tier** and **Chassis Balance** sliders, big-jump readiness and live telemetry | Expo, React Native |
 | [`server/`](server/README.md) | Local WebSocket relay on port 8787 that connects the two | Node, ws |
 | [`shared/protocol.ts`](shared/protocol.ts) | Wire protocol and the slider → physics mapping used by all three | TypeScript, no dependencies |

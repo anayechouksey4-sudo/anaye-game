@@ -149,7 +149,7 @@ export const TelemetryPanel = memo(function TelemetryPanel() {
   );
 
   return (
-    <Panel title="F1 TELEMETRY" tag="07" accent={colors.magenta} right={right} testID="telemetry-panel">
+    <Panel title="RACE TELEMETRY" tag="07" accent={colors.magenta} right={right} testID="telemetry-panel">
       {linked && telemetry ? (
         <View style={stale ? styles.dim : null}>
           <Readouts t={telemetry} />

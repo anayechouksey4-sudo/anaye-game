@@ -12,6 +12,7 @@ import { COLORS, SLIDERS } from '../config';
 import { chaosRuntime, register, type ShutterProbe } from '../chaosRuntime';
 import { hazardClock } from '../hazardClock';
 import type { ShutterSpec, SliderSegment } from '../plan';
+import { CHAOS_PALETTE, type TrackPalette } from '../recipe';
 import { createVoxelMaterial, VoxelBuilder } from '../voxel';
 
 const smootherstep = (x: number) => {
@@ -36,12 +37,12 @@ function innerEdge(spec: ShutterSpec, closure: number): number {
   return (1 - closure) * (spec.halfSpan + 0.6);
 }
 
-function buildWallGeometry(spec: ShutterSpec, side: 1 | -1): BufferGeometry {
+function buildWallGeometry(spec: ShutterSpec, side: 1 | -1, palette: TrackPalette): BufferGeometry {
   const L = spec.wallLength;
   const H = spec.height;
   const T = spec.thickness;
   const v = new VoxelBuilder();
-  v.box([0, 0, 0], [L, H, T], '#1b1724', 0);
+  v.box([0, 0, 0], [L, H, T], palette.hazard.wall, 0);
   // Diagonal-ish hazard blocks on both faces.
   const n = Math.round(L / 1.2);
   for (let i = 0; i < n; i++) {
@@ -51,15 +52,15 @@ function buildWallGeometry(spec: ShutterSpec, side: 1 | -1): BufferGeometry {
       v.box([x, -H * 0.12, fz * (T / 2 + 0.02)], [L / n - 0.04, H * 0.42, 0.06], yellow ? COLORS.yellow : COLORS.black, yellow ? 0.45 : 0);
     }
   }
-  v.box([0, H / 2 + 0.06, 0], [L, 0.12, T + 0.04], COLORS.magenta, 2.8);
+  v.box([0, H / 2 + 0.06, 0], [L, 0.12, T + 0.04], palette.glow.magenta, 2.8);
   // Leading edge (the face that meets the other wall) glows bright so the closing gap is readable.
-  v.box([-side * (L / 2 + 0.04), 0, 0], [0.08, H, T + 0.04], COLORS.magenta, 3.2);
+  v.box([-side * (L / 2 + 0.04), 0, 0], [0.08, H, T + 0.04], palette.glow.magenta, 3.2);
   return v.build();
 }
 
-function Wall({ spec, side }: { spec: ShutterSpec; side: 1 | -1 }) {
+function Wall({ spec, side, palette }: { spec: ShutterSpec; side: 1 | -1; palette: TrackPalette }) {
   const ref = useRef<RapierRigidBody>(null);
-  const geometry = useMemo(() => buildWallGeometry(spec, side), [spec, side]);
+  const geometry = useMemo(() => buildWallGeometry(spec, side, palette), [spec, side, palette]);
   useEffect(() => () => geometry.dispose(), [geometry]);
   const material = useMemo(() => createVoxelMaterial({ roughness: 0.5, metalness: 0.3 }), []);
   useEffect(() => () => material.dispose(), [material]);
@@ -82,7 +83,7 @@ function Wall({ spec, side }: { spec: ShutterSpec; side: 1 | -1 }) {
   );
 }
 
-export function SlidingWalls({ segment }: { segment: SliderSegment }) {
+export function SlidingWalls({ segment, palette = CHAOS_PALETTE }: { segment: SliderSegment; palette?: TrackPalette }) {
   useEffect(
     () =>
       register(chaosRuntime.shutterSources, {
@@ -98,8 +99,8 @@ export function SlidingWalls({ segment }: { segment: SliderSegment }) {
     <group name={segment.id}>
       {segment.shutters.map((s) => (
         <group key={s.id}>
-          <Wall spec={s} side={1} />
-          <Wall spec={s} side={-1} />
+          <Wall spec={s} side={1} palette={palette} />
+          <Wall spec={s} side={-1} palette={palette} />
         </group>
       ))}
     </group>

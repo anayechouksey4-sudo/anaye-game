@@ -2,6 +2,7 @@ import { createContext, useContext, type ReactNode } from 'react';
 
 import { useStore, type Store } from '../state/store';
 import type { ConnectionState, ControlsState, GameLinkState, SquadController, TelemetryState } from './controller';
+import type { PlaySession } from './session';
 
 interface SquadContextValue {
   controller: SquadController;
@@ -32,3 +33,8 @@ export const useControls = <S,>(selector: (s: ControlsState) => S): S => useSlic
 export const useConnection = <S,>(selector: (s: ConnectionState) => S): S => useSlice((c) => c.connection, selector);
 export const useGameLink = <S,>(selector: (s: GameLinkState) => S): S => useSlice((c) => c.game, selector);
 export const useTelemetry = <S,>(selector: (s: TelemetryState) => S): S => useSlice((c) => c.telemetry, selector);
+
+const selectSession = (s: GameLinkState): PlaySession => s.session;
+
+/** The car and map every preview is for (same reference until the game reports a change). */
+export const usePlaySession = (): PlaySession => useGameLink(selectSession);

@@ -2,21 +2,25 @@ import { useMemo, useRef, useState } from 'react';
 import { assessBigJump } from '@shared/protocol';
 import { carRuntime } from '../car/runtime';
 import { useGameStore } from '../state/store';
+import { bigJumpKmhOf } from '../track/catalog';
 import { formatKiloNewton, setFill, setText, toggleClass, useRafLoop } from './hudUtils';
 
 /** Scale for the aero bars: ±this many newtons fills the bar. */
 const AERO_FULL_SCALE = 15000;
 
-/** Only this line depends on the physics params, so a 30 Hz slider drag re-renders just it. */
-function JumpVerdict() {
+/** Only this line depends on the physics params, so a 30 Hz slider drag re-renders just it. Hidden on maps without a big jump. */
+export function JumpVerdict() {
   const physics = useGameStore((s) => s.physics);
-  const jump = useMemo(() => assessBigJump(physics), [physics]);
+  const carId = useGameStore((s) => s.carId);
+  const requiredKmh = useGameStore((s) => bigJumpKmhOf(s.trackLayout));
+  const jump = useMemo(() => (requiredKmh === null ? null : assessBigJump(physics, carId, requiredKmh)), [physics, carId, requiredKmh]);
+  if (!jump) return null;
   return (
     <div className={`hud-jump hud-jump--${jump.verdict.replace(' ', '-').toLowerCase()}`} title="Static estimate from shared/protocol.ts">
       <label>BIG JUMP</label>
       <b>{jump.verdict}</b>
       <span>
-        top {Math.round(jump.topSpeedKmh)} · lift {jump.liftOffKmh === null ? 'never' : Math.round(jump.liftOffKmh)} · need {jump.requiredKmh}
+        top {Math.round(jump.topSpeedKmh)} · lift {jump.liftOffKmh === null ? 'never' : Math.round(jump.liftOffKmh)} · need {Math.round(jump.requiredKmh)}
       </span>
     </div>
   );
@@ -70,7 +74,7 @@ export function TelemetryPanel({ compact = false }: { compact?: boolean }) {
   if (compact && !expanded) {
     return (
       <button type="button" className="hud-panel hud-chip hud-telemetry" data-testid="telemetry-panel" onClick={() => setExpanded(true)} aria-expanded={false}>
-        <span className="hud-chip__label">F1 TELEMETRY</span>
+        <span className="hud-chip__label">RACE TELEMETRY</span>
         <span className="hud-chip__more" aria-hidden="true">
           ▾
         </span>
@@ -81,7 +85,7 @@ export function TelemetryPanel({ compact = false }: { compact?: boolean }) {
   return (
     <div className={`hud-panel hud-telemetry${compact ? ' is-expanded' : ''}`} data-testid="telemetry-panel">
       <div className="hud-panel__title">
-        F1 TELEMETRY
+        RACE TELEMETRY
         {compact && (
           <button type="button" className="hud-btn hud-btn--ghost" onClick={() => setExpanded(false)} aria-label="Collapse telemetry">
             ▴

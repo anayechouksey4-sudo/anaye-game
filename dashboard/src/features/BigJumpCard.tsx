@@ -1,17 +1,21 @@
 import { memo, useMemo } from 'react';
 import { StyleSheet, View } from 'react-native';
 
-import { BIG_JUMP_LIP_KMH, assessBigJump, mapSquadControlsToPhysics, type BigJumpAssessment } from '../../../shared/protocol';
-import { formatKmh, formatSigned } from '../lib/format';
-import { useControls, useTelemetry } from '../squad/SquadContext';
+import type { BigJumpAssessment, CarClass } from '../../../shared/protocol';
+import { formatKmh, formatNumber, formatSigned } from '../lib/format';
+import { bigJumpHint, judgeSpeedTrap, landingSpeedFor, speedTrapNote } from '../squad/bigJump';
+import { BIG_JUMP_MAPS, describeMap } from '../squad/garage';
+import { previewSetup, type PlaySession } from '../squad/session';
+import { useControls, usePlaySession, useTelemetry } from '../squad/SquadContext';
 import { alpha, colors, glow } from '../theme';
 import { Panel } from '../ui/Panel';
 import { Txt } from '../ui/Txt';
+import { SessionLine } from './SessionInfo';
 
-const VERDICT_LOOK: Record<BigJumpAssessment['verdict'], { color: string; hint: string }> = {
-  READY: { color: colors.green, hint: 'Carries lip speed with the nose planted. Send it.' },
-  'TOO SLOW': { color: colors.yellow, hint: 'Not enough top speed: raise Engine Tier or trim the front wing (less drag).' },
-  'NOSE LIFT': { color: colors.magenta, hint: 'Front lifts before the lip: add front wing or shift Chassis Balance forward.' },
+const VERDICT_COLOR: Record<BigJumpAssessment['verdict'], string> = {
+  READY: colors.green,
+  'TOO SLOW': colors.yellow,
+  'NOSE LIFT': colors.magenta,
 };
 
 interface Marker {
@@ -58,50 +62,86 @@ function SpeedGauge({ topSpeed, markers, ready }: { topSpeed: number; markers: M
   );
 }
 
-function SpeedTrap() {
+/**
+ * The game's measured lip speed vs the lip speed that actually lands this map's jump with this car
+ * (measured in the sim; see squad/bigJump.ts landingSpeedFor), not vs the estimate's target.
+ */
+function SpeedTrap({ session }: { session: PlaySession }) {
   const trap = useTelemetry((s) => s.telemetry?.speedTrapKmh ?? null);
+  const landing = landingSpeedFor(session);
+  if (!landing || session.bigJumpKmh === null) return null;
   if (trap === null) {
     return <Txt style={styles.trapIdle}>SPEED TRAP · waiting for the first run at the lip</Txt>;
   }
-  const margin = trap - BIG_JUMP_LIP_KMH;
-  const cleared = margin >= 0;
-  const color = cleared ? colors.green : colors.magenta;
+  const reading = judgeSpeedTrap(trap, landing);
+  const color = reading.cleared ? colors.green : colors.magenta;
   return (
     <View style={[styles.trap, { borderColor: alpha(color, 0.5) }]} testID="speed-trap">
       <Txt style={styles.k}>LAST LIP SPEED (GAME)</Txt>
       <View style={styles.trapRow}>
         <Txt font="display" style={[styles.trapValue, { color }, glow(color, 10)]} testID="speed-trap-value">
-          {`${formatKmh(trap)} KM/H`}
+          {`${formatNumber(trap, 1)} KM/H`}
         </Txt>
-        <Txt font="display" style={[styles.trapVerdict, { color }]}>
-          {cleared ? `CLEARED ${formatSigned(margin)}` : `SHORT ${formatSigned(margin)}`}
+        <Txt font="display" style={[styles.trapVerdict, { color }]} testID="speed-trap-verdict">
+          {reading.label}
         </Txt>
       </View>
-      <Txt style={styles.sub}>{`required ${BIG_JUMP_LIP_KMH} km/h at the lip`}</Txt>
+      <Txt style={styles.sub} testID="speed-trap-note">
+        {speedTrapNote(landing, session.bigJumpKmh, session.carId)}
+      </Txt>
     </View>
   );
 }
 
-export const BigJumpCard = memo(function BigJumpCard() {
-  const values = useControls((s) => s.values);
-  const jump = useMemo(() => assessBigJump(mapSquadControlsToPhysics(values)), [values]);
-  const look = VERDICT_LOOK[jump.verdict];
+/** The current map has no speed-gated jump: no verdict, just the speeds and where to find a jump. */
+function NoJump({ topSpeedKmh, liftOffKmh, mapName }: { topSpeedKmh: number; liftOffKmh: number | null; mapName: string }) {
+  const where = BIG_JUMP_MAPS.map((m) => `${m.name} (${m.bigJumpKmh} km/h lip)`).join(' or ');
+  return (
+    <>
+      <Txt font="displayBlack" style={[styles.verdict, styles.noJumpVerdict]} testID="jump-verdict">
+        NO BIG JUMP
+      </Txt>
+      <Txt style={styles.noJumpText} testID="jump-none">
+        {`${mapName} has no speed-gated jump, so there is no verdict here. To test a jump setup, pick ${where} in the game's ☰ menu.`}
+      </Txt>
+      <View style={styles.statsRow}>
+        <View style={styles.statCell}>
+          <Txt style={styles.k}>EST. TOP SPEED</Txt>
+          <Txt style={styles.v} testID="jump-speeds">{`${formatKmh(topSpeedKmh)} km/h`}</Txt>
+        </View>
+        <View style={styles.statCell}>
+          <Txt style={styles.k}>NOSE LIFT</Txt>
+          <Txt style={[styles.v, { color: liftOffKmh === null ? colors.green : colors.text }]} testID="jump-lift">
+            {liftOffKmh === null ? 'NEVER' : `${formatKmh(liftOffKmh)} km/h`}
+          </Txt>
+        </View>
+      </View>
+    </>
+  );
+}
 
-  const markers: Marker[] = [{ kmh: jump.requiredKmh, label: `LIP ${jump.requiredKmh}`, color: colors.yellow }];
+function Verdict({ jump, lipKmh, car, session }: { jump: BigJumpAssessment; lipKmh: number; car: Readonly<CarClass>; session: PlaySession }) {
+  const color = VERDICT_COLOR[jump.verdict];
+  const scaled = Math.abs(jump.requiredKmh - lipKmh) >= 0.5;
+  const markers: Marker[] = [
+    { kmh: jump.requiredKmh, label: `${scaled ? 'NEED' : 'LIP'} ${formatKmh(jump.requiredKmh)}`, color: colors.yellow },
+  ];
   if (jump.liftOffKmh !== null) {
     markers.push({ kmh: jump.liftOffKmh, label: `LIFT ${formatKmh(jump.liftOffKmh)}`, color: colors.magenta, below: true });
   }
-
   return (
-    <Panel title="BIG JUMP READINESS" tag="06" accent={look.color} testID="big-jump">
-      <Txt font="displayBlack" style={[styles.verdict, { color: look.color }, glow(look.color, 14)]} testID="jump-verdict">
+    <>
+      <Txt font="displayBlack" style={[styles.verdict, { color }, glow(color, 14)]} testID="jump-verdict">
         {jump.verdict}
       </Txt>
       <View style={styles.statsRow}>
         <View style={styles.statCell}>
           <Txt style={styles.k}>EST. TOP / NEEDED</Txt>
           <Txt style={styles.v} testID="jump-speeds">
-            {`${formatKmh(jump.topSpeedKmh)} / ${jump.requiredKmh} km/h`}
+            {`${formatKmh(jump.topSpeedKmh)} / ${formatKmh(jump.requiredKmh)} km/h`}
+          </Txt>
+          <Txt style={styles.sub} testID="jump-lip">
+            {`map lip ${formatKmh(lipKmh)} km/h${scaled ? ` · ${formatSigned(jump.requiredKmh - lipKmh)} for this car` : ''}`}
           </Txt>
         </View>
         <View style={styles.statCell}>
@@ -112,8 +152,28 @@ export const BigJumpCard = memo(function BigJumpCard() {
         </View>
       </View>
       <SpeedGauge topSpeed={jump.topSpeedKmh} markers={markers} ready={jump.ready} />
-      <Txt style={[styles.hint, { color: look.color }]}>{look.hint}</Txt>
-      <SpeedTrap />
+      <Txt style={[styles.hint, { color }]} testID="jump-hint">
+        {bigJumpHint(jump, car)}
+      </Txt>
+      <SpeedTrap session={session} />
+    </>
+  );
+}
+
+export const BigJumpCard = memo(function BigJumpCard() {
+  const values = useControls((s) => s.values);
+  const session = usePlaySession();
+  const preview = useMemo(() => previewSetup(values, session), [values, session]);
+  const accent = preview.jump ? VERDICT_COLOR[preview.jump.verdict] : colors.cyan;
+
+  return (
+    <Panel title="BIG JUMP READINESS" tag="06" accent={accent} testID="big-jump">
+      <SessionLine testID="jump-session" />
+      {preview.jump && session.bigJumpKmh !== null ? (
+        <Verdict jump={preview.jump} lipKmh={session.bigJumpKmh} car={preview.car} session={session} />
+      ) : (
+        <NoJump topSpeedKmh={preview.topSpeedKmh} liftOffKmh={preview.liftOffKmh} mapName={describeMap(session.trackId).name} />
+      )}
     </Panel>
   );
 });
@@ -123,6 +183,17 @@ const styles = StyleSheet.create({
     fontSize: 34,
     lineHeight: 42,
     letterSpacing: 3,
+  },
+  noJumpVerdict: {
+    fontSize: 28,
+    lineHeight: 36,
+    color: colors.textDim,
+  },
+  noJumpText: {
+    marginTop: 2,
+    fontSize: 12,
+    lineHeight: 17,
+    color: colors.textDim,
   },
   statsRow: {
     flexDirection: 'row',

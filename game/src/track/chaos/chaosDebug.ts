@@ -1,14 +1,18 @@
 /**
- * `window.__CHAOS__` — scripting surface for the chaos track (tests, calibration, console).
- * Installed by <ChaosTrack/> while mounted. Read-only apart from `generate` (pure).
+ * `window.__CHAOS__` — scripting surface for the generated maps (the chaos track and every map
+ * in track/maps/): tests, calibration, console. Installed by <GeneratedTrack/> while mounted and
+ * removed on unmount. Read-only apart from `generate` (pure).
  */
 import { useEffect } from 'react';
 import { useThree } from '@react-three/fiber';
 import { chaosRuntime, collect, type CollapseRecord, type PendulumProbe, type ShutterProbe, type TileProbe } from './chaosRuntime';
 import { hazardClock } from './hazardClock';
-import { centerXAt, describePlan, generateChaosTrack, type ChaosTrackPlan } from './plan';
+import { centerXAt, describePlan, generateTrack, type ChaosTrackPlan } from './plan';
+import type { TrackRecipe } from './recipe';
 
 export interface ChaosDebugHandle {
+  /** Map id of the mounted recipe ('chaos', 'ribbon', …). */
+  map: string;
   seed: number;
   /** Segment list, checkpoints, finish, big-jump lip (JSON-friendly). */
   describe(): ReturnType<typeof describePlan>;
@@ -21,7 +25,7 @@ export interface ChaosDebugHandle {
   pendulums(): PendulumProbe[];
   shutters(): ShutterProbe[];
   hazardTime(): number;
-  /** Generate (without mounting) the plan for any seed — for determinism checks. */
+  /** Generate (without mounting) this map's plan for any seed — for determinism checks. */
   generate(seed: number): ReturnType<typeof describePlan>;
   /** Override the pendulum hinge-drive gains (1/s², 1/s, rad/s²) for calibration. */
   setPendulumDrive(stiffness: number, damping: number, maxAccel?: number): void;
@@ -35,10 +39,11 @@ declare global {
   }
 }
 
-export function useChaosDebugHandle(plan: ChaosTrackPlan): void {
+export function useChaosDebugHandle(plan: ChaosTrackPlan, recipe: TrackRecipe): void {
   const gl = useThree((s) => s.gl);
   useEffect(() => {
     const handle: ChaosDebugHandle = {
+      map: recipe.id,
       seed: plan.seed,
       describe: () => describePlan(plan),
       plan: () => plan,
@@ -48,7 +53,7 @@ export function useChaosDebugHandle(plan: ChaosTrackPlan): void {
       pendulums: () => collect(chaosRuntime.pendulumSources),
       shutters: () => collect(chaosRuntime.shutterSources),
       hazardTime: () => hazardClock.time,
-      generate: (seed) => describePlan(generateChaosTrack(seed)),
+      generate: (seed) => describePlan(generateTrack(recipe, seed)),
       setPendulumDrive: (stiffness, damping, maxAccel) => {
         const drive = chaosRuntime.pendulumDrive;
         drive.stiffness = stiffness;
@@ -66,5 +71,5 @@ export function useChaosDebugHandle(plan: ChaosTrackPlan): void {
     return () => {
       if (window.__CHAOS__ === handle) delete window.__CHAOS__;
     };
-  }, [plan, gl]);
+  }, [plan, recipe, gl]);
 }

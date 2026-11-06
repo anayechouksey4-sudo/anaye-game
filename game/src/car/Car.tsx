@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 import type { Group } from 'three';
 import {
   CuboidCollider,
@@ -11,42 +11,51 @@ import {
 } from '@react-three/rapier';
 import { PHYSICS_DT } from '../config';
 import { emitGameEvent, onGameEvent } from '../game/events';
+import { useSelection } from '../state/selection';
 import { gameState } from '../state/store';
 import type { Vec3 } from '../track/types';
 import { carDebug } from './carDebug';
+import { resolveCarId } from './catalog';
 import { CarController, yawToQuaternion } from './carController';
 import { CarModel } from './model/CarModel';
 import { carRuntime } from './runtime';
 import { TireSmoke } from './smoke/TireSmoke';
-import { CHASSIS_COLLIDER, RIDE_HEIGHT, WHEELS } from './vehicleSpec';
+import { getVehicleSpec } from './vehicleSpec';
 
 interface CarProps {
   spawn: { position: Vec3; yaw: number };
 }
 
 /**
- * The player car: a dynamic chassis + Rapier raycast vehicle. Mounted once per track (keyed by
- * track id) and never re-rendered — all live changes flow through the store/runtime.
+ * The player car: a dynamic chassis + Rapier raycast vehicle of the selected class
+ * (useSelection → carId). Mounted once per track + car (App keys it by both, so picking another
+ * car or map remounts it at the spawn) and never re-rendered — live changes flow through the
+ * store/runtime.
  */
 export function Car({ spawn }: CarProps) {
   const { world, rapier } = useRapier();
+  const carId = resolveCarId(useSelection((s) => s.carId));
+  // App remounts the car on a car change, so the spec is fixed for this instance's lifetime.
+  const spec = useMemo(() => getVehicleSpec(carId), [carId]);
   const bodyRef = useRef<RapierRigidBody>(null);
   const colliderRef = useRef<RapierCollider>(null);
   const chassisRef = useRef<Group>(null);
   const controllerRef = useRef<CarController | null>(null);
   // Initial transform only; later moves are imperative (teleport) so props never fight the sim.
   const initial = useRef({
-    position: [spawn.position[0], spawn.position[1] + RIDE_HEIGHT + 0.12, spawn.position[2]] as Vec3,
+    position: [spawn.position[0], spawn.position[1] + spec.rideHeight + 0.12, spawn.position[2]] as Vec3,
     quaternion: yawToQuaternion(spawn.yaw),
   });
 
   useEffect(() => {
     const body = bodyRef.current;
     if (!body) return;
-    const controller = new CarController(world, rapier, body);
+    const controller = new CarController(world, rapier, body, spec);
     controller.setChassisCollider(colliderRef.current);
     controller.applyParams(gameState().physics);
     controllerRef.current = controller;
+    carRuntime.carId = spec.id;
+    carRuntime.spec = spec;
     carRuntime.bodyHandle = body.handle;
     carRuntime.chassisColliderHandle = colliderRef.current?.handle ?? null;
     carRuntime.chassisObject = chassisRef.current;
@@ -54,9 +63,11 @@ export function Car({ spawn }: CarProps) {
       bodyHandle: body.handle,
       mass: body.mass(),
       localCom: body.localCom(),
-      suspensionStiffness: WHEELS.map((w) => controller.vehicle.wheelSuspensionStiffness(w.index) ?? 0),
-      suspensionCompression: WHEELS.map((w) => controller.vehicle.wheelSuspensionCompression(w.index) ?? 0),
-      suspensionRelaxation: WHEELS.map((w) => controller.vehicle.wheelSuspensionRelaxation(w.index) ?? 0),
+      suspensionStiffness: spec.wheels.map((w) => controller.vehicle.wheelSuspensionStiffness(w.index) ?? 0),
+      suspensionCompression: spec.wheels.map((w) => controller.vehicle.wheelSuspensionCompression(w.index) ?? 0),
+      suspensionRelaxation: spec.wheels.map((w) => controller.vehicle.wheelSuspensionRelaxation(w.index) ?? 0),
+      carId: spec.id,
+      rideHeight: spec.rideHeight,
     });
 
     const placeAt = (position: Vec3, yaw: number) => {
@@ -87,10 +98,11 @@ export function Car({ spawn }: CarProps) {
       carRuntime.chassisColliderHandle = null;
       carRuntime.chassisObject = null;
     };
-  }, [world, rapier]);
+  }, [world, rapier, spec]);
 
   useBeforePhysicsStep(() => {
-    controllerRef.current?.beforeStep(PHYSICS_DT, gameState().physics);
+    const s = gameState();
+    controllerRef.current?.beforeStep(PHYSICS_DT, s.physics, s.trackLayout?.surfaceGrip ?? 1);
   });
 
   useAfterPhysicsStep(() => {
@@ -114,18 +126,18 @@ export function Car({ spawn }: CarProps) {
       >
         <CuboidCollider
           ref={colliderRef}
-          args={CHASSIS_COLLIDER.halfExtents}
-          position={CHASSIS_COLLIDER.offset}
+          args={spec.chassisCollider.halfExtents}
+          position={spec.chassisCollider.offset}
           density={0}
-          friction={CHASSIS_COLLIDER.friction}
-          restitution={CHASSIS_COLLIDER.restitution}
+          friction={spec.chassisCollider.friction}
+          restitution={spec.chassisCollider.restitution}
         />
         <group ref={chassisRef}>
-          <CarModel />
+          <CarModel spec={spec} />
         </group>
       </RigidBody>
       {/* World-space: smoke must stay where it was emitted, not ride along with the chassis. */}
-      <TireSmoke />
+      <TireSmoke spec={spec} />
     </>
   );
 }

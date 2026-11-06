@@ -5,7 +5,8 @@
  *        squad:controls  → applySquadControls (mapSquadControlsToPhysics) — used on the next physics step
  *        physics:set     → patchPhysics
  *        server:presence → dashboards count
- *   out  hello on open; game:state ~100 ms after any physics/controls change;
+ *   out  hello on open; game:state (physics, controls, carId, trackId, bigJumpKmh) ~100 ms after any
+ *        physics/controls/car/map change and when another dashboard comes online;
  *        game:telemetry every TELEMETRY_INTERVAL_MS; ping every few seconds (RTT + dead-link detection)
  *
  * Reconnects forever with exponential backoff + jitter. Every inbound frame goes through parseMessage.
@@ -17,13 +18,16 @@ import {
   TELEMETRY_INTERVAL_MS,
   encodeMessage,
   parseMessage,
+  sanitizeId,
   withRole,
+  type GameSessionInfo,
   type OutgoingMessage,
   type ProtocolMessage,
   type SquadControls,
 } from '@shared/protocol';
 import { isNetworkDisabled, resolveServerUrl } from '../config';
 import { gameState, useGameStore } from '../state/store';
+import { bigJumpKmhOf } from '../track/catalog';
 import { buildTelemetry } from './telemetry';
 
 /** game:state goes out at most this often (and this long after the first change of a burst). */
@@ -73,7 +77,14 @@ export class SquadLink {
     if (!this.stopped) return;
     this.stopped = false;
     this.unsubscribeStore = useGameStore.subscribe((state, prev) => {
-      if (state.physics !== prev.physics || state.controls !== prev.controls) this.scheduleState();
+      if (
+        state.physics !== prev.physics ||
+        state.controls !== prev.controls ||
+        state.carId !== prev.carId ||
+        state.trackLayout !== prev.trackLayout
+      ) {
+        this.scheduleState();
+      }
     });
     // Deferred one tick: React StrictMode's throwaway first mount stops us before a socket exists.
     this.retryTimer = setTimeout(() => {
@@ -196,6 +207,9 @@ export class SquadLink {
         if (message.peers.dashboard !== s.dashboards) {
           s.pushUplink('presence', `${message.peers.dashboard} dashboard${message.peers.dashboard === 1 ? '' : 's'} online`);
         }
+        // A dashboard that just joined learns physics from the relay snapshot, but an older relay
+        // keeps no car/map: tell it directly.
+        if (message.peers.dashboard > s.dashboards) this.scheduleState();
         s.setDashboards(message.peers.dashboard);
         break;
       case 'server:error':
@@ -243,7 +257,7 @@ export class SquadLink {
 
   private sendState(): void {
     const { physics, controls } = gameState();
-    this.send({ type: 'game:state', physics, controls });
+    this.send({ type: 'game:state', physics, controls, ...gameSessionInfo() });
   }
 
   /**
@@ -293,6 +307,20 @@ export class SquadLink {
     this.telemetryTimer = null;
     this.pingTimer = null;
   }
+}
+
+/**
+ * What we are playing, for game:state: the car class, the map, and the lip speed of the map's big
+ * jump (null when the map has none). Before a track has registered, only the car is known.
+ */
+export function gameSessionInfo(): GameSessionInfo {
+  const { carId, trackLayout } = gameState();
+  if (!trackLayout) return { carId };
+  const info: GameSessionInfo = { carId, bigJumpKmh: bigJumpKmhOf(trackLayout) };
+  // The relay rejects a whole game:state with a malformed id, so an odd track id is left out instead.
+  const trackId = sanitizeId(trackLayout.id);
+  if (trackId) info.trackId = trackId;
+  return info;
 }
 
 let activeLink: SquadLink | null = null;

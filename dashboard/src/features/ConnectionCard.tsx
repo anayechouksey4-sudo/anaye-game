@@ -10,6 +10,7 @@ import { Badge } from '../ui/Badge';
 import { NeonButton } from '../ui/NeonButton';
 import { Panel } from '../ui/Panel';
 import { Txt, useFontStyle } from '../ui/Txt';
+import { NowPlaying } from './SessionInfo';
 
 function StatusReadout() {
   const status = useConnection((s) => s.status);
@@ -128,6 +129,7 @@ export function ConnectionCard() {
         </Txt>
       ) : null}
       {serverError && status === 'online' ? <Txt style={styles.error}>{`! relay: ${serverError}`}</Txt> : null}
+      <NowPlaying />
     </Panel>
   );
 }

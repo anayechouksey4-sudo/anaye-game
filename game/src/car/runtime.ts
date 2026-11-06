@@ -4,7 +4,7 @@
  * React. Never replace the objects — mutate in place so references stay valid.
  */
 import { Object3D, Quaternion, Vector3 } from 'three';
-import { WHEEL_COUNT } from './vehicleSpec';
+import { HYPERCAR_SPEC, WHEEL_COUNT, type VehicleSpec } from './vehicleSpec';
 
 export interface WheelRuntime {
   inContact: boolean;
@@ -34,6 +34,9 @@ export interface WheelRuntime {
 export interface CarRuntime {
   /** True once the vehicle controller exists and has stepped at least once. */
   ready: boolean;
+  /** Car class of the mounted car (`spec.id`) and its geometry: for the camera, smoke, audio and HUD. */
+  carId: string;
+  spec: VehicleSpec;
   /** Rapier handles so hazards can recognise the car in contact/intersection events. */
   bodyHandle: number | null;
   chassisColliderHandle: number | null;
@@ -105,6 +108,8 @@ function makeWheel(): WheelRuntime {
 
 export const carRuntime: CarRuntime = {
   ready: false,
+  carId: HYPERCAR_SPEC.id,
+  spec: HYPERCAR_SPEC,
   bodyHandle: null,
   chassisColliderHandle: null,
   chassisObject: null,

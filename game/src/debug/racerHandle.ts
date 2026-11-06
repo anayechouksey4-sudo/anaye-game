@@ -5,8 +5,12 @@
 import { useEffect } from 'react';
 import { useRapier } from '@react-three/rapier';
 import {
+  assessBigJump,
+  estimateFrontLiftOffKmh,
+  estimateTopSpeedKmh,
   sanitizePhysicsPatch,
   sanitizeSquadControls,
+  type BigJumpAssessment,
   type CarPhysicsParams,
   type SquadControls,
 } from '@shared/protocol';
@@ -15,8 +19,10 @@ import { carDebug, type CarDebugInfo } from '../car/carDebug';
 import { setInputOverride, type DriverInput } from '../car/input';
 import { carRuntime } from '../car/runtime';
 import { runClock } from '../game/runClock';
-import { getActiveLink } from '../net/squadLink';
+import { gameSessionInfo, getActiveLink } from '../net/squadLink';
 import { buildTelemetry } from '../net/telemetry';
+import { bigJumpKmhOf } from '../track/catalog';
+import { useSelection } from '../state/selection';
 import { gameState, type LinkStatus } from '../state/store';
 
 type XYZ = { x: number; y: number; z: number };
@@ -66,6 +72,8 @@ export interface RacerState {
   bestMs: number | null;
   speedTrapKmh: number | null;
   track: string | null;
+  /** Car class the physics are mapped for (and the mounted car once it has remounted). */
+  carId: string;
   stepCount: number;
   simTime: number;
   car: CarDebugInfo | null;
@@ -89,6 +97,12 @@ export interface RacerHandle {
   /** Exactly what the next game:telemetry frame would contain. */
   telemetry(): ReturnType<typeof buildTelemetry>;
   linkStats(): { connected: boolean; sent: number; received: number; rejected: number; connects: number } | null;
+  /** Pick a car class (same path as the garage: selection store → physics re-map → car remount). Returns the resolved id. */
+  setCar(carId: string): string;
+  /** The protocol's estimates for the current physics and car (+ the map's jump, if any). */
+  estimates(): { carId: string; topSpeedKmh: number; liftOffKmh: number | null; bigJump: BigJumpAssessment | null };
+  /** carId / trackId / bigJumpKmh as sent in game:state. */
+  session(): ReturnType<typeof gameSessionInfo>;
 }
 
 declare global {
@@ -144,6 +158,7 @@ function snapshot(): RacerState {
     bestMs: s.run.bestMs,
     speedTrapKmh: s.run.speedTrapKmh,
     track: s.trackLayout?.id ?? null,
+    carId: s.carId,
     stepCount: rt.stepCount,
     simTime: rt.simTime,
     car: carDebug.info ? carDebug.info() : null,
@@ -181,6 +196,21 @@ export function useRacerHandle(): void {
         const link = getActiveLink();
         return link ? { connected: link.connected, ...link.stats } : null;
       },
+      setCar: (carId) => {
+        useSelection.getState().setCar(carId);
+        return gameState().carId;
+      },
+      estimates: () => {
+        const { physics, carId, trackLayout } = gameState();
+        const lip = bigJumpKmhOf(trackLayout);
+        return {
+          carId,
+          topSpeedKmh: estimateTopSpeedKmh(physics, carId),
+          liftOffKmh: estimateFrontLiftOffKmh(physics, carId),
+          bigJump: lip ? assessBigJump(physics, carId, lip) : null,
+        };
+      },
+      session: gameSessionInfo,
     };
     window.__RACER__ = handle;
     return () => {

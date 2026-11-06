@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { carRuntime } from '../car/runtime';
 import { onGameEvent } from '../game/events';
-import { useGameStore } from '../state/store';
 import { formatRaceTime, toggleClass, useRafLoop } from './hudUtils';
 
 interface Flash {
@@ -10,12 +9,8 @@ interface Flash {
   tone: 'bad' | 'good' | 'info';
 }
 
-/** Centre-screen callouts: nose-lift warning, falls, checkpoints, finish. */
+/** Callouts under the top bar: nose-lift warning, falls, checkpoints (the finish has its own results screen). */
 export function Banners() {
-  const finished = useGameStore((s) => s.run.finished);
-  // Only the final time matters here; avoids re-rendering with the 10 Hz timer mirror.
-  const elapsed = useGameStore((s) => (s.run.finished ? s.run.elapsedMs : 0));
-  const best = useGameStore((s) => s.run.bestMs);
   const [flash, setFlash] = useState<Flash | null>(null);
   const liftRef = useRef<HTMLDivElement>(null);
 
@@ -35,6 +30,11 @@ export function Banners() {
         else if (reason === 'flipped') show('FLIP RECOVERY', 'info');
       }),
       onGameEvent('checkpoint', ({ index, elapsedMs }) => show(`CHECKPOINT ${index} · ${formatRaceTime(elapsedMs)}`, 'good')),
+      // A new run's start lights take this spot under the top bar: drop a callout left from the last run.
+      onGameEvent('restart', () => {
+        clearTimeout(timer);
+        setFlash(null);
+      }),
     ];
     return () => {
       offs.forEach((off) => off());
@@ -50,12 +50,6 @@ export function Banners() {
       {flash && (
         <div key={flash.id} className={`hud-banner hud-banner--${flash.tone} is-visible is-pop`}>
           {flash.text}
-        </div>
-      )}
-      {finished && (
-        <div className="hud-banner hud-banner--finish is-visible">
-          FINISH {formatRaceTime(elapsed)}
-          <small>{best !== null && best === elapsed ? 'NEW BEST' : `BEST ${formatRaceTime(best)}`} · T TO RESTART</small>
         </div>
       )}
     </div>

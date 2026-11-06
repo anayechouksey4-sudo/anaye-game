@@ -18,6 +18,7 @@ import { onGameEvent } from '../../../game/events';
 import { COLORS, TILE_COLLISION_GROUPS, TILES } from '../config';
 import { chaosRuntime, recordCollapse, register, type TileProbe, type TileState } from '../chaosRuntime';
 import type { TilesSegment } from '../plan';
+import { CHAOS_PALETTE, type TrackPalette } from '../recipe';
 import { mulberry32 } from '../rng';
 import { createVoxelMaterial, ensureInstanceAttributes } from '../voxel';
 
@@ -49,7 +50,7 @@ const _c = new Color();
 const ORANGE = new Color(COLORS.orange);
 const RED = new Color(COLORS.red);
 
-export function CollapsingTiles({ segment }: { segment: TilesSegment }) {
+export function CollapsingTiles({ segment, palette = CHAOS_PALETTE }: { segment: TilesSegment; palette?: TrackPalette }) {
   const { world, rapier } = useRapier();
   const meshRef = useRef<InstancedMesh>(null);
   const material = useMemo(() => createVoxelMaterial({ instanced: true, roughness: 0.6, metalness: 0.25 }), []);
@@ -59,7 +60,7 @@ export function CollapsingTiles({ segment }: { segment: TilesSegment }) {
   const tiles = useMemo<TileRuntime[]>(() => {
     const rng = mulberry32(segment.tiles.length * 7919 + Math.round(segment.fieldStartZ));
     return segment.tiles.map((t) => {
-      const base = new Color('#2a2238');
+      const base = new Color(palette.hazard.tile);
       const hsl = { h: 0, s: 0, l: 0 };
       base.getHSL(hsl);
       base.setHSL(hsl.h + (rng() - 0.5) * 0.05, hsl.s, hsl.l * (0.8 + rng() * 0.45));
@@ -76,7 +77,7 @@ export function CollapsingTiles({ segment }: { segment: TilesSegment }) {
         baseColor: base,
       };
     });
-  }, [segment]);
+  }, [segment, palette]);
 
   const byHandle = useRef(new Map<number, TileRuntime>());
 

@@ -31,6 +31,7 @@ import { COLORS, PENDULUM } from '../config';
 import { chaosRuntime, register, type PendulumProbe } from '../chaosRuntime';
 import { hazardClock } from '../hazardClock';
 import type { PendulumSegment, PendulumSpec } from '../plan';
+import { CHAOS_PALETTE, type TrackPalette } from '../recipe';
 import { createVoxelMaterial, VoxelBuilder } from '../voxel';
 
 const HINGE_AXIS: [number, number, number] = [0, 0, 1];
@@ -60,30 +61,32 @@ export function pendulumStateAt(spec: PendulumSpec, t: number) {
   };
 }
 
-function buildBobGeometry(spec: PendulumSpec): BufferGeometry {
+function buildBobGeometry(spec: PendulumSpec, palette: TrackPalette): BufferGeometry {
   const [w, h, d] = spec.bobSize;
   const L = spec.armLength;
+  const frame = palette.glow.magenta;
+  const spine = palette.glow.cyan;
   const v = new VoxelBuilder();
   // Bob (local origin = bob centre; the hinge is at +L on local Y).
-  v.box([0, 0, 0], [w, h, d], '#2a1030', 0.05);
+  v.box([0, 0, 0], [w, h, d], palette.hazard.bob, 0.05);
   // Hazard band and glowing magenta frame.
   for (let i = 0; i < 6; i++) {
     v.box([-w / 2 + (i + 0.5) * (w / 6), -h * 0.1, 0], [w / 6 - 0.02, h * 0.28, d + 0.06], i % 2 === 0 ? COLORS.yellow : COLORS.black, i % 2 === 0 ? 0.5 : 0);
   }
   for (const sx of [-1, 1]) {
-    for (const sz of [-1, 1]) v.box([sx * (w / 2), 0, sz * (d / 2)], [0.16, h + 0.1, 0.16], COLORS.magenta, 3);
-    v.box([sx * (w / 2), h / 2, 0], [0.16, 0.16, d + 0.1], COLORS.magenta, 3);
-    v.box([sx * (w / 2), -h / 2, 0], [0.16, 0.16, d + 0.1], COLORS.magenta, 3);
+    for (const sz of [-1, 1]) v.box([sx * (w / 2), 0, sz * (d / 2)], [0.16, h + 0.1, 0.16], frame, 3);
+    v.box([sx * (w / 2), h / 2, 0], [0.16, 0.16, d + 0.1], frame, 3);
+    v.box([sx * (w / 2), -h / 2, 0], [0.16, 0.16, d + 0.1], frame, 3);
     // Voxel studs on the striking faces.
-    for (let k = 0; k < 3; k++) v.box([sx * (w / 2 + 0.22), h * 0.32, -d / 3 + (k * d) / 3], [0.44, 0.5, 0.5], '#3a1640', 0.15);
+    for (let k = 0; k < 3; k++) v.box([sx * (w / 2 + 0.22), h * 0.32, -d / 3 + (k * d) / 3], [0.44, 0.5, 0.5], palette.hazard.stud, 0.15);
   }
-  v.box([0, h / 2, 0], [w + 0.1, 0.16, 0.16], COLORS.magenta, 3);
-  v.box([0, -h / 2, 0], [w + 0.1, 0.16, 0.16], COLORS.magenta, 3);
+  v.box([0, h / 2, 0], [w + 0.1, 0.16, 0.16], frame, 3);
+  v.box([0, -h / 2, 0], [w + 0.1, 0.16, 0.16], frame, 3);
   // Arm up to the hinge, with a glowing spine so the swing reads at night.
   const armLen = L - h / 2 - 0.4;
-  v.box([0, h / 2 + armLen / 2, 0], [0.7, armLen, 0.7], '#1d1a26', 0);
-  v.box([0, h / 2 + armLen / 2, 0.36], [0.12, armLen, 0.04], COLORS.cyan, 2.2);
-  v.box([0, h / 2 + armLen / 2, -0.36], [0.12, armLen, 0.04], COLORS.cyan, 2.2);
+  v.box([0, h / 2 + armLen / 2, 0], [0.7, armLen, 0.7], palette.hazard.arm, 0);
+  v.box([0, h / 2 + armLen / 2, 0.36], [0.12, armLen, 0.04], spine, 2.2);
+  v.box([0, h / 2 + armLen / 2, -0.36], [0.12, armLen, 0.04], spine, 2.2);
   v.box([0, L, 0], [1.3, 1.3, 1.5], '#2b2b38', 0);
   return v.build();
 }
@@ -107,7 +110,7 @@ function hingeInertiaPerKg(spec: PendulumSpec): number {
   return (a * a + b * b) / 12 + spec.armLength * spec.armLength;
 }
 
-function Pendulum({ spec }: { spec: PendulumSpec }) {
+function Pendulum({ spec, palette }: { spec: PendulumSpec; palette: TrackPalette }) {
   const anchorRef = useRef<RapierRigidBody>(null);
   const bobRef = useRef<RapierRigidBody>(null);
   const bobColliderRef = useRef<RapierCollider>(null);
@@ -123,7 +126,7 @@ function Pendulum({ spec }: { spec: PendulumSpec }) {
   ]);
   const hingeInertia = useMemo(() => spec.mass * hingeInertiaPerKg(spec), [spec]);
   const initial = useMemo(() => pendulumStateAt(spec, 0), [spec]);
-  const geometry = useMemo(() => buildBobGeometry(spec), [spec]);
+  const geometry = useMemo(() => buildBobGeometry(spec, palette), [spec, palette]);
   const material = useMemo(() => createVoxelMaterial({ roughness: 0.55, metalness: 0.35 }), []);
   useEffect(() => () => geometry.dispose(), [geometry]);
   useEffect(() => () => material.dispose(), [material]);
@@ -226,11 +229,11 @@ function Pendulum({ spec }: { spec: PendulumSpec }) {
   );
 }
 
-export function PendulumGauntlet({ segment }: { segment: PendulumSegment }) {
+export function PendulumGauntlet({ segment, palette = CHAOS_PALETTE }: { segment: PendulumSegment; palette?: TrackPalette }) {
   return (
     <group name={segment.id}>
       {segment.pendulums.map((p) => (
-        <Pendulum key={p.id} spec={p} />
+        <Pendulum key={p.id} spec={p} palette={palette} />
       ))}
     </group>
   );

@@ -1,4 +1,4 @@
-import { Suspense, useEffect, useLayoutEffect } from 'react';
+import { Suspense, useEffect, useLayoutEffect, type ReactNode } from 'react';
 import { Canvas, useThree } from '@react-three/fiber';
 import { Physics } from '@react-three/rapier';
 import { GRAVITY } from '@shared/protocol';
@@ -49,6 +49,26 @@ function PlayerCar() {
   return layout ? <Car key={`${layout.id}:${carId}`} spawn={layout.spawn} /> : null;
 }
 
+/**
+ * The ☰ menu pauses the simulation: no physics steps, so the run clock, start lights, hazard clock,
+ * pendulums and tiles all freeze and resume exactly where they were.
+ *
+ * Subscribed here, inside the R3F tree, rather than in App: a store change re-renders this R3F
+ * component in a microtask (useSyncExternalStore is a sync update), whereas a prop handed down from
+ * the DOM tree would reach the canvas through a scheduled render task. So when the page is hidden
+ * mid-run (hud/autoPause.ts opens the menu) the pause is committed before the page can be frozen or
+ * draw again, and the first frame back, which carries the whole hidden time as its delta, steps
+ * nothing (instead of up to 0.5 s of catch-up).
+ */
+function PausablePhysics({ children }: { children: ReactNode }) {
+  const paused = useSelection((s) => s.menuOpen);
+  return (
+    <Physics timeStep={PHYSICS_DT} gravity={[0, -GRAVITY, 0]} debug={isPhysicsDebug()} paused={paused}>
+      {children}
+    </Physics>
+  );
+}
+
 export function App() {
   useSquadLink();
   useGlobalHotkeys();
@@ -65,12 +85,12 @@ export function App() {
       >
         <Suspense fallback={null}>
           <Environment />
-          <Physics timeStep={PHYSICS_DT} gravity={[0, -GRAVITY, 0]} debug={isPhysicsDebug()}>
+          <PausablePhysics>
             <Track />
             <PlayerCar />
             <RunController />
             <RacerDebugHandle />
-          </Physics>
+          </PausablePhysics>
           <ChaseCamera />
           {TOUCH_DEVICE && <TouchShadowBudget />}
         </Suspense>

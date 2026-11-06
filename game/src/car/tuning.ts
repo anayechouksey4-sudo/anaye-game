@@ -1,6 +1,9 @@
 /**
  * Handling constants that are NOT part of the wire protocol (those live in shared/protocol.ts
  * and arrive live from the dashboard). Grouped here so calibration touches one file.
+ *
+ * These are the hypercar's values and every class's defaults; a car class overrides what makes it
+ * feel different (steering, grip balance, brakes, air behaviour…) in vehicleSpec.ts → `tuning`.
  */
 export const CAR_TUNING = {
   // ── Tyres ────────────────────────────────────────────────────────────────────────────────
@@ -81,6 +84,13 @@ export const CAR_TUNING = {
   /** Smoothing time constant, s (about one step: a lip edge is a genuine step). */
   groundEffectTau: 0.02,
 
+  /**
+   * 1 = vertical aero acts perpendicular to the velocity instead of along chassis −up. 0 for the
+   * hypercar (its big-jump calibration was made that way); the newer classes use 1 so a car pitched
+   * by heavy downforce doesn't get a forward push from its own wings.
+   */
+  aeroNormalToFlow: 0,
+
   // ── Telemetry thresholds ─────────────────────────────────────────────────────────────────
   /** Combined slip speed where slip01 starts rising / reaches 1, m/s. */
   slipStart: 1.2,
@@ -94,3 +104,6 @@ export const CAR_TUNING = {
    */
   noseLiftMinLiftRatio: 0.5,
 } as const;
+
+/** One car class's handling constants (CAR_TUNING with that class's overrides). */
+export type CarTuning = { readonly [K in keyof typeof CAR_TUNING]: number };

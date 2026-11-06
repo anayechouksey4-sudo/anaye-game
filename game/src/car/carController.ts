@@ -1,14 +1,16 @@
 /**
  * The car's physics, one fixed step at a time. Owns the Rapier raycast-vehicle controller and
- * applies the protocol's F1-style model (see "Physics model" in shared/protocol.ts):
+ * applies the protocol's wing, drive and drag model (see "Physics model" in shared/protocol.ts)
+ * with the mounted car class's constants (VehicleSpec → spec.car):
  *
- *   drive      RWD, (engineTorque / 2) per rear wheel through the wheelspin model (drivetrain.ts)
- *   front aero (frontDownforce − FRONT_BODY_LIFT)·v_fwd² along −up AT THE FRONT AXLE (lift if < 0)
- *   rear aero  REAR_DOWNFORCE·v_fwd² at the rear axle
+ *   drive      engineTorque × each wheel's driveShare (RWD: ½ per rear wheel; AWD classes split
+ *              front/rear) × the class's low-speed launch boost, through the wheelspin model (drivetrain.ts)
+ *   front aero (frontDownforce − frontBodyLift)·v_fwd² along −up AT THE FRONT AXLE (lift if < 0)
+ *   rear aero  rearDownforce·v_fwd² at the rear axle
  *              (both × a ground-effect factor: 1 on the ground, fading with height in flight)
  *   drag       −drag·v·|v| at the centre of mass (+ rolling resistance while grounded)
  *   balance    centre of mass along the axis + per-axle spring/damper split
- *   traction   friction slip / side stiffness on every tyre
+ *   traction   friction slip / side stiffness on every tyre (friction × the track's surfaceGrip)
  *
  * Every parameter is read from the store each step, so changes apply on the next step.
  */
@@ -16,15 +18,13 @@ import type { Collider, DynamicRayCastVehicleController, Ray, RigidBody, World }
 import type { RapierContext } from '@react-three/rapier';
 import { Quaternion, Vector3 } from 'three';
 import {
-  FRONT_BODY_LIFT,
   GRAVITY,
-  REAR_DOWNFORCE,
-  ROLLING_RESISTANCE,
   balanceToFrontWeightFraction,
   balanceToSuspensionStiffness,
+  type CarClass,
   type CarPhysicsParams,
 } from '@shared/protocol';
-import { CAR_TUNING as T } from './tuning';
+import type { CarTuning } from './tuning';
 import { carRuntime } from './runtime';
 import {
   createDrivenWheelState,
@@ -36,19 +36,15 @@ import {
 import { readDriverInput, type DriverInput } from './input';
 import {
   FORWARD_AXIS_INDEX,
-  FRONT_AXLE_Z,
   MAX_SUSPENSION_FORCE,
-  MAX_SUSPENSION_TRAVEL,
-  REAR_AXLE_Z,
-  RIDE_HEIGHT,
   SUSPENSION_DIRECTION,
-  SUSPENSION_REST_LENGTH,
   UP_AXIS_INDEX,
-  WHEELS,
   WHEEL_AXLE,
-  centerOfMassForBalance,
-  chassisInertia,
+  centerOfMassFor,
+  chassisInertiaFor,
   type Tuple3,
+  type VehicleSpec,
+  type WheelSpec,
 } from './vehicleSpec';
 
 type Rapier = RapierContext['rapier'];
@@ -66,9 +62,13 @@ export function yawToQuaternion(yaw: number): { x: number; y: number; z: number;
 
 export class CarController {
   readonly vehicle: DynamicRayCastVehicleController;
+  readonly spec: VehicleSpec;
   private readonly world: World;
   private readonly rapier: Rapier;
   private readonly body: RigidBody;
+  private readonly car: Readonly<CarClass>;
+  private readonly T: CarTuning;
+  private readonly wheels: readonly WheelSpec[];
 
   private appliedMass = NaN;
   private appliedBalance = NaN;
@@ -80,8 +80,8 @@ export class CarController {
   private readonly groundEffect = [1, 1];
   private chassisCollider: Collider | null = null;
   private readonly groundRay: Ray;
-  private readonly driven: DrivenWheelState[] = WHEELS.map(() => createDrivenWheelState());
-  private readonly prevRapierRotation: number[] = WHEELS.map(() => 0);
+  private readonly driven: DrivenWheelState[];
+  private readonly prevRapierRotation: number[];
   private readonly rawInput: DriverInput = { throttle: 0, brake: 0, steer: 0, handbrake: 0 };
 
   // Scratch objects — the step runs 60×/s, so nothing below allocates.
@@ -100,20 +100,28 @@ export class CarController {
   private readonly point = { x: 0, y: 0, z: 0 };
   private readonly speeds = { along: 0, lateral: 0 };
   private readonly impulse = { x: 0, y: 0, z: 0 };
+  /** Direction of positive (down) vertical aero force this step, world frame. */
+  private readonly aeroDown = new Vector3(0, -1, 0);
 
-  constructor(world: World, rapier: Rapier, body: RigidBody) {
+  constructor(world: World, rapier: Rapier, body: RigidBody, spec: VehicleSpec) {
     this.world = world;
     this.rapier = rapier;
     this.body = body;
+    this.spec = spec;
+    this.car = spec.car;
+    this.T = spec.tuning;
+    this.wheels = spec.wheels;
+    this.driven = spec.wheels.map(() => createDrivenWheelState());
+    this.prevRapierRotation = spec.wheels.map(() => 0);
     const vehicle = world.createVehicleController(body);
     vehicle.indexUpAxis = UP_AXIS_INDEX;
     // In rapier3d-compat 0.19 the forward-axis setter is a property literally named `setIndexForwardAxis`.
     vehicle.setIndexForwardAxis = FORWARD_AXIS_INDEX;
     const dir = toVec(SUSPENSION_DIRECTION);
     const axle = toVec(WHEEL_AXLE);
-    for (const wheel of WHEELS) {
-      vehicle.addWheel(toVec(wheel.connection), dir, axle, SUSPENSION_REST_LENGTH, wheel.radius);
-      vehicle.setWheelMaxSuspensionTravel(wheel.index, MAX_SUSPENSION_TRAVEL);
+    for (const wheel of spec.wheels) {
+      vehicle.addWheel(toVec(wheel.connection), dir, axle, spec.suspensionRestLength, wheel.radius);
+      vehicle.setWheelMaxSuspensionTravel(wheel.index, spec.maxSuspensionTravel);
       vehicle.setWheelMaxSuspensionForce(wheel.index, MAX_SUSPENSION_FORCE);
     }
     this.vehicle = vehicle;
@@ -136,16 +144,17 @@ export class CarController {
   /** Mass / centre of mass / springs. Called every step; only touches Rapier when values change. */
   applyParams(p: CarPhysicsParams): void {
     if (p.mass !== this.appliedMass || p.balance !== this.appliedBalance) {
-      const com = centerOfMassForBalance(p.balance);
-      const inertia = chassisInertia(p.mass);
+      const com = centerOfMassFor(this.spec, p.balance);
+      const inertia = chassisInertiaFor(this.spec, p.mass);
       // The chassis collider has zero density: all mass comes from here, so COM is exactly ours.
       this.body.setAdditionalMassProperties(p.mass, toVec(com), toVec(inertia), IDENTITY_ROTATION, true);
       this.body.recomputeMassPropertiesFromColliders();
       this.appliedMass = p.mass;
     }
     if (p.balance !== this.appliedBalance) {
-      const stiffness = balanceToSuspensionStiffness(p.balance);
-      for (const wheel of WHEELS) {
+      const T = this.T;
+      const stiffness = balanceToSuspensionStiffness(p.balance, this.car);
+      for (const wheel of this.wheels) {
         const k = wheel.axle === 'front' ? stiffness.front : stiffness.rear;
         this.vehicle.setWheelSuspensionStiffness(wheel.index, k);
         this.vehicle.setWheelSuspensionCompression(wheel.index, T.dampingCompressionRatio * Math.sqrt(k));
@@ -155,9 +164,12 @@ export class CarController {
     }
   }
 
-  /** Inputs → forces → vehicle update → aero. Runs inside useBeforePhysicsStep. */
-  beforeStep(dt: number, p: CarPhysicsParams): void {
-    const { body, vehicle, fwd, up, right, vel } = this;
+  /**
+   * Inputs → forces → vehicle update → aero. Runs inside useBeforePhysicsStep.
+   * `surfaceGrip` is the track surface's tyre-grip multiplier (TrackLayout.surfaceGrip, 1 = tarmac).
+   */
+  beforeStep(dt: number, p: CarPhysicsParams, surfaceGrip = 1): void {
+    const { body, vehicle, fwd, up, right, vel, T, car } = this;
     this.applyParams(p);
 
     const r = body.rotation();
@@ -204,36 +216,73 @@ export class CarController {
     vehicle.setWheelSteering(1, this.steerAngle);
 
     // ── Brakes (Rapier brake = max impulse per step) ──
-    const brakeForce = T.brakeForceG * mass * GRAVITY * brake;
+    // Rapier never caps brake force by tyre grip, so a slippery surface (ice: surfaceGrip 0.55) scales
+    // the pedal brake itself; on tarmac (1) this is exact, so nothing changes there.
+    const brakeForce = T.brakeForceG * mass * GRAVITY * brake * Math.min(1, surfaceGrip);
     const idleHold = throttle === 0 && brake === 0 && Math.abs(vFwd) < T.idleHoldSpeed ? 0.25 * mass * GRAVITY : 0;
     const frontBrake = (brakeForce * T.brakeFrontShare + idleHold * 0.5 + frontOnlyBrake * 1.2 * mass * GRAVITY) / 2;
     const rearBrake = (brakeForce * (1 - T.brakeFrontShare) + idleHold * 0.5) / 2 + handbrake * T.handbrakeForceN * 0.5;
 
     // ── Drive + friction per wheel ──
-    let torquePerWheel = (p.engineTorque / 2) * throttle * (reversing ? -T.reverseTorqueRatio : 1);
-    if (reversing && vFwd < -T.reverseMaxSpeed) torquePerWheel = 0;
+    // Low-speed "grunt" (launch boost) multiplies forward drive only; flat-torque classes skip it.
+    let drive = 1;
+    if (reversing) drive = -T.reverseTorqueRatio;
+    else if (car.launchBoost > 1 && car.launchFadeKmh > 0) {
+      drive = 1 + (car.launchBoost - 1) * Math.max(0, 1 - (Math.abs(vFwd) * 3.6) / car.launchFadeKmh);
+    }
+    const noDrive = reversing && vFwd < -T.reverseMaxSpeed;
+    const traction = p.traction * surfaceGrip;
     const baseSide = clamp(T.sideStiffnessBase + T.sideStiffnessPerTraction * p.traction, T.sideStiffnessMin, 1);
     const burnout = frontOnlyBrake > 0 && Math.abs(vFwd) < T.burnoutMaxSpeed;
-    const longMu = p.traction * T.longitudinalGripRatio * (burnout ? T.burnoutRearGrip : 1);
+    const longMu = traction * T.longitudinalGripRatio * (burnout ? T.burnoutRearGrip : 1);
 
-    for (const wheel of WHEELS) {
+    // All-wheel drive: a torque-sensing centre diff. Nominally frontDriveShare goes to the front, but
+    // an axle never gets more drive than its tyres' grip budget (from the last step's loads) while
+    // the other axle has budget to spare, so a nose lightened by body lift or a rear-biased balance
+    // doesn't just spin its tyres. RWD classes (the hypercar) skip this entirely.
+    let frontAxleShare = car.frontDriveShare;
+    if (frontAxleShare > 0 && throttle > 0 && !reversing) {
+      const requested = (p.engineTorque * throttle * drive) / car.driveWheelRadius;
+      const load = (a: number, b: number) =>
+        (vehicle.wheelIsInContact(a) ? (vehicle.wheelSuspensionForce(a) ?? 0) : 0) + (vehicle.wheelIsInContact(b) ? (vehicle.wheelSuspensionForce(b) ?? 0) : 0);
+      // The steered front tyres keep part of their grip for cornering (the diff never asks them for more).
+      const frontBudget = 0.6 * longMu * load(0, 1);
+      const rearBudget = 0.95 * longMu * load(2, 3);
+      let frontForce = requested * frontAxleShare;
+      let rearForce = requested - frontForce;
+      if (frontForce > frontBudget) {
+        rearForce += frontForce - frontBudget;
+        frontForce = frontBudget;
+      } else if (rearForce > rearBudget) {
+        const moved = Math.min(rearForce - rearBudget, frontBudget - frontForce);
+        frontForce += moved;
+        rearForce -= moved;
+      }
+      frontAxleShare = requested > 0 ? frontForce / requested : frontAxleShare;
+    }
+
+    for (const wheel of this.wheels) {
       const i = wheel.index;
-      let friction = p.traction;
+      const front = wheel.axle === 'front';
+      let friction = traction;
       let side = baseSide;
       if (wheel.driven) {
         const inContact = vehicle.wheelIsInContact(i);
         const groundSpeed = inContact ? this.contactSpeeds(i).along : vFwd;
         const state = this.driven[i]!;
+        // Both pedals: a driven front axle is held by its brakes (line lock) while the rears spin.
+        const share = frontAxleShare === car.frontDriveShare ? wheel.driveShare : front ? frontAxleShare / 2 : (1 - frontAxleShare) / 2;
+        const torque = noDrive || (front && frontOnlyBrake > 0) ? 0 : p.engineTorque * share * throttle * drive;
         let force = 0;
-        if (handbrake > 0.5 && inContact) {
+        if (handbrake > 0.5 && inContact && !front) {
           state.omega = 0;
           state.locked = false;
-        } else if (brake > 0 || torquePerWheel === 0) {
+        } else if (brake > 0 || torque === 0) {
           if (inContact) rollWithGround(state, groundSpeed, wheel.radius);
           else state.omega *= 0.985;
         } else {
           const out = stepDrivenWheel(state, {
-            torque: torquePerWheel,
+            torque,
             groundSpeed,
             normalLoad: Math.min(vehicle.wheelSuspensionForce(i) ?? 0, MAX_SUSPENSION_FORCE),
             mu: longMu,
@@ -244,16 +293,16 @@ export class CarController {
           force = out.force;
         }
         vehicle.setWheelEngineForce(i, force);
-        vehicle.setWheelBrake(i, rearBrake * dt);
+        vehicle.setWheelBrake(i, (front ? frontBrake : rearBrake) * dt);
         const spin = Math.abs(state.omega * wheel.radius - groundSpeed);
         friction *= 1 - T.spinGripLoss * smoothstep(0, T.spinGripLossFullSlip, inContact ? spin : 0);
-        if (handbrake > 0) {
-          friction *= 1 - (1 - T.handbrakeRearFriction) * handbrake;
-          side *= 1 - (1 - T.handbrakeRearSideStiffness) * handbrake;
-        }
       } else {
         vehicle.setWheelEngineForce(i, 0);
-        vehicle.setWheelBrake(i, frontBrake * dt);
+        vehicle.setWheelBrake(i, (front ? frontBrake : rearBrake) * dt);
+      }
+      if (handbrake > 0 && !front) {
+        friction *= 1 - (1 - T.handbrakeRearFriction) * handbrake;
+        side *= 1 - (1 - T.handbrakeRearSideStiffness) * handbrake;
       }
       vehicle.setWheelFrictionSlip(i, friction);
       vehicle.setWheelSideFrictionStiffness(i, side);
@@ -261,21 +310,23 @@ export class CarController {
 
     vehicle.updateVehicle(dt, this.rapier.QueryFilterFlags.EXCLUDE_SENSORS);
     let grounded = 0;
-    for (const wheel of WHEELS) if (vehicle.wheelIsInContact(wheel.index)) grounded++;
+    for (const wheel of this.wheels) if (vehicle.wheelIsInContact(wheel.index)) grounded++;
 
     // ── Aero + drag as per-step impulses (addForce would persist across steps) ──
     const t = body.translation();
-    const frontGround = this.updateGroundEffect(0, t, FRONT_AXLE_Z, vehicle.wheelIsInContact(0) || vehicle.wheelIsInContact(1), dt);
-    const rearGround = this.updateGroundEffect(1, t, REAR_AXLE_Z, vehicle.wheelIsInContact(2) || vehicle.wheelIsInContact(3), dt);
+    const { frontAxleZ, rearAxleZ } = this.spec;
+    const frontGround = this.updateGroundEffect(0, t, frontAxleZ, vehicle.wheelIsInContact(0) || vehicle.wheelIsInContact(1), dt);
+    const rearGround = this.updateGroundEffect(1, t, rearAxleZ, vehicle.wheelIsInContact(2) || vehicle.wheelIsInContact(3), dt);
     const v2 = vFwd * vFwd;
-    const frontAero = (p.frontDownforce - FRONT_BODY_LIFT) * v2 * frontGround;
-    const rearAero = REAR_DOWNFORCE * v2 * rearGround;
-    this.applyVerticalImpulseAt(t, FRONT_AXLE_Z, frontAero * dt);
-    this.applyVerticalImpulseAt(t, REAR_AXLE_Z, rearAero * dt);
+    this.updateAeroDirection();
+    const frontAero = (p.frontDownforce - car.frontBodyLift) * v2 * frontGround;
+    const rearAero = car.rearDownforce * v2 * rearGround;
+    this.applyVerticalImpulseAt(t, frontAxleZ, frontAero * dt);
+    this.applyVerticalImpulseAt(t, rearAxleZ, rearAero * dt);
 
     const speed = vel.length();
     // Rolling resistance (part of the protocol's top-speed estimate), faded in near standstill.
-    const rolling = speed > 0.05 ? ROLLING_RESISTANCE * mass * GRAVITY * (grounded / 4) * Math.min(1, speed / 0.5) : 0;
+    const rolling = speed > 0.05 ? car.rollingResistance * mass * GRAVITY * (grounded / 4) * Math.min(1, speed / 0.5) : 0;
     const dragMag = p.drag * speed * speed;
     if (speed > 1e-3) {
       const k = -((dragMag + rolling) / speed) * dt;
@@ -298,7 +349,7 @@ export class CarController {
     rt.rearAeroN = rearAero;
     rt.dragN = dragMag;
     rt.groundEffect = 0.5 * (frontGround + rearGround);
-    this.updateWheelRuntime(dt, vFwd, frontAero, mass * GRAVITY * balanceToFrontWeightFraction(p.balance));
+    this.updateWheelRuntime(dt, vFwd, frontAero, mass * GRAVITY * balanceToFrontWeightFraction(p.balance, car));
   }
 
   /** Pose/velocity after the world integrated. Runs inside useAfterPhysicsStep. */
@@ -327,7 +378,8 @@ export class CarController {
   /** Place the car (ground point + ride height), stopped, facing `yaw`. */
   teleport(groundPosition: Tuple3, yaw: number): void {
     const { body } = this;
-    body.setTranslation({ x: groundPosition[0], y: groundPosition[1] + RIDE_HEIGHT + 0.12, z: groundPosition[2] }, true);
+    const rideHeight = this.spec.rideHeight;
+    body.setTranslation({ x: groundPosition[0], y: groundPosition[1] + rideHeight + 0.12, z: groundPosition[2] }, true);
     body.setRotation(yawToQuaternion(yaw), true);
     body.setLinvel({ x: 0, y: 0, z: 0 }, true);
     body.setAngvel({ x: 0, y: 0, z: 0 }, true);
@@ -338,13 +390,13 @@ export class CarController {
     this.frontTouchedSinceAirborne = true;
     this.groundEffect[0] = 1;
     this.groundEffect[1] = 1;
-    for (const wheel of WHEELS) {
+    for (const wheel of this.wheels) {
       resetDrivenWheel(this.driven[wheel.index]!);
       this.vehicle.setWheelSteering(wheel.index, 0);
       this.vehicle.setWheelEngineForce(wheel.index, 0);
     }
     const rt = carRuntime;
-    rt.position.set(groundPosition[0], groundPosition[1] + RIDE_HEIGHT + 0.12, groundPosition[2]);
+    rt.position.set(groundPosition[0], groundPosition[1] + rideHeight + 0.12, groundPosition[2]);
     rt.quaternion.set(0, Math.sin(yaw / 2), 0, Math.cos(yaw / 2));
     rt.velocity.set(0, 0, 0);
     rt.angularVelocity.set(0, 0, 0);
@@ -362,6 +414,8 @@ export class CarController {
    * the edge instead of levering the car up while the rear tyres are still on the ramp.
    */
   private updateGroundEffect(axle: 0 | 1, t: { x: number; y: number; z: number }, axleZ: number, axleGrounded: boolean, dt: number): number {
+    const T = this.T;
+    const rideHeight = this.spec.rideHeight;
     let target = 1;
     if (!axleGrounded) {
       this.tmp.set(0, 0, axleZ).applyQuaternion(this.q);
@@ -371,19 +425,34 @@ export class CarController {
       ray.origin.z = t.z + this.tmp.z;
       const hit = this.world.castRay(
         ray,
-        RIDE_HEIGHT + T.groundEffectRange,
+        rideHeight + T.groundEffectRange,
         true,
         this.rapier.QueryFilterFlags.EXCLUDE_SENSORS,
         undefined,
         this.chassisCollider ?? undefined,
         this.body,
       );
-      const rise = hit ? hit.timeOfImpact - RIDE_HEIGHT - T.groundEffectFullRise : Infinity;
+      const rise = hit ? hit.timeOfImpact - rideHeight - T.groundEffectFullRise : Infinity;
       if (rise > 0) target = T.groundEffectMin + (1 - T.groundEffectMin) * Math.exp(-rise / T.groundEffectHeight);
     }
     const f = this.groundEffect[axle]! + (target - this.groundEffect[axle]!) * Math.min(1, dt / T.groundEffectTau);
     this.groundEffect[axle] = f;
     return f;
+  }
+
+  /**
+   * Downforce direction: chassis −up (the original model), or with `aeroNormalToFlow` −up with its
+   * component along the velocity removed — lift acts across the airflow, so a car squatting nose-up
+   * under big rear downforce isn't pushed forward by its own wing.
+   */
+  private updateAeroDirection(): void {
+    const { up, vel, aeroDown } = this;
+    aeroDown.copy(up).negate();
+    if (!this.T.aeroNormalToFlow) return;
+    const speed = vel.length();
+    if (speed < 1) return;
+    const along = aeroDown.dot(vel) / speed;
+    aeroDown.addScaledVector(vel, -along / speed).normalize();
   }
 
   private applyVerticalImpulseAt(t: { x: number; y: number; z: number }, axleZ: number, downImpulse: number): void {
@@ -393,14 +462,15 @@ export class CarController {
     this.point.x = t.x + this.tmp.x;
     this.point.y = t.y + this.tmp.y;
     this.point.z = t.z + this.tmp.z;
-    // +downImpulse pushes along −up (downforce); negative lifts.
-    this.impulse.x = -this.up.x * downImpulse;
-    this.impulse.y = -this.up.y * downImpulse;
-    this.impulse.z = -this.up.z * downImpulse;
+    // +downImpulse pushes along the downforce direction (−up); negative lifts.
+    this.impulse.x = this.aeroDown.x * downImpulse;
+    this.impulse.y = this.aeroDown.y * downImpulse;
+    this.impulse.z = this.aeroDown.z * downImpulse;
     this.body.applyImpulseAtPoint(this.impulse, this.point, true);
   }
 
   private applyAirborneMoments(dt: number, speed: number): void {
+    const T = this.T;
     const blend = clamp((carRuntime.airborneTime + dt) / T.airBlendTime, 0, 1);
     if (blend <= 0) return;
     const { body, up, right, fwd, vel } = this;
@@ -455,13 +525,13 @@ export class CarController {
   }
 
   private updateWheelRuntime(dt: number, vFwd: number, frontAero: number, staticFrontLoad: number): void {
-    const { vehicle } = this;
+    const { vehicle, T } = this;
     const rt = carRuntime;
     let grounded = 0;
     let frontLoad = 0;
     let rearLoad = 0;
     let rearSlip = 0;
-    for (const wheel of WHEELS) {
+    for (const wheel of this.wheels) {
       const i = wheel.index;
       const w = rt.wheels[i]!;
       const inContact = vehicle.wheelIsInContact(i);
@@ -471,7 +541,7 @@ export class CarController {
 
       w.inContact = inContact;
       w.steering = vehicle.wheelSteering(i) ?? 0;
-      w.suspensionLength = vehicle.wheelSuspensionLength(i) ?? SUSPENSION_REST_LENGTH;
+      w.suspensionLength = vehicle.wheelSuspensionLength(i) ?? this.spec.suspensionRestLength;
       w.suspensionForce = inContact ? Math.min(vehicle.wheelSuspensionForce(i) ?? 0, MAX_SUSPENSION_FORCE) : 0;
       const ground = inContact ? vehicle.wheelGroundObject(i) : null;
       w.groundColliderHandle = ground ? ground.handle : null;

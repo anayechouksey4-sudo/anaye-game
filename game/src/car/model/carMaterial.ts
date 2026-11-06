@@ -59,7 +59,18 @@ export const M = {
   rimBarrel: 16,
   hub: 17,
   sidewallBand: 18,
+  /** Secondary body colour (two-tone liveries). */
+  paint2: 19,
+  /** Polished metal: bumpers, exhaust tips, rims. */
+  chrome: 20,
+  /** White decals: number boards, racing roundels. */
+  decal: 21,
+  /** Roll-cage tubes. */
+  cage: 22,
 } as const;
+
+/** Palette slots a car class may recolour (its livery): material index → overrides. */
+export type Livery = Partial<Record<number, Partial<VoxelMaterial>>>;
 
 export const CAR_VOXEL_MATERIALS: readonly VoxelMaterial[] = (() => {
   const t: VoxelMaterial[] = [];
@@ -83,8 +94,27 @@ export const CAR_VOXEL_MATERIALS: readonly VoxelMaterial[] = (() => {
   t[M.rimBarrel] = { color: CAR_COLORS.rimBarrel, roughness: 0.35, metalness: 0.7, jitter: 0.08 };
   t[M.hub] = { color: CAR_COLORS.yellow, roughness: 0.3, metalness: 0.2, glow: 0.7 };
   t[M.sidewallBand] = { color: CAR_COLORS.yellow, roughness: 0.6, metalness: 0, glow: 0.25 };
+  t[M.paint2] = { color: '#15171E', roughness: 0.45, metalness: 0.2, jitter: 0.05 };
+  t[M.chrome] = { color: '#C9D2E0', roughness: 0.18, metalness: 0.9, glow: 0.04, jitter: 0.05 };
+  t[M.decal] = { color: '#F4F7FB', roughness: 0.5, metalness: 0, glow: 0.12, jitter: 0.02 };
+  t[M.cage] = { color: '#20232C', roughness: 0.4, metalness: 0.6, jitter: 0.08 };
   return t;
 })();
+
+const liveryCache = new Map<Livery, readonly VoxelMaterial[]>();
+
+/** The voxel palette with a livery's overrides applied (cached per livery object). */
+export function materialsWithLivery(livery: Livery | undefined): readonly VoxelMaterial[] {
+  if (!livery) return CAR_VOXEL_MATERIALS;
+  const cached = liveryCache.get(livery);
+  if (cached) return cached;
+  const table = CAR_VOXEL_MATERIALS.map((m, i) => {
+    const o = livery[i];
+    return o ? { ...m, ...o } : m;
+  });
+  liveryCache.set(livery, table);
+  return table;
+}
 
 export interface CarMaterialHandle {
   material: MeshStandardMaterial;

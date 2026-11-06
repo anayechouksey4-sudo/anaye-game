@@ -5,20 +5,22 @@
  * numbers agree with the dashboard's previews:
  *   - speed never exceeds estimateTopSpeedKmh,
  *   - the nose lifts above estimateFrontLiftOffKmh,
- *   - the big jump needs BIG_JUMP_LIP_KMH at the lip with the nose down.
+ *   - the big jump needs requiredJumpKmh(BIG_JUMP_LIP_KMH, car) at the lip with the nose down.
+ * Pass a car class id to drive that class (default: the hypercar).
  * Hazards (collapsing tiles, pendulums) are dice rolls, not geometry.
  */
 import {
   BIG_JUMP_LIP_KMH,
+  DEFAULT_CAR_CLASS_ID,
   GRAVITY,
-  REAR_DOWNFORCE,
-  ROLLING_RESISTANCE,
   balanceToFrontWeightFraction,
   clamp,
   driveForceN,
   estimateFrontLiftOffKmh,
   estimateTopSpeedKmh,
   frontAeroForceN,
+  getCarClass,
+  requiredJumpKmh,
   type CarPhysicsParams,
   type GameTelemetry,
 } from '../../../shared/protocol';
@@ -63,7 +65,9 @@ function crossed(prev: number, next: number, mark: number): boolean {
   return prev < mark && next >= mark;
 }
 
-export function createFakeCar(random: () => number = Math.random): FakeCar {
+export function createFakeCar(random: () => number = Math.random, carId: string = DEFAULT_CAR_CLASS_ID): FakeCar {
+  const car = getCarClass(carId);
+  const jumpKmh = requiredJumpKmh(BIG_JUMP_LIP_KMH, car);
   const totalCheckpoints = FAKE_TRACK.checkpointsM.length - 1;
   let phase: FakeCarPhase = 'grid';
   let phaseTime = 0;
@@ -113,18 +117,18 @@ export function createFakeCar(random: () => number = Math.random): FakeCar {
     brake = approach(brake, braking ? 1 : 0, 8 * h);
 
     const weight = p.mass * GRAVITY;
-    const rearAero = REAR_DOWNFORCE * speed * speed;
-    const grip = p.traction * (weight * (1 - balanceToFrontWeightFraction(p.balance)) + rearAero);
-    const demand = driveForceN(p) * throttle * launchMultiplier(speed);
+    const rearAero = car.rearDownforce * speed * speed;
+    const grip = p.traction * (weight * (1 - balanceToFrontWeightFraction(p.balance, car)) + rearAero);
+    const demand = driveForceN(p, car) * throttle * launchMultiplier(speed);
     const slipTarget = demand > 0 ? clamp((demand / grip - 1) * 0.5, 0, 1) : 0;
     // Smoke flashes up instantly and fades over ~half a second.
     rearSlip = slipTarget > rearSlip ? slipTarget : approach(rearSlip, slipTarget, 2 * h);
 
-    const totalLoad = weight + Math.max(0, frontAeroForceN(p, speed)) + rearAero;
+    const totalLoad = weight + Math.max(0, frontAeroForceN(p, speed, car)) + rearAero;
     const brakeForce = speed > 0 ? brake * p.traction * totalLoad * 0.9 : 0;
-    const resist = speed > 0 ? p.drag * speed * speed + ROLLING_RESISTANCE * weight : 0;
+    const resist = speed > 0 ? p.drag * speed * speed + car.rollingResistance * weight : 0;
     const accel = (Math.min(demand, grip) - brakeForce - resist) / p.mass;
-    speed = Math.min(Math.max(0, speed + accel * h), estimateTopSpeedKmh(p) / 3.6);
+    speed = Math.min(Math.max(0, speed + accel * h), estimateTopSpeedKmh(p, car) / 3.6);
 
     const prev = distance;
     distance += speed * h;
@@ -144,9 +148,9 @@ export function createFakeCar(random: () => number = Math.random): FakeCar {
     if (crossed(prev, distance, FAKE_TRACK.jump.lipM)) {
       const lipKmh = speed * 3.6;
       speedTrapKmh = Math.round(lipKmh * 10) / 10;
-      const liftOff = estimateFrontLiftOffKmh(p);
+      const liftOff = estimateFrontLiftOffKmh(p, car);
       const noseUp = liftOff !== null && lipKmh > liftOff;
-      if (lipKmh >= BIG_JUMP_LIP_KMH && !noseUp) {
+      if (lipKmh >= jumpKmh && !noseUp) {
         jumpFailStreak = 0;
         phase = 'airborne';
         airborneLeft = FAKE_TRACK.jump.gapM / Math.max(speed, 1);
@@ -223,7 +227,7 @@ export function createFakeCar(random: () => number = Math.random): FakeCar {
       }
       // Decide nose lift from the reported (rounded) speed so every frame is self-consistent.
       const speedKmh = Math.round(speed * 36) / 10;
-      const liftOff = estimateFrontLiftOffKmh(p);
+      const liftOff = estimateFrontLiftOffKmh(p, car);
       const grounded = phase === 'grid' || phase === 'driving' || phase === 'finished';
       const noseLift = grounded && liftOff !== null && speedKmh > liftOff;
       return {
@@ -237,8 +241,8 @@ export function createFakeCar(random: () => number = Math.random): FakeCar {
         bestMs: bestMs === null ? null : Math.round(bestMs),
         throttle: Math.round(throttle * 100) / 100,
         brake: Math.round(brake * 100) / 100,
-        frontAeroN: Math.round(frontAeroForceN(p, speed)),
-        rearAeroN: Math.round(REAR_DOWNFORCE * speed * speed),
+        frontAeroN: Math.round(frontAeroForceN(p, speed, car)),
+        rearAeroN: Math.round(car.rearDownforce * speed * speed),
         noseLift,
         rearSlip: Math.round(rearSlip * 100) / 100,
         speedTrapKmh,

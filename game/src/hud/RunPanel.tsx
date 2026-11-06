@@ -1,11 +1,12 @@
-import { useRef } from 'react';
+import { useRef, useSyncExternalStore } from 'react';
 import { useShallow } from 'zustand/react/shallow';
+import { getCountdownSnapshot, subscribeCountdown } from '../game/countdown';
 import { runClock } from '../game/runClock';
 import { useGameStore } from '../state/store';
 import { formatRaceTime, setText, useRafLoop } from './hudUtils';
 
-/** Compact (phone) HUD: just the timer and the checkpoint count. */
-export function RunPanel({ compact = false }: { compact?: boolean }) {
+/** Desktop run panel (phones show the timer and checkpoints in TopBar). */
+export function RunPanel() {
   // Field-level selection: the run object is refreshed at ~10 Hz for the timer mirror.
   const run = useGameStore(
     useShallow((s) => ({
@@ -20,6 +21,7 @@ export function RunPanel({ compact = false }: { compact?: boolean }) {
     })),
   );
   const trackName = useGameStore((s) => s.trackLayout?.name ?? '—');
+  const countingDown = useSyncExternalStore(subscribeCountdown, () => getCountdownSnapshot().active);
   const timerRef = useRef<HTMLSpanElement>(null);
 
   useRafLoop(() => {
@@ -28,25 +30,9 @@ export function RunPanel({ compact = false }: { compact?: boolean }) {
   });
 
   const timerClass = `hud-run__timer${run.finished ? ' is-finished' : run.started ? ' is-running' : ''}`;
-  const hint = !run.started && !run.finished && run.pristine && <div className="hud-run__hint">THROTTLE TO START</div>;
-  if (compact) {
-    return (
-      <div className="hud-panel hud-run hud-run--compact" data-testid="run-panel">
-        <div className="hud-run__row">
-          <div className={timerClass}>
-            <span ref={timerRef}>0:00.000</span>
-          </div>
-          <div className="hud-run__cp">
-            <label>CP</label>
-            <b data-testid="hud-checkpoint">
-              {run.checkpoint}/{run.totalCheckpoints}
-            </b>
-          </div>
-        </div>
-        {hint}
-      </div>
-    );
-  }
+  const hint = !run.started && !run.finished && run.pristine && (
+    <div className="hud-run__hint">{countingDown ? 'GET READY' : 'THROTTLE TO START'}</div>
+  );
 
   return (
     <div className="hud-panel hud-run" data-testid="run-panel">

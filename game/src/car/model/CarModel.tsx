@@ -1,6 +1,7 @@
 /**
- * The voxel hypercar, drawn in the chassis frame (+Z forward, +Y up, origin RIDE_HEIGHT above the
- * ground at rest). Draw calls: body 1, front-wing elements 2, wheels 4, exhaust flame 1.
+ * The voxel car of the mounted class, drawn in the chassis frame (+Z forward, +Y up, origin the
+ * class's ride height above the ground at rest). Draw calls: body 1, front-wing elements 0–2,
+ * wheels 4, exhaust flame 1 (only under throttle).
  *
  * Everything live is driven from useFrame — never React state — so dashboard changes show up on
  * the next frame without re-rendering:
@@ -15,15 +16,13 @@
 import { useEffect, useRef } from 'react';
 import { useFrame } from '@react-three/fiber';
 import { Color, type Group, type Mesh, type Object3D } from 'three';
-import { FRONT_BODY_LIFT } from '@shared/protocol';
 import { gameState } from '../../state/store';
 import { carRuntime } from '../runtime';
-import { WHEELS, type WheelSpec } from '../vehicleSpec';
-import { getCarAssets } from './carAssets';
+import { HYPERCAR_SPEC, type VehicleSpec, type WheelSpec } from '../vehicleSpec';
+import { getCarAssets, type CarAssets } from './carAssets';
 import { carFxDebug, useCarFxDebugHandle, type CarFxLiveState } from './carFxDebug';
 import { CAR_COLORS, CH, setChannel } from './carMaterial';
-import { EXHAUST_OUTLETS } from './hypercarShape';
-import { MAIN_CHORD, MAIN_PIVOT, UPPER_HINGE_OVERLAP, UPPER_HINGE_Y, frontWingPose, type FrontWingPose } from './frontWing';
+import { frontWingPose, type FrontWingPose } from './frontWing';
 
 /**
  * Drives a wheel group from the runtime every frame: suspension travel, steering and spin.
@@ -45,9 +44,8 @@ export function useWheelPose(wheel: WheelSpec) {
   return { mountRef, spinRef };
 }
 
-function VoxelWheel({ wheel }: { wheel: WheelSpec }) {
+function VoxelWheel({ wheel, assets }: { wheel: WheelSpec; assets: CarAssets }) {
   const { mountRef, spinRef } = useWheelPose(wheel);
-  const assets = getCarAssets();
   const geometry = assets.wheels[wheel.index];
   return (
     <group ref={mountRef} position={wheel.connection}>
@@ -67,9 +65,10 @@ const BACKFIRE = new Color('#FFE9A8');
 const _exhaust = new Color();
 const _aero = new Color();
 
-/** Engine torque → 0 (tier 1) … 1 (tier 5), continuing past 1 for physics-panel values. */
-function tierFraction(engineTorque: number): number {
-  return Math.max(0, (engineTorque - 1000) / 2200);
+/** Engine torque → 0 (tier 1) … 1 (tier 5) for the car's class, continuing past 1 for physics-panel values. */
+function tierFraction(engineTorque: number, spec: VehicleSpec): number {
+  const { torqueBase, torquePerTier } = spec.car;
+  return Math.max(0, (engineTorque - torqueBase) / Math.max(1, 4 * torquePerTier));
 }
 
 /** cyan (tier 1) → yellow (tier 3) → magenta (tier 5). */
@@ -92,8 +91,10 @@ function countDrawables(root: Object3D | null): { meshes: number; shadowCasters:
   return { meshes, shadowCasters };
 }
 
-export function CarModel() {
-  const assets = getCarAssets();
+/** `spec`: the mounted class (defaults to the hypercar, e.g. for previews). */
+export function CarModel({ spec = HYPERCAR_SPEC }: { spec?: VehicleSpec }) {
+  const assets = getCarAssets(spec.id);
+  const wing = assets.wing;
   const mainRef = useRef<Group>(null);
   const mainMeshRef = useRef<Mesh>(null);
   const upperMountRef = useRef<Group>(null);
@@ -140,7 +141,7 @@ export function CarModel() {
     const handle = assets.material;
 
     // Front wing: servo toward the pose for the live downforce factor.
-    frontWingPose(physics.frontDownforce, state.target);
+    if (wing) frontWingPose(physics.frontDownforce, state.target, spec.car.frontWingMax, wing.config);
     const k = state.initialised ? 1 - Math.exp(-dt * 9) : 1;
     state.initialised = true;
     const pose = state.pose;
@@ -148,16 +149,19 @@ export function CarModel() {
     pose.mainChordScale += (state.target.mainChordScale - pose.mainChordScale) * k;
     pose.upperAngle += (state.target.upperAngle - pose.upperAngle) * k;
     pose.upperChordScale += (state.target.upperChordScale - pose.upperChordScale) * k;
-    if (mainRef.current && mainMeshRef.current && upperMountRef.current && upperRef.current && upperMeshRef.current) {
+    if (wing && mainRef.current && mainMeshRef.current) {
       mainRef.current.rotation.x = pose.mainAngle;
       mainMeshRef.current.scale.z = pose.mainChordScale;
-      upperMountRef.current.position.set(0, UPPER_HINGE_Y, -MAIN_CHORD * pose.mainChordScale + UPPER_HINGE_OVERLAP);
-      upperRef.current.rotation.x = pose.upperAngle - pose.mainAngle;
-      upperMeshRef.current.scale.z = pose.upperChordScale;
+      const upper = wing.config.upper;
+      if (upper && upperMountRef.current && upperRef.current && upperMeshRef.current) {
+        upperMountRef.current.position.set(0, upper.hingeY, -wing.config.main.chord * pose.mainChordScale + upper.hingeOverlap);
+        upperRef.current.rotation.x = pose.upperAngle - pose.mainAngle;
+        upperMeshRef.current.scale.z = pose.upperChordScale;
+      }
     }
 
     // Aero-status LEDs: setup verdict (colour) × live front-axle aero load (brightness).
-    _aero.copy(physics.frontDownforce >= FRONT_BODY_LIFT ? CYAN : MAGENTA);
+    _aero.copy(physics.frontDownforce >= spec.car.frontBodyLift ? CYAN : MAGENTA);
     let aeroIntensity = 0.7 + 1.8 * Math.min(Math.abs(rt.frontAeroN) / 3000, 1);
     if (rt.noseLift) aeroIntensity = Math.sin(state.time * 38) > 0 ? 3.2 : 0.25;
     setChannel(handle, CH.aero, _aero, aeroIntensity);
@@ -166,7 +170,7 @@ export function CarModel() {
     setChannel(handle, CH.tail, MAGENTA, rt.brake > 0.05 || rt.handbrake > 0.05 ? 4.2 : 1.4);
 
     // Exhaust: tier sets the colour, throttle the glow and flame length.
-    const tier = tierFraction(physics.engineTorque);
+    const tier = tierFraction(physics.engineTorque, spec);
     const throttle = rt.throttle;
     if (state.prevThrottle > 0.75 && throttle < 0.2 && rt.speedKmh > 70 && tier >= 0.7) state.backfire = BACKFIRE_SECONDS;
     state.prevThrottle = throttle;
@@ -192,24 +196,28 @@ export function CarModel() {
   });
 
   const material = assets.material.material;
-  const [, outletY, outletZ] = EXHAUST_OUTLETS[0] ?? [0, 0, 0];
+  const [, outletY, outletZ] = assets.flameOrigin;
   return (
-    <group ref={rootRef} name="car-model">
+    <group ref={rootRef} name="car-model" userData={{ carId: spec.id }}>
       <mesh name="car-body" geometry={assets.body} material={material} castShadow receiveShadow dispose={null} />
-      <group position={MAIN_PIVOT}>
-        <group ref={mainRef}>
-          <mesh ref={mainMeshRef} name="car-front-wing-main" geometry={assets.wingMain} material={material} dispose={null} />
-          <group ref={upperMountRef}>
-            <group ref={upperRef}>
-              <mesh ref={upperMeshRef} name="car-front-wing-upper" geometry={assets.wingUpper} material={material} dispose={null} />
-            </group>
+      {wing && (
+        <group position={wing.config.pivot}>
+          <group ref={mainRef}>
+            <mesh ref={mainMeshRef} name="car-front-wing-main" geometry={wing.main} material={material} dispose={null} />
+            {wing.upper && (
+              <group ref={upperMountRef}>
+                <group ref={upperRef}>
+                  <mesh ref={upperMeshRef} name="car-front-wing-upper" geometry={wing.upper} material={material} dispose={null} />
+                </group>
+              </group>
+            )}
           </group>
         </group>
-      </group>
-      {WHEELS.map((wheel) => (
-        <VoxelWheel key={wheel.id} wheel={wheel} />
+      )}
+      {spec.wheels.map((wheel) => (
+        <VoxelWheel key={wheel.id} wheel={wheel} assets={assets} />
       ))}
-      {/* Flame geometry already carries the outlets' x offsets; only the outlet plane is placed here. */}
+      {/* Flame geometry already carries the outlets' offsets; only the first outlet's plane is placed here. */}
       <mesh
         ref={flameRef}
         name="car-exhaust-flame"

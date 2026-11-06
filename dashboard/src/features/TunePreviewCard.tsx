@@ -2,25 +2,25 @@ import { memo, useMemo } from 'react';
 import { StyleSheet, View } from 'react-native';
 
 import {
-  FRONT_BODY_LIFT,
   balanceToSuspensionStiffness,
   describeChassisBalance,
   driveForceN,
-  estimateFrontLiftOffKmh,
-  estimateTopSpeedKmh,
   frontAeroForceN,
-  mapSquadControlsToPhysics,
   squadControlsEqual,
+  type CarClass,
   type CarPhysicsParams,
 } from '../../../shared/protocol';
 import { formatKmh, formatNumber, formatSigned } from '../lib/format';
 import { physicsEqual } from '../squad/controller';
-import { useControls, useGameLink } from '../squad/SquadContext';
+import { describeDrive } from '../squad/garage';
+import { previewSetup } from '../squad/session';
+import { useControls, useGameLink, usePlaySession } from '../squad/SquadContext';
 import { alpha, colors, glow } from '../theme';
 import { Badge } from '../ui/Badge';
 import { Meter } from '../ui/Meter';
 import { Panel } from '../ui/Panel';
 import { Txt } from '../ui/Txt';
+import { SessionLine } from './SessionInfo';
 
 /** Reference speed for the "front aero at speed" readout, km/h. */
 const REF_KMH = 200;
@@ -39,10 +39,10 @@ function Row({ k, v, sub, color, testID }: { k: string; v: string; sub?: string;
   );
 }
 
-/** Front wing k vs the fixed body lift, as two bars on a shared scale. */
-function WingVsLift({ physics }: { physics: CarPhysicsParams }) {
-  const scale = 7;
-  const net = physics.frontDownforce - FRONT_BODY_LIFT;
+/** Front wing k vs the car's fixed body lift, as two bars on a shared scale. */
+function WingVsLift({ physics, car }: { physics: CarPhysicsParams; car: Readonly<CarClass> }) {
+  const scale = Math.max(7, Math.ceil(car.frontWingMax + 0.5));
+  const net = physics.frontDownforce - car.frontBodyLift;
   const wingColor = net < 0 ? colors.magenta : colors.cyan;
   return (
     <View style={styles.versus}>
@@ -53,8 +53,8 @@ function WingVsLift({ physics }: { physics: CarPhysicsParams }) {
       </View>
       <View style={styles.versusRow}>
         <Txt style={styles.versusLabel}>LIFT</Txt>
-        <Meter value={FRONT_BODY_LIFT / scale} color={alpha(colors.magenta, 0.7)} segments={14} style={styles.versusMeter} />
-        <Txt style={[styles.versusValue, { color: colors.magenta }]}>{formatNumber(FRONT_BODY_LIFT, 2)}</Txt>
+        <Meter value={car.frontBodyLift / scale} color={alpha(colors.magenta, 0.7)} segments={14} style={styles.versusMeter} />
+        <Txt style={[styles.versusValue, { color: colors.magenta }]}>{formatNumber(car.frontBodyLift, 2)}</Txt>
       </View>
     </View>
   );
@@ -112,16 +112,17 @@ function AppliedSection({ preview }: { preview: CarPhysicsParams }) {
 
 export const TunePreviewCard = memo(function TunePreviewCard() {
   const values = useControls((s) => s.values);
-  const physics = useMemo(() => mapSquadControlsToPhysics(values), [values]);
-  const topSpeed = estimateTopSpeedKmh(physics);
-  const liftOff = estimateFrontLiftOffKmh(physics);
+  const session = usePlaySession();
+  const { car, physics, topSpeedKmh: topSpeed, liftOffKmh: liftOff } = useMemo(() => previewSetup(values, session), [values, session]);
   const liftWarn = liftOff !== null && liftOff < topSpeed;
-  const frontAtRef = frontAeroForceN(physics, REF_KMH / 3.6);
-  const split = describeChassisBalance(values.chassisBalance);
-  const springs = balanceToSuspensionStiffness(physics.balance);
+  const frontAtRef = frontAeroForceN(physics, REF_KMH / 3.6, car);
+  const split = describeChassisBalance(values.chassisBalance, car);
+  const springs = balanceToSuspensionStiffness(physics.balance, car);
+  const awd = car.frontDriveShare > 0;
 
   return (
     <Panel title="TUNE PREVIEW" tag="05" accent={colors.cyan} testID="tune-preview">
+      <SessionLine testID="preview-session" />
       <View style={styles.hero}>
         <View>
           <Txt style={styles.k}>EST. TOP SPEED</Txt>
@@ -149,21 +150,21 @@ export const TunePreviewCard = memo(function TunePreviewCard() {
         </Txt>
       ) : null}
 
-      <WingVsLift physics={physics} />
+      <WingVsLift physics={physics} car={car} />
 
       <Row k="MASS" v={`${formatNumber(physics.mass)} kg`} testID="preview-mass" />
       <Row
         k="FRONT AERO"
         v={`${formatSigned(frontAtRef)} N`}
-        sub={`net k ${formatSigned(physics.frontDownforce - FRONT_BODY_LIFT, 2)} · at ${REF_KMH} km/h`}
+        sub={`net k ${formatSigned(physics.frontDownforce - car.frontBodyLift, 2)} · at ${REF_KMH} km/h`}
         color={frontAtRef < 0 ? colors.magenta : colors.green}
         testID="preview-front-aero"
       />
       <Row k="DRAG" v={`k ${formatNumber(physics.drag, 2)}`} sub="F = −k·v·|v|" testID="preview-drag" />
       <Row
-        k="REAR TORQUE"
+        k={awd ? 'DRIVE TORQUE' : 'REAR TORQUE'}
         v={`${formatNumber(physics.engineTorque)} N·m`}
-        sub={`${formatNumber(driveForceN(physics))} N at the contact patch`}
+        sub={`${formatNumber(driveForceN(physics, car))} N at the contact patches${awd ? ` · ${describeDrive(car)}` : ''}`}
         testID="preview-torque"
       />
       <Row

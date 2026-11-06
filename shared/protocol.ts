@@ -144,6 +144,9 @@ export const DEFAULT_SQUAD_CONTROLS: Readonly<SquadControls> = Object.freeze({
  *              between the axles (see balanceToSuspensionStiffness).
  *   Traction   Tyre friction coefficient (wheel friction slip / side stiffness).
  *
+ *   The constants below are the original car's (the hypercar). Each car class in the garage (CAR_CLASSES)
+ *   has its own set; every helper takes an optional car and defaults to the hypercar.
+ *
  *   In game/ the two vertical aero terms are ground-effect forces: full strength while an axle's tyres are on
  *   (or within ~1 m of) the ground, fading with height in flight (game/src/car/carController.ts). The preview
  *   formulas here are the on-ground values, which is all the estimates below need.
@@ -263,81 +266,384 @@ export const ROLLING_RESISTANCE = 0.015;
 /** Base tyre grip — no slider changes it; aero adds grip physically via axle load. */
 export const BASE_TRACTION = 1.45;
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Car classes — the garage. Every class maps the same three sliders onto its own car.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * A car class: how the dashboard's three sliders map onto this car's physics params, plus the
+ * fixed aero / drivetrain / geometry constants the estimates below need. The game builds each
+ * class's chassis, wheels and suspension from these same numbers (game/src/car/vehicleSpec.ts),
+ * so the dashboard's previews and the simulation agree for every car.
+ *
+ * `hypercar` is the original car: its numbers ARE the legacy constants above (DRIVE_WHEEL_RADIUS,
+ * FRONT_BODY_LIFT, CG_HEIGHT, …). Every helper called without a car, or with an unknown id, uses
+ * it, so pre-garage callers get exactly the results they always did.
+ *
+ * Physics per class (same model as above, with the class's constants):
+ *   drive       engineTorque / driveWheelRadius at the contact patches, split front/rear by
+ *               frontDriveShare (0 = RWD), × a low-speed "grunt" multiplier (launchBoost, fading out
+ *               by launchFadeKmh) that lights the tyres up off the line but does not change top speed
+ *   front aero  (frontDownforce − frontBodyLift) · v²  at the front axle
+ *   rear aero   rearDownforce · v²  at the rear axle
+ *   balance     static front-axle load = frontWeightNeutral − frontWeightRange · balance; springs split
+ *               in proportion (suspensionBalanceSplit = 2 · frontWeightRange keeps the ride height
+ *               the same at every balance)
+ */
+export interface CarClass {
+  id: string;
+  /** Short display name (the game's garage card adds a tagline and stat bars). */
+  name: string;
+  /** Share of the drive torque sent to the front axle: 0 = rear-wheel drive, 0.4 = 40/60 all-wheel drive. */
+  frontDriveShare: number;
+  // ── Slider mapping (a = Front Wing Aero / 100, t = Engine Tier − 1, b = Chassis Balance / 50) ──
+  /** mass = massBase + massPerTier · t, kg. */
+  massBase: number;
+  massPerTier: number;
+  /** engineTorque = torqueBase + torquePerTier · t, N·m (whole car). */
+  torqueBase: number;
+  torquePerTier: number;
+  /** drag = dragBase + dragPerAero · a. */
+  dragBase: number;
+  dragPerAero: number;
+  /** frontDownforce = frontWingMax · a. */
+  frontWingMax: number;
+  /** Tyre grip μ (no slider changes it). */
+  traction: number;
+  // ── Fixed aero ──
+  /** Body lift at the front axle, N per (m/s)²: the front wing has to beat it to keep the nose down. */
+  frontBodyLift: number;
+  /** Fixed rear downforce at the rear axle, N per (m/s)². */
+  rearDownforce: number;
+  // ── Drivetrain ──
+  /** Driven-wheel radius, m: drive force = engineTorque / driveWheelRadius (every driven wheel has it). */
+  driveWheelRadius: number;
+  /** Drive force × (1 + (launchBoost − 1) · max(0, 1 − v / launchFadeKmh)); 1 = flat torque. */
+  launchBoost: number;
+  launchFadeKmh: number;
+  /** Rolling-resistance coefficient (top-speed estimate and the game's rolling drag). */
+  rollingResistance: number;
+  // ── Geometry ──
+  /** Axle-to-axle distance, m. */
+  wheelbase: number;
+  /** Centre-of-mass height above the ground at rest, m. */
+  cgHeight: number;
+  /** Static front-axle load fraction at balance 0, and how far balance ±1 moves it. */
+  frontWeightNeutral: number;
+  frontWeightRange: number;
+  /** Mean per-wheel spring stiffness (Rapier raycast-vehicle units, mass-normalised). */
+  suspensionStiffnessBase: number;
+  /** Balance ±1 moves each axle's springs by ±this fraction of the base. */
+  suspensionBalanceSplit: number;
+  // ── Big jumps (assessBigJump) ──
+  /**
+   * A map's jump speed (TrackBigJump.requiredKmh, BIG_JUMP_LIP_KMH) is calibrated on the hypercar.
+   * This class needs requiredKmh × jumpSpeedScale of ESTIMATED top speed to clear the same jump:
+   * it folds in how the class flies (drag-to-mass ratio, downforce pinning it through the lip) and
+   * how far below its top speed it reaches the lip from a standing start (wheelspin, front scrub).
+   * Measured on the chaos track's 95 m jump. 1 = the hypercar.
+   */
+  jumpSpeedScale: number;
+  /**
+   * For a car that is fast enough (estimated top speed ≥ the required speed), the jump verdict is
+   * NOSE LIFT when the estimated lift-off speed is below
+   * min(top speed + noseLiftReserveKmh, required + noseLiftMarginKmh). Every class uses a large
+   * margin (a long run-up brings a car to within a few km/h of its top speed, so any lift-off below
+   * it happens) plus a reserve: with lift-off only a little above top speed the nose is so light
+   * that the car can't steer through the run-up's kink either. A car that is too slow gets no
+   * reserve: NOSE LIFT only when lift-off is below its top speed, otherwise TOO SLOW (same rule as
+   * before the garage). The hypercar's physics and estimates are unchanged from before the garage;
+   * only its fast-enough verdict changed: it used to call NOSE LIFT only for a lift-off below the
+   * required speed, until the integration pass measured its nose lifting at 14–18 % wing / balance 0
+   * and 4–9 % / −40, all then estimated READY (see game/README.md "Big jump honesty").
+   */
+  noseLiftMarginKmh: number;
+  noseLiftReserveKmh: number;
+}
+
+export type CarClassId = 'hypercar' | 'rally' | 'muscle' | 'formula' | 'buggy';
+
+/** Garage order. Ids are stable: they are persisted and sent in `game:state.carId`. */
+export const CAR_CLASS_IDS: readonly CarClassId[] = ['hypercar', 'rally', 'muscle', 'formula', 'buggy'];
+
+export const DEFAULT_CAR_CLASS_ID: CarClassId = 'hypercar';
+
+export const CAR_CLASSES: { readonly [K in CarClassId]: Readonly<CarClass> } = {
+  /**
+   * The original wedge-nosed hypercar. Its physics are calibrated against the chaos track's big jump —
+   * do not retune them. Its nose-lift rule (12 km/h reserve) was measured on the chaos jump: every
+   * setting whose lift-off was less than 10.4 km/h above top speed lifted its nose and ran off.
+   */
+  hypercar: {
+    id: 'hypercar',
+    name: 'Neon Hypercar',
+    frontDriveShare: 0,
+    massBase: 1050,
+    massPerTier: 60,
+    torqueBase: 700,
+    torquePerTier: 700,
+    dragBase: 2.98,
+    dragPerAero: 1.8,
+    frontWingMax: FRONT_WING_DOWNFORCE_MAX,
+    traction: BASE_TRACTION,
+    frontBodyLift: FRONT_BODY_LIFT,
+    rearDownforce: REAR_DOWNFORCE,
+    driveWheelRadius: DRIVE_WHEEL_RADIUS,
+    launchBoost: 1,
+    launchFadeKmh: 0,
+    rollingResistance: ROLLING_RESISTANCE,
+    wheelbase: WHEELBASE,
+    cgHeight: CG_HEIGHT,
+    frontWeightNeutral: 0.5,
+    frontWeightRange: 0.2,
+    suspensionStiffnessBase: SUSPENSION_STIFFNESS_BASE,
+    suspensionBalanceSplit: SUSPENSION_BALANCE_SPLIT,
+    jumpSpeedScale: 1,
+    noseLiftMarginKmh: 1000,
+    noseLiftReserveKmh: 12,
+  },
+  /** Light short-wheelbase all-wheel-drive hatch: grippy and nimble, short-geared (lower top speed). */
+  rally: {
+    id: 'rally',
+    name: 'Glitch Rally',
+    frontDriveShare: 0.45,
+    massBase: 860,
+    massPerTier: 40,
+    torqueBase: 520,
+    torquePerTier: 530,
+    dragBase: 2.9,
+    dragPerAero: 1.4,
+    frontWingMax: 5,
+    traction: 1.7,
+    frontBodyLift: 1.6,
+    rearDownforce: 1.8,
+    driveWheelRadius: 0.32,
+    launchBoost: 1,
+    launchFadeKmh: 0,
+    rollingResistance: 0.016,
+    wheelbase: 2.45,
+    cgHeight: 0.5,
+    frontWeightNeutral: 0.56,
+    frontWeightRange: 0.18,
+    suspensionStiffnessBase: 60,
+    suspensionBalanceSplit: 0.36,
+    jumpSpeedScale: 1.027,
+    noseLiftMarginKmh: 1000,
+    noseLiftReserveKmh: 10,
+  },
+  /** Heavy front-engined coupe: huge low-end torque (wheelspin and smoke at any tier), brick-like drag and nose lift. */
+  muscle: {
+    id: 'muscle',
+    name: 'Bruiser V8',
+    frontDriveShare: 0,
+    massBase: 1400,
+    massPerTier: 70,
+    torqueBase: 1100,
+    torquePerTier: 850,
+    dragBase: 4.3,
+    dragPerAero: 1.4,
+    frontWingMax: 6,
+    traction: 1.35,
+    frontBodyLift: 3.2,
+    rearDownforce: 1.8,
+    driveWheelRadius: 0.36,
+    launchBoost: 1.8,
+    launchFadeKmh: 90,
+    rollingResistance: 0.015,
+    wheelbase: 2.85,
+    cgHeight: 0.52,
+    frontWeightNeutral: 0.54,
+    frontWeightRange: 0.15,
+    suspensionStiffnessBase: 42,
+    suspensionBalanceSplit: 0.3,
+    jumpSpeedScale: 1.014,
+    noseLiftMarginKmh: 1000,
+    noseLiftReserveKmh: 12,
+  },
+  /** Featherweight open-wheeler: huge wings, low ride, very stable at speed, twitchy everywhere else. */
+  formula: {
+    id: 'formula',
+    name: 'Razorwing',
+    frontDriveShare: 0,
+    massBase: 600,
+    massPerTier: 35,
+    torqueBase: 420,
+    torquePerTier: 420,
+    dragBase: 1.75,
+    dragPerAero: 2.4,
+    frontWingMax: 11,
+    traction: 1.75,
+    frontBodyLift: 1.4,
+    rearDownforce: 4.2,
+    driveWheelRadius: 0.33,
+    launchBoost: 1,
+    launchFadeKmh: 0,
+    rollingResistance: 0.014,
+    wheelbase: 3.0,
+    cgHeight: 0.3,
+    frontWeightNeutral: 0.45,
+    frontWeightRange: 0.2,
+    suspensionStiffnessBase: 120,
+    suspensionBalanceSplit: 0.4,
+    jumpSpeedScale: 1.048,
+    noseLiftMarginKmh: 1000,
+    noseLiftReserveKmh: 8,
+  },
+  /** Big-wheeled all-wheel-drive desert buggy: long soft suspension, high centre of mass, lands anything, slow. */
+  buggy: {
+    id: 'buggy',
+    name: 'Dune Goblin',
+    frontDriveShare: 0.4,
+    massBase: 1150,
+    massPerTier: 50,
+    torqueBase: 800,
+    torquePerTier: 420,
+    dragBase: 3.6,
+    dragPerAero: 1.2,
+    frontWingMax: 3,
+    traction: 1.3,
+    frontBodyLift: 1.2,
+    rearDownforce: 1,
+    driveWheelRadius: 0.48,
+    launchBoost: 1.3,
+    launchFadeKmh: 70,
+    rollingResistance: 0.02,
+    wheelbase: 2.75,
+    cgHeight: 0.78,
+    frontWeightNeutral: 0.48,
+    frontWeightRange: 0.2,
+    suspensionStiffnessBase: 26,
+    suspensionBalanceSplit: 0.4,
+    jumpSpeedScale: 1,
+    noseLiftMarginKmh: 1000,
+    noseLiftReserveKmh: 10,
+  },
+};
+
+/** A car for the helpers below: a class id (unknown ids → hypercar), a class object, or nothing (→ hypercar). */
+export type CarClassRef = string | Readonly<CarClass> | null | undefined;
+
+export function isCarClassId(value: unknown): value is CarClassId {
+  return typeof value === 'string' && Object.prototype.hasOwnProperty.call(CAR_CLASSES, value);
+}
+
+/** The class for a car ref; anything unknown (old clients, typos, a newer game's car) is the hypercar. */
+export function getCarClass(car?: CarClassRef): Readonly<CarClass> {
+  if (typeof car === 'object' && car !== null) return car;
+  return isCarClassId(car) ? CAR_CLASSES[car] : CAR_CLASSES[DEFAULT_CAR_CLASS_ID];
+}
+
 /**
  * THE mapping from dashboard sliders to car physics. Pure and deterministic, so
  * the dashboard can preview exactly what the game will apply.
  *
+ * For the default car (hypercar):
  *   Front Wing Aero (a = 0…1): frontDownforce 0→6.5 (body lift is 2.7, so < ~42 % nets lift), drag 2.98→4.78
  *   Engine Tier     (t = 1…5): rear-axle torque 700→3500 N·m, mass +60 kg per tier
  *   Chassis Balance (b = −1…1): balance passthrough → centre of mass + suspension stiffness split
+ * Other classes use the same formulas with their own CarClass coefficients.
  *
- * At the default sliders (50 / 3 / 0) this yields DEFAULT_CAR_PHYSICS.
+ * At the default sliders (50 / 3 / 0) the hypercar yields DEFAULT_CAR_PHYSICS.
  */
-export function mapSquadControlsToPhysics(input: SquadControls): CarPhysicsParams {
+export function mapSquadControlsToPhysics(input: SquadControls, car?: CarClassRef): CarPhysicsParams {
+  const k = getCarClass(car);
   const c = clampSquadControls(input);
   const a = c.frontWingAero / 100;
   const tierSteps = c.engineTier - 1;
   const b = c.chassisBalance / 50;
   return clampPhysics({
-    mass: round(1050 + 60 * tierSteps, 1),
-    traction: BASE_TRACTION,
-    drag: round(2.98 + 1.8 * a, 3),
-    frontDownforce: round(FRONT_WING_DOWNFORCE_MAX * a, 3),
-    engineTorque: round(700 + 700 * tierSteps, 1),
+    mass: round(k.massBase + k.massPerTier * tierSteps, 1),
+    traction: k.traction,
+    drag: round(k.dragBase + k.dragPerAero * a, 3),
+    frontDownforce: round(k.frontWingMax * a, 3),
+    engineTorque: round(k.torqueBase + k.torquePerTier * tierSteps, 1),
     balance: round(b, 3),
   });
 }
 
+/** The hypercar at the default sliders. */
 export const DEFAULT_CAR_PHYSICS: Readonly<CarPhysicsParams> = Object.freeze(
   mapSquadControlsToPhysics(DEFAULT_SQUAD_CONTROLS),
 );
 
+/** A car's physics at the default sliders (50 / 3 / 0). */
+export function defaultPhysicsFor(car?: CarClassRef): CarPhysicsParams {
+  return mapSquadControlsToPhysics(DEFAULT_SQUAD_CONTROLS, car);
+}
+
 /**
  * Fraction of static weight carried by the front axle for a balance value.
- * −1 → 0.70 (70 % front), 0 → 0.50, +1 → 0.30 (70 % rear).
+ * Hypercar: −1 → 0.70 (70 % front), 0 → 0.50, +1 → 0.30 (70 % rear).
  * The game derives its centre-of-mass shift from this so every UI agrees.
  */
-export function balanceToFrontWeightFraction(balance: number): number {
-  return 0.5 - 0.2 * clamp(balance, -1, 1);
+export function balanceToFrontWeightFraction(balance: number, car?: CarClassRef): number {
+  const k = getCarClass(car);
+  return k.frontWeightNeutral - k.frontWeightRange * clamp(balance, -1, 1);
 }
 
 /** Display helper: chassisBalance (−50…50) → e.g. { front: 60, rear: 40 } in percent. */
-export function describeChassisBalance(chassisBalance: number): { front: number; rear: number } {
-  const front = Math.round(balanceToFrontWeightFraction(chassisBalance / 50) * 100);
+export function describeChassisBalance(chassisBalance: number, car?: CarClassRef): { front: number; rear: number } {
+  const front = Math.round(balanceToFrontWeightFraction(chassisBalance / 50, car) * 100);
   return { front, rear: 100 - front };
 }
 
 /**
  * Per-wheel suspension stiffness for a balance value: the heavier end gets stiffer springs.
- * −1 → front ×1.4 / rear ×0.6, +1 → front ×0.6 / rear ×1.4 (with SUSPENSION_BALANCE_SPLIT = 0.4).
+ * Hypercar: −1 → front ×1.4 / rear ×0.6, +1 → front ×0.6 / rear ×1.4 (SUSPENSION_BALANCE_SPLIT = 0.4).
+ * A class whose neutral weight is not 50/50 starts from springs split in proportion to that.
  */
-export function balanceToSuspensionStiffness(balance: number): { front: number; rear: number } {
+export function balanceToSuspensionStiffness(balance: number, car?: CarClassRef): { front: number; rear: number } {
+  const k = getCarClass(car);
   const b = clamp(balance, -1, 1);
+  const bias = 2 * k.frontWeightNeutral - 1;
   return {
-    front: SUSPENSION_STIFFNESS_BASE * (1 - SUSPENSION_BALANCE_SPLIT * b),
-    rear: SUSPENSION_STIFFNESS_BASE * (1 + SUSPENSION_BALANCE_SPLIT * b),
+    front: k.suspensionStiffnessBase * (1 + bias - k.suspensionBalanceSplit * b),
+    rear: k.suspensionStiffnessBase * (1 - bias + k.suspensionBalanceSplit * b),
   };
 }
 
-/** Rear-axle contact-patch drive force in N. */
-export function driveForceN(p: CarPhysicsParams): number {
-  return p.engineTorque / DRIVE_WHEEL_RADIUS;
+/** Contact-patch drive force in N at top-end torque (all driven wheels together). */
+export function driveForceN(p: CarPhysicsParams, car?: CarClassRef): number {
+  return p.engineTorque / getCarClass(car).driveWheelRadius;
+}
+
+/** Drive force in N at a forward speed (m/s), including the class's low-speed launch boost. */
+export function driveForceAtSpeedN(p: CarPhysicsParams, forwardSpeedMs: number, car?: CarClassRef): number {
+  const k = getCarClass(car);
+  const force = driveForceN(p, k);
+  if (k.launchBoost <= 1 || k.launchFadeKmh <= 0) return force;
+  const fade = Math.max(0, 1 - (Math.abs(forwardSpeedMs) * 3.6) / k.launchFadeKmh);
+  return force * (1 + (k.launchBoost - 1) * fade);
 }
 
 /** Net vertical aero force at the front axle in N (+ = downforce, − = lift) at a forward speed in m/s. */
-export function frontAeroForceN(p: CarPhysicsParams, forwardSpeedMs: number): number {
-  return (p.frontDownforce - FRONT_BODY_LIFT) * forwardSpeedMs * forwardSpeedMs;
+export function frontAeroForceN(p: CarPhysicsParams, forwardSpeedMs: number, car?: CarClassRef): number {
+  return (p.frontDownforce - getCarClass(car).frontBodyLift) * forwardSpeedMs * forwardSpeedMs;
+}
+
+/** Rear downforce at the rear axle in N at a forward speed in m/s. */
+export function rearAeroForceN(forwardSpeedMs: number, car?: CarClassRef): number {
+  return getCarClass(car).rearDownforce * forwardSpeedMs * forwardSpeedMs;
 }
 
 /**
  * Rough steady-state top speed: driveForce = drag·v² + Crr·m·g.
  * Preview only — the real number emerges from the game's simulation.
  */
-export function estimateTopSpeedKmh(p: CarPhysicsParams): number {
-  const resist = ROLLING_RESISTANCE * p.mass * GRAVITY;
-  const net = Math.max(0, driveForceN(p) - resist);
+export function estimateTopSpeedKmh(p: CarPhysicsParams, car?: CarClassRef): number {
+  const k = getCarClass(car);
+  const resist = k.rollingResistance * p.mass * GRAVITY;
+  const net = Math.max(0, driveForceN(p, k) - resist);
   if (p.drag <= 1e-6) return Infinity;
-  return Math.sqrt(net / p.drag) * 3.6;
+  const v = Math.sqrt(net / p.drag);
+  if (k.launchBoost <= 1 || k.launchFadeKmh <= 0 || v * 3.6 >= k.launchFadeKmh) return v * 3.6;
+  // Tops out inside the boosted band: drag·v² = F·(1 + (B − 1)(1 − v/vf)) − R, a quadratic in v.
+  const force = driveForceN(p, k);
+  const vf = k.launchFadeKmh / 3.6;
+  const beta = (force * (k.launchBoost - 1)) / vf;
+  const c = force * k.launchBoost - resist;
+  if (c <= 0) return 0;
+  return ((-beta + Math.sqrt(beta * beta + 4 * p.drag * c)) / (2 * p.drag)) * 3.6;
 }
 
 /**
@@ -345,36 +651,75 @@ export function estimateTopSpeedKmh(p: CarPhysicsParams): number {
  * nose leaves the ground. null if the front wing out-pulls body lift (never lifts); 0 if the
  * drive torque alone unloads the front axle. Estimate — ignores the drag pitch moment.
  */
-export function estimateFrontLiftOffKmh(p: CarPhysicsParams): number | null {
-  const netLift = FRONT_BODY_LIFT - p.frontDownforce;
+export function estimateFrontLiftOffKmh(p: CarPhysicsParams, car?: CarClassRef): number | null {
+  const k = getCarClass(car);
+  const netLift = k.frontBodyLift - p.frontDownforce;
   if (netLift <= 1e-6) return null;
-  const staticFrontLoad = p.mass * GRAVITY * balanceToFrontWeightFraction(p.balance);
-  const frontLoad = staticFrontLoad - (driveForceN(p) * CG_HEIGHT) / WHEELBASE;
+  const staticFrontLoad = p.mass * GRAVITY * balanceToFrontWeightFraction(p.balance, k);
+  const frontLoad = staticFrontLoad - (driveForceN(p, k) * k.cgHeight) / k.wheelbase;
   if (frontLoad <= 0) return 0;
-  return Math.sqrt(frontLoad / netLift) * 3.6;
+  const v = Math.sqrt(frontLoad / netLift);
+  if (k.launchBoost <= 1 || k.launchFadeKmh <= 0 || v * 3.6 >= k.launchFadeKmh) return v * 3.6;
+  // Lifts inside the boosted band, where the extra drive force moves more load off the nose:
+  // netLift·v² = staticFrontLoad − F(v)·h/L with F linear in v — a quadratic with one positive root.
+  const lever = k.cgHeight / k.wheelbase;
+  const force = driveForceN(p, k);
+  const c = lever * force * k.launchBoost - staticFrontLoad;
+  if (c >= 0) return 0;
+  const beta = (lever * force * (k.launchBoost - 1)) / (k.launchFadeKmh / 3.6);
+  return ((beta + Math.sqrt(beta * beta - 4 * netLift * c)) / (2 * netLift)) * 3.6;
+}
+
+/**
+ * Estimated top speed this car needs for a map's big jump: the map's requirement (calibrated on
+ * the hypercar; default BIG_JUMP_LIP_KMH) × the class's jumpSpeedScale. For the hypercar it is the
+ * map's number unchanged.
+ */
+export function requiredJumpKmh(mapRequiredKmh?: number | null, car?: CarClassRef): number {
+  const base = isFiniteNumber(mapRequiredKmh) && mapRequiredKmh > 0 ? mapRequiredKmh : BIG_JUMP_LIP_KMH;
+  return base * getCarClass(car).jumpSpeedScale;
 }
 
 export interface BigJumpAssessment {
-  /** True when the estimate says the car can carry BIG_JUMP_LIP_KMH to the lip with its nose down. */
+  /** True when the estimate says the car can carry `requiredKmh` to the lip with its nose down. */
   ready: boolean;
   topSpeedKmh: number;
   liftOffKmh: number | null;
+  /** What this car needs (requiredJumpKmh: the map's requirement × the class's jumpSpeedScale). */
   requiredKmh: number;
   /** Human-readable verdict, e.g. 'TOO SLOW', 'NOSE LIFT', 'READY'. */
   verdict: 'READY' | 'TOO SLOW' | 'NOSE LIFT';
 }
 
-/** Will this setup clear the big jump? Estimate only (the game is the source of truth). */
-export function assessBigJump(p: CarPhysicsParams): BigJumpAssessment {
-  const topSpeedKmh = estimateTopSpeedKmh(p);
-  const liftOffKmh = estimateFrontLiftOffKmh(p);
-  const requiredKmh = BIG_JUMP_LIP_KMH;
-  // The nose can only lift if the car actually reaches lift-off speed on the run-up; a car that
-  // tops out below both speeds is simply too slow (more wing would only make it slower).
+/**
+ * Will this setup clear a big jump? Estimate only (the game is the source of truth).
+ * `car` defaults to the hypercar; `requiredKmh` is the MAP's jump speed (default BIG_JUMP_LIP_KMH,
+ * the chaos track's jump — a map reports its own in `game:state.bigJumpKmh`), scaled for the car by
+ * requiredJumpKmh.
+ */
+export function assessBigJump(
+  p: CarPhysicsParams,
+  car?: CarClassRef,
+  requiredKmh: number | null = BIG_JUMP_LIP_KMH,
+): BigJumpAssessment {
+  const k = getCarClass(car);
+  const topSpeedKmh = estimateTopSpeedKmh(p, k);
+  const liftOffKmh = estimateFrontLiftOffKmh(p, k);
+  const required = requiredJumpKmh(requiredKmh, k);
+  // The nose can only lift if the car actually reaches lift-off speed on the run-up.
+  //   - Fast enough (top ≥ required): the long run-up brings the car to within a few km/h of its top
+  //     speed, so a lift-off below top speed + the class's reserve counts (with lift-off only a little
+  //     above top speed the nose is too light to steer through the run-up's kink).
+  //   - Too slow (top < required): no reserve. Only a lift-off below top speed (which the car does
+  //     reach) is NOSE LIFT; a car that tops out below both speeds is simply TOO SLOW (more wing,
+  //     the NOSE LIFT advice, would only make it slower).
+  const noseLiftBelowKmh = topSpeedKmh >= required
+    ? Math.min(topSpeedKmh + k.noseLiftReserveKmh, required + k.noseLiftMarginKmh)
+    : Math.min(topSpeedKmh, required);
   let verdict: BigJumpAssessment['verdict'] = 'READY';
-  if (liftOffKmh !== null && liftOffKmh < Math.min(topSpeedKmh, requiredKmh)) verdict = 'NOSE LIFT';
-  else if (topSpeedKmh < requiredKmh) verdict = 'TOO SLOW';
-  return { ready: verdict === 'READY', topSpeedKmh, liftOffKmh, requiredKmh, verdict };
+  if (liftOffKmh !== null && liftOffKmh < noseLiftBelowKmh) verdict = 'NOSE LIFT';
+  else if (topSpeedKmh < required) verdict = 'TOO SLOW';
+  return { ready: verdict === 'READY', topSpeedKmh, liftOffKmh, requiredKmh: required, verdict };
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -398,7 +743,7 @@ export interface GameTelemetry {
   finished: boolean;
   /** Best finish time in ms, or null if none yet. */
   bestMs: number | null;
-  // ── F1-style channels (optional on the wire; parseMessage fills the defaults shown) ──
+  // ── Race telemetry channels (optional on the wire; parseMessage fills the defaults shown) ──
   /** Throttle pedal 0…1 (default 0). */
   throttle: number;
   /** Brake pedal 0…1 (default 0). */
@@ -451,8 +796,21 @@ export interface PhysicsSetMessage extends Envelope {
   params: Partial<CarPhysicsParams>;
 }
 
-/** Game → dashboards: the physics params the car is actually running right now. */
-export interface GameStateMessage extends Envelope {
+/**
+ * What the game is playing. Optional on the wire: games from before the garage send none of it
+ * (treat a missing `carId` as DEFAULT_CAR_CLASS_ID and a missing `bigJumpKmh` as BIG_JUMP_LIP_KMH).
+ */
+export interface GameSessionInfo {
+  /** Car class id (CAR_CLASSES key). A valid id this protocol version doesn't know is passed through: use getCarClass(). */
+  carId?: string;
+  /** Map id (the game's track catalog). */
+  trackId?: string;
+  /** Lip speed the current map's big jump needs, km/h; null = this map has no big jump. */
+  bigJumpKmh?: number | null;
+}
+
+/** Game → dashboards: the physics params the car is actually running right now (+ which car, on which map). */
+export interface GameStateMessage extends Envelope, GameSessionInfo {
   type: 'game:state';
   physics: CarPhysicsParams;
   /** The squad controls the game last applied, or null if never. */
@@ -494,6 +852,11 @@ export interface ServerSnapshot {
   physics: CarPhysicsParams | null;
   /** Last `game:telemetry` a game reported, or null. */
   telemetry: GameTelemetry | null;
+  /**
+   * carId / trackId / bigJumpKmh from the last `game:state` that carried any of them. Absent until
+   * then (and from relays older than the garage).
+   */
+  session?: GameSessionInfo;
 }
 
 /** Sent once, immediately after the socket opens (and again after a `hello` changes role). */
@@ -541,7 +904,7 @@ export type OutgoingMessage<M extends ProtocolMessage = ProtocolMessage> = M ext
  *   hello           → updates sender role; server re-sends `server:welcome` to sender, broadcasts presence
  *   squad:controls  → stored as snapshot.controls; relayed to every OTHER client
  *   physics:set     → relayed to every OTHER client (games apply it, others may display it)
- *   game:state      → stored as snapshot.physics; relayed to every non-game client
+ *   game:state      → stored as snapshot.physics (+ snapshot.session); relayed to every non-game client
  *   game:telemetry  → stored as snapshot.telemetry; relayed to every non-game client
  *   ping            → `pong` to sender only
  *   server:*, pong  → never accepted from clients (answered with `server:error` code `forbidden`)
@@ -684,6 +1047,40 @@ export function sanitizeTelemetry(input: unknown): GameTelemetry | null {
   };
 }
 
+/** Longest id accepted in carId / trackId. */
+export const MAX_ID_LENGTH = 32;
+const ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_.-]*$/;
+
+/** A car / track id: 1–32 characters of letters, digits, `_`, `.` and `-` (starting with a letter or digit). */
+export function sanitizeId(input: unknown): string | null {
+  return typeof input === 'string' && input.length <= MAX_ID_LENGTH && ID_PATTERN.test(input) ? input : null;
+}
+
+/**
+ * The optional session fields of a `game:state` (or `snapshot.session`). Missing fields stay
+ * missing; a field that is present but malformed makes the whole thing invalid (null).
+ */
+export function sanitizeGameSession(input: unknown): GameSessionInfo | null {
+  if (!isRecord(input)) return null;
+  const out: GameSessionInfo = {};
+  if (input.carId !== undefined) {
+    const carId = sanitizeId(input.carId);
+    if (carId === null) return null;
+    out.carId = carId;
+  }
+  if (input.trackId !== undefined) {
+    const trackId = sanitizeId(input.trackId);
+    if (trackId === null) return null;
+    out.trackId = trackId;
+  }
+  if (input.bigJumpKmh !== undefined) {
+    if (input.bigJumpKmh === null) out.bigJumpKmh = null;
+    else if (isFiniteNumber(input.bigJumpKmh) && input.bigJumpKmh > 0) out.bigJumpKmh = clamp(input.bigJumpKmh, 1, 2000);
+    else return null;
+  }
+  return out;
+}
+
 function sanitizePeers(input: unknown): PeerCounts | null {
   if (!isRecord(input)) return null;
   const out = {} as PeerCounts;
@@ -754,7 +1151,9 @@ export function parseMessage(raw: unknown): ProtocolMessage | null {
         controls = sanitizeSquadControls(data.controls);
         if (!controls) return null;
       }
-      return { ...env, type: 'game:state', physics, controls };
+      const session = sanitizeGameSession(data);
+      if (!session) return null;
+      return { ...env, type: 'game:state', physics, controls, ...session };
     }
     case 'game:telemetry': {
       const telemetry = sanitizeTelemetry(data.telemetry);
@@ -778,6 +1177,10 @@ export function parseMessage(raw: unknown): ProtocolMessage | null {
         physics: s.physics == null ? null : sanitizePhysics(s.physics),
         telemetry: s.telemetry == null ? null : sanitizeTelemetry(s.telemetry),
       };
+      if (s.session != null) {
+        const session = sanitizeGameSession(s.session);
+        if (session && Object.keys(session).length > 0) snapshot.session = session;
+      }
       return {
         ...env,
         type: 'server:welcome',

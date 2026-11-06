@@ -66,7 +66,7 @@ All on the same port as the WebSocket.
 
 | Path | Response |
 | --- | --- |
-| `GET /health` | `{ ok, protocolVersion, peers: {game, dashboard, observer}, snapshot: {controls, physics, telemetry}, uptimeSec }` (CORS `*`) |
+| `GET /health` | `{ ok, protocolVersion, peers: {game, dashboard, observer}, snapshot: {controls, physics, telemetry, session?}, uptimeSec }` (CORS `*`) |
 | `GET /` | Short HTML info page |
 | any path, `Upgrade: websocket` | The relay socket. Role comes from `?role=game\|dashboard\|observer` (default `observer`). |
 
@@ -80,7 +80,7 @@ the source of truth for shapes, ranges and the slider-to-physics mapping.
 | `hello {role, name?}` | any client | Updates the sender's role, re-sends `server:welcome` to it, broadcasts `server:presence` | – |
 | `squad:controls {controls}` | dashboard | Relayed to **every other** client | `snapshot.controls` |
 | `physics:set {params}` | anyone (debug) | Relayed to **every other** client | – |
-| `game:state {physics, controls}` | game | Relayed to every **non-game** client | `snapshot.physics` |
+| `game:state {physics, controls, carId?, trackId?, bigJumpKmh?}` | game | Relayed to every **non-game** client | `snapshot.physics`; the optional car / map fields (when present) in `snapshot.session` |
 | `game:telemetry {telemetry}` | game, 10 Hz | Relayed to every **non-game** client (skipped for a client with > 1 MB unsent) | `snapshot.telemetry` |
 | `ping {nonce}` | anyone | `pong {nonce, serverTime}` to the sender only | – |
 | `server:welcome` | relay | On connect and after every `hello`: `clientId`, `role`, `protocolVersion`, `snapshot`, `peers` | – |
@@ -120,24 +120,25 @@ npm run sim:dashboard -- --url ws://localhost:8787 [--hz 30] [--duration 10]
 
 ### `npm run sim:game`
 
-Behaves like the racer, so you can test the dashboard without a browser. It applies `squad:controls` through
-`mapSquadControlsToPhysics` and patches `physics:set` on top (until the next controls frame). It emits
-`game:state` whenever the physics change, and plausible `game:telemetry` at 10 Hz from a 1-D car model that
-uses the protocol's own formulas:
+Behaves like the racer, so you can test the dashboard without a browser. It drives one car class
+(`--car`, default `hypercar`; see `CAR_CLASSES` in `shared/protocol.ts`), applies `squad:controls` through
+`mapSquadControlsToPhysics(controls, car)` and patches `physics:set` on top (until the next controls frame). It
+emits `game:state` (with `carId`, `trackId: 'chaos'`, `bigJumpKmh`) whenever the physics change, and plausible
+`game:telemetry` at 10 Hz from a 1-D car model that uses the protocol's own formulas for that car:
 
 - speed follows the drive-force, drag and rolling-resistance curve, so it never exceeds `estimateTopSpeedKmh`;
-- `frontAeroN` comes from `frontAeroForceN` and `rearAeroN` from `REAR_DOWNFORCE · v²`;
+- `frontAeroN` comes from `frontAeroForceN` and `rearAeroN` from the class's `rearDownforce · v²`;
 - `noseLift` turns on (and wheels drop to 2) above `estimateFrontLiftOffKmh`;
 - `rearSlip` spikes on launch when `engineTorque` beats rear grip (tier 4–5);
 - checkpoints follow a 1.6 km track. Collapsing tiles and pendulums are dice rolls. At the big jump,
   `speedTrapKmh` is recorded, and the car falls (`falls` +1, respawn at the last checkpoint) unless it carries
-  `BIG_JUMP_LIP_KMH` with its nose down. After three failed jumps in a row the car is respawned past the gap,
+  `requiredJumpKmh(BIG_JUMP_LIP_KMH, car)` with its nose down. After three failed jumps in a row the car is respawned past the gap,
   so every run eventually finishes and sets `bestMs`.
 
 If the relay already has `controls` in its snapshot, the sim applies them as soon as it is welcomed.
 
 ```bash
-npm run sim:game -- --url ws://localhost:8787 [--hz 10] [--duration 10]
+npm run sim:game -- --url ws://localhost:8787 [--hz 10] [--duration 10] [--car rally]
 ```
 
 ### `npm run send`

@@ -1,7 +1,8 @@
 /**
  * Text and atmosphere: gate labels (one atlas, one draw call), hazard signs, the big-jump lip
- * sign with a live speed-trap readout, GAMERFLEET billboards (one merged mesh) and floating
- * voxel debris in the void (one InstancedMesh, gently bobbing).
+ * sign with a live speed-trap readout, billboards (one merged mesh, one atlas of the map's
+ * billboard texts) and floating debris in the void (one InstancedMesh, gently bobbing): voxel
+ * blocks, clouds, ice shards or a far skyline depending on the map.
  */
 import { useEffect, useLayoutEffect, useMemo, useRef } from 'react';
 import { useFrame } from '@react-three/fiber';
@@ -20,9 +21,8 @@ import {
   type InstancedMesh,
 } from 'three';
 import { useGameStore } from '../../state/store';
-import { BIG_JUMP, COLORS } from './config';
-import type { ChaosTrackPlan, GateSpec, SignSpec } from './plan';
-import { GLOW_HEX } from './scenery';
+import { COLORS } from './config';
+import type { ChaosTrackPlan, GateSpec, GlowColor, SignSpec } from './plan';
 import { createSignCanvas } from './signTexture';
 import { createVoxelMaterial, ensureInstanceAttributes } from './voxel';
 
@@ -67,7 +67,7 @@ function gateText(g: GateSpec): string {
 }
 
 /** All gate beam labels share one canvas atlas (one row per gate) → a single draw call. */
-function GateLabels({ gates }: { gates: GateSpec[] }) {
+function GateLabels({ gates, glowHex }: { gates: GateSpec[]; glowHex: Record<GlowColor, string> }) {
   const { geometry, material } = useMemo(() => {
     const rows = Math.max(1, gates.length);
     const rowH = 72;
@@ -79,7 +79,7 @@ function GateLabels({ gates }: { gates: GateSpec[] }) {
       ctx.fillStyle = '#07080d';
       ctx.fillRect(0, 0, canvas.width, canvas.height);
       gates.forEach((g, i) => {
-        const color = GLOW_HEX[g.color];
+        const color = glowHex[g.color];
         const text = gateText(g);
         let size = rowH * 0.62;
         ctx.font = `900 ${size}px "Arial Black", Arial, sans-serif`;
@@ -107,7 +107,7 @@ function GateLabels({ gates }: { gates: GateSpec[] }) {
       uv: [0, 1 - (i + 1) / rows, 1, 1 - i / rows],
     }));
     return { geometry: quadGeometry(quads), material: new MeshBasicMaterial({ map: texture, toneMapped: false }) };
-  }, [gates]);
+  }, [gates, glowHex]);
   useEffect(
     () => () => {
       geometry.dispose();
@@ -119,8 +119,8 @@ function GateLabels({ gates }: { gates: GateSpec[] }) {
   return <mesh geometry={geometry} material={material} frustumCulled={false} />;
 }
 
-function Sign({ sign }: { sign: SignSpec }) {
-  const accent = GLOW_HEX[sign.color];
+function Sign({ sign, glowHex, requiredKmh }: { sign: SignSpec; glowHex: Record<GlowColor, string>; requiredKmh: number }) {
+  const accent = glowHex[sign.color];
   const canvas = useMemo(() => createSignCanvas(sign.width, sign.height, { accent }), [sign, accent]);
   const material = useMemo(() => new MeshBasicMaterial({ map: canvas.texture, toneMapped: false, side: DoubleSide }), [canvas]);
   useEffect(() => {
@@ -129,7 +129,7 @@ function Sign({ sign }: { sign: SignSpec }) {
       return;
     }
     const render = (kmh: number | null) => {
-      const ok = kmh !== null && kmh >= BIG_JUMP.REQUIRED_KMH;
+      const ok = kmh !== null && kmh >= requiredKmh;
       const trap = kmh === null ? 'LAST TRAP  ---' : `LAST TRAP  ${kmh.toFixed(1)} KM/H`;
       canvas.draw([...sign.lines, trap], { line: sign.lines.length, color: kmh === null ? '#9aa4b8' : ok ? COLORS.green : COLORS.magenta });
     };
@@ -137,7 +137,7 @@ function Sign({ sign }: { sign: SignSpec }) {
     return useGameStore.subscribe((s, prev) => {
       if (s.run.speedTrapKmh !== prev.run.speedTrapKmh) render(s.run.speedTrapKmh);
     });
-  }, [canvas, sign]);
+  }, [canvas, sign, requiredKmh]);
   useEffect(
     () => () => {
       canvas.dispose();
@@ -152,12 +152,39 @@ function Sign({ sign }: { sign: SignSpec }) {
   );
 }
 
+/** Billboards: one merged mesh; the map's texts share one atlas (one row per text, cycled along the track). */
 function Billboards({ plan }: { plan: ChaosTrackPlan }) {
   const { geometry, material } = useMemo(() => {
-    const sign = createSignCanvas(22, 5.5, { accent: COLORS.cyan, pxPerM: 48 });
-    sign.draw(['GAMERFLEET']);
-    const quads: Quad[] = plan.billboards.map((b) => ({ center: b.position, yaw: b.yaw, width: b.width, height: b.height, uv: [0, 0, 1, 1] }));
-    return { geometry: quadGeometry(quads), material: new MeshBasicMaterial({ map: sign.texture, toneMapped: false, side: DoubleSide }) };
+    const texts = plan.decor.billboardText.length > 0 ? plan.decor.billboardText : ['GAMERFLEET'];
+    const accent = plan.palette.glow[plan.decor.billboardGlow];
+    let map: CanvasTexture;
+    let rows = 1;
+    if (texts.length === 1) {
+      const sign = createSignCanvas(22, 5.5, { accent, pxPerM: 48 });
+      sign.draw([texts[0]!]);
+      map = sign.texture;
+    } else {
+      rows = texts.length;
+      const atlas = document.createElement('canvas');
+      const sign = createSignCanvas(22, 5.5, { accent, pxPerM: 48 });
+      const src = sign.texture.image as HTMLCanvasElement;
+      atlas.width = src.width;
+      atlas.height = src.height * rows;
+      const ctx = atlas.getContext('2d');
+      texts.forEach((text, i) => {
+        sign.draw([text]);
+        ctx?.drawImage(src, 0, i * src.height);
+      });
+      sign.dispose();
+      map = new CanvasTexture(atlas);
+      map.colorSpace = SRGBColorSpace;
+      map.anisotropy = 4;
+    }
+    const quads: Quad[] = plan.billboards.map((b, i) => {
+      const row = i % rows;
+      return { center: b.position, yaw: b.yaw, width: b.width, height: b.height, uv: [0, 1 - (row + 1) / rows, 1, 1 - row / rows] };
+    });
+    return { geometry: quadGeometry(quads), material: new MeshBasicMaterial({ map, toneMapped: false, side: DoubleSide }) };
   }, [plan]);
   useEffect(
     () => () => {
@@ -202,8 +229,12 @@ function Debris({ plan }: { plan: ChaosTrackPlan }) {
     for (let i = 0; i < debris.length; i++) {
       const d = debris[i]!;
       const a = t * d.speed + d.phase;
-      _q.setFromEuler(_e.set(d.rotation[0] + a * 0.3, d.rotation[1] + a * 0.5, d.rotation[2]));
-      _m.compose(_p.set(d.position[0], d.position[1] + Math.sin(a) * d.bob, d.position[2]), _q, _s.set(d.size, d.size, d.size));
+      const spin = d.spin ?? 1;
+      _q.setFromEuler(_e.set(d.rotation[0] + a * 0.3 * spin, d.rotation[1] + a * 0.5 * spin, d.rotation[2]));
+      const k = d.scale;
+      _s.set(d.size, d.size, d.size);
+      if (k) _s.set(d.size * k[0], d.size * k[1], d.size * k[2]);
+      _m.compose(_p.set(d.position[0], d.position[1] + Math.sin(a) * d.bob, d.position[2]), _q, _s);
       mesh.setMatrixAt(i, _m);
     }
     mesh.instanceMatrix.needsUpdate = true;
@@ -217,11 +248,13 @@ function Debris({ plan }: { plan: ChaosTrackPlan }) {
 }
 
 export function Decor({ plan }: { plan: ChaosTrackPlan }) {
+  const glowHex = plan.palette.glow;
+  const requiredKmh = plan.layout.bigJump?.requiredKmh ?? Infinity;
   return (
     <group name="chaos-decor">
-      <GateLabels gates={plan.gates} />
+      <GateLabels gates={plan.gates} glowHex={glowHex} />
       {plan.signs.map((s) => (
-        <Sign key={s.id} sign={s} />
+        <Sign key={s.id} sign={s} glowHex={glowHex} requiredKmh={requiredKmh} />
       ))}
       <Billboards plan={plan} />
       <Debris plan={plan} />

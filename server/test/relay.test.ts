@@ -212,6 +212,47 @@ describe('snapshot', () => {
   });
 });
 
+describe('car / map session (game:state carId, trackId, bigJumpKmh)', () => {
+  const physics = { mass: 1020, traction: 1.7, drag: 2.97, frontDownforce: 0.25, engineTorque: 2640, balance: -1 };
+
+  it('relays the session fields, keeps them in snapshot.session for late dashboards', async () => {
+    const game = await join('game');
+    const dash = await join('dashboard');
+    game.send({ type: 'game:state', physics, controls, carId: 'rally', trackId: 'chaos', bigJumpKmh: 183 });
+    const m = await dash.take('game:state');
+    assert.equal(m.carId, 'rally');
+    assert.equal(m.trackId, 'chaos');
+    assert.equal(m.bigJumpKmh, 183);
+    // A map without a big jump reports null, which is stored as-is.
+    game.send({ type: 'game:state', physics, controls, carId: 'buggy', trackId: 'test', bigJumpKmh: null });
+    await dash.take('game:state');
+    assert.deepEqual(relay.stats().snapshot.session, { carId: 'buggy', trackId: 'test', bigJumpKmh: null });
+    const late = await join('dashboard');
+    assert.deepEqual(late.welcome.snapshot.session, { carId: 'buggy', trackId: 'test', bigJumpKmh: null });
+  });
+
+  it('old games (no session fields) still relay and leave the snapshot without a session', async () => {
+    const game = await join('game');
+    const dash = await join('dashboard');
+    game.send({ type: 'game:state', physics, controls: null });
+    const m = await dash.take('game:state');
+    assert.equal('carId' in m, false);
+    assert.equal(relay.stats().snapshot.session, undefined);
+  });
+
+  it('rejects a game:state whose session fields are junk', async () => {
+    const game = await join('game');
+    const dash = await join('dashboard');
+    for (const junk of [{ carId: 42 }, { carId: '../../etc' }, { trackId: 'x'.repeat(33) }, { bigJumpKmh: 'fast' }, { bigJumpKmh: -5 }]) {
+      game.sendRaw(JSON.stringify({ type: 'game:state', physics, controls: null, ...junk }));
+      const err = await game.take('server:error');
+      assert.equal(err.code, 'bad_message');
+    }
+    await dash.sync();
+    assert.equal(dash.count('game:state'), 0);
+  });
+});
+
 describe('sanitization', () => {
   it('relays a clamped, snapped copy with unknown fields stripped and `from` set by the server', async () => {
     const dash = await join('dashboard');
@@ -244,7 +285,7 @@ describe('sanitization', () => {
     assert.deepEqual(rawFrame(game, 'physics:set').params, { traction: 4, drag: 0 });
   });
 
-  it('fills the optional F1 telemetry channels with defaults and clamps them', async () => {
+  it('fills the optional race telemetry channels with defaults and clamps them', async () => {
     const game = await join('game');
     const dash = await join('dashboard');
     game.sendRaw(JSON.stringify({ type: 'game:telemetry', telemetry: sampleTelemetry }));

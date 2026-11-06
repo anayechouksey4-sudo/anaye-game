@@ -7,6 +7,7 @@ import {
   snapToSpec,
   squadControlsEqual,
   type CarPhysicsParams,
+  type GameSessionInfo,
   type GameTelemetry,
   type PeerCounts,
   type ProtocolMessage,
@@ -14,8 +15,9 @@ import {
   type SquadControls,
 } from '../../../shared/protocol';
 import { ControlsThrottle } from '../net/controlsThrottle';
-import { SquadLink, type LinkState } from '../net/squadLink';
+import { SquadLink, type LinkState, type SocketLike } from '../net/squadLink';
 import { createStore, type Store } from '../state/store';
+import { DEFAULT_SESSION, mergeSession, sessionEqual, sessionInfoOf, type PlaySession } from './session';
 import { NOT_DRAGGING, mergeRemoteControls, resolveWelcomeSync, type DragState } from './sync';
 
 export type ControlsSource = 'default' | 'local' | 'squad' | 'snapshot';
@@ -49,6 +51,12 @@ export interface GameLinkState {
   /** Controls the game last applied; null when unknown (snapshot only has physics) or never applied. */
   appliedControls: SquadControls | null;
   appliedFromSnapshot: boolean;
+  /**
+   * The car and map the game is playing (game:state carId / trackId / bigJumpKmh, or the relay's
+   * snapshot.session). Every preview and verdict uses it. It is kept when the game drops off the relay
+   * (a backgrounded browser tab often does), so the previews don't jump back to the hypercar.
+   */
+  session: PlaySession;
 }
 
 export interface TelemetryState {
@@ -72,6 +80,8 @@ export type SliderPhase =
 export interface SquadControllerOptions {
   clientName: string;
   now?: () => number;
+  /** Socket factory for tests (default: the global WebSocket). */
+  createSocket?: (url: string) => SocketLike;
 }
 
 /**
@@ -114,6 +124,7 @@ export class SquadController {
       appliedPhysics: null,
       appliedControls: null,
       appliedFromSnapshot: false,
+      session: DEFAULT_SESSION,
     });
     this.telemetry = createStore<TelemetryState>({ telemetry: null, receivedAt: null, fromSnapshot: false });
 
@@ -124,7 +135,7 @@ export class SquadController {
         onMessage: (message) => this.onMessage(message),
         onLatency: (ms) => this.connection.setState({ latencyMs: Math.round(ms) }),
       },
-      { name: options.clientName },
+      { name: options.clientName, ...(options.createSocket ? { createSocket: options.createSocket } : null) },
     );
     this.throttle = new ControlsThrottle(
       (controls) => this.link.send({ type: 'squad:controls', controls }),
@@ -228,6 +239,11 @@ export class SquadController {
             appliedFromSnapshot: !unchanged || game.appliedFromSnapshot,
           });
         }
+        // The relay keeps the session from the last game:state that carried one. Physics without a
+        // session means a game (or relay) from before the garage: mergeSession treats that as the hypercar.
+        if (snapshot.session || snapshot.physics) {
+          this.game.setState({ session: this.nextSession(snapshot.session ?? {}, 'snapshot') });
+        }
         if (snapshot.telemetry) {
           this.telemetry.setState({ telemetry: snapshot.telemetry, receivedAt: this.now(), fromSnapshot: true });
         }
@@ -256,10 +272,12 @@ export class SquadController {
         return;
       }
       case 'game:state':
+        // One update, so no card ever renders the new physics against the previous car.
         this.game.setState({
           appliedPhysics: message.physics,
           appliedControls: message.controls,
           appliedFromSnapshot: false,
+          session: this.nextSession(sessionInfoOf(message), 'game'),
         });
         return;
       case 'game:telemetry':
@@ -272,6 +290,13 @@ export class SquadController {
         // hello / ping / physics:set from other clients need no dashboard reaction.
         return;
     }
+  }
+
+  /** The session after `info`; the current object when nothing changed, so subscribers don't re-render. */
+  private nextSession(info: GameSessionInfo, source: 'snapshot' | 'game'): PlaySession {
+    const prev = this.game.getState().session;
+    const next = mergeSession(prev, info, source);
+    return sessionEqual(prev, next) ? prev : next;
   }
 }
 

@@ -1,18 +1,23 @@
 /**
  * On-screen controls for phones and tablets: a steer pad under the left thumb, pedals under the
- * right thumb, small action buttons. Every finger is tracked by pointerId (Pointer Events with
- * pointer capture), so steering and throttle work at the same time; a control is held only while
- * a finger is down *and over it*, and everything is released on pointercancel, window blur, a
- * hidden tab and unmount. Feeds car/input.ts (merged with the keyboard); the action buttons run the
- * same actions as the hotkeys (game/hotkeys.ts).
+ * right thumb, and two buttons at the top right — RESPAWN (quick access) and ☰ (the menu, which
+ * holds everything else: camera, HUD, physics, garage, maps, sound, fullscreen…).
+ *
+ * Every finger is tracked by pointerId (Pointer Events with pointer capture), so steering and
+ * throttle work at the same time. A pedal or button is held only while a finger is down *and over
+ * it*; the steer pad keeps its finger while it slides sideways off the pad (past an edge = full
+ * lock) and lets go only on lift or a large vertical exit. Everything is released on
+ * pointercancel, window blur, a hidden tab, the ☰ menu opening and unmount; a finger that was down
+ * then must lift before it can press again. Feeds car/input.ts (merged with the keyboard); the
+ * buttons run the same actions as the hotkeys (game/hotkeys.ts).
  */
 import { useEffect, useRef, useState } from 'react';
 import { clearTouchInput, setTouchInput } from '../car/input';
 import { runHotkeyAction, type HotkeyAction } from '../game/hotkeys';
-import { useGameStore } from '../state/store';
+import { useSelection } from '../state/selection';
 
 type Pedal = 'throttle' | 'brake' | 'handbrake';
-type Action = HotkeyAction | 'fullscreen';
+type Action = Extract<HotkeyAction, 'respawn' | 'menu'>;
 
 interface Finger {
   kind: 'steer' | 'pedal' | 'action';
@@ -22,8 +27,10 @@ interface Finger {
   y: number;
 }
 
-/** How far (px) a finger may drift outside a control before the control lets go. */
+/** How far (px) a finger may drift outside a pedal or button before it lets go. */
 const SLACK_PX = 24;
+/** The steer pad lets go of its finger only this far (px) above or below the pad. */
+const STEER_EXIT_PX = 80;
 /** Steer pad: dead zone and full-lock point as fractions of the half-width from the centre. */
 const STEER_DEADZONE = 0.08;
 const STEER_FULL_AT = 0.45;
@@ -52,44 +59,24 @@ function steerFromPad(x: number, pad: DOMRect): number {
   return Math.sign(u) * mag;
 }
 
-function toggleFullscreen(): void {
-  if (document.fullscreenElement) {
-    document.exitFullscreen().catch(() => {});
-    return;
-  }
-  document.documentElement
-    .requestFullscreen({ navigationUI: 'hide' })
-    .then(() => {
-      // Not every browser can lock (and none outside fullscreen); portrait stays playable anyway.
-      const orientation = screen.orientation as ScreenOrientation & { lock?: (o: string) => Promise<void> };
-      return orientation.lock?.('landscape');
-    })
-    .catch(() => {});
+/**
+ * Steer from a pad finger: x clamped to the pad (past an edge counts as full lock that side);
+ * 0 once the finger is more than STEER_EXIT_PX above or below the pad.
+ */
+function steerFromFinger(f: Finger, pad: DOMRect): number {
+  const dy = Math.max(pad.top - f.y, 0, f.y - pad.bottom);
+  if (dy > STEER_EXIT_PX) return 0;
+  return steerFromPad(Math.min(pad.right, Math.max(pad.left, f.x)), pad);
 }
 
-function runAction(action: Action): void {
-  if (action === 'fullscreen') toggleFullscreen();
-  else runHotkeyAction(action);
-}
-
-function useFullscreen(): boolean {
-  const [on, setOn] = useState(() => typeof document !== 'undefined' && !!document.fullscreenElement);
-  useEffect(() => {
-    const sync = () => setOn(!!document.fullscreenElement);
-    document.addEventListener('fullscreenchange', sync);
-    return () => document.removeEventListener('fullscreenchange', sync);
-  }, []);
-  return on;
-}
+const ACTIONS: readonly { action: Action; icon: string; label: string }[] = [
+  { action: 'respawn', icon: '⟲', label: 'RESPAWN' },
+  { action: 'menu', icon: '☰', label: 'MENU' },
+];
 
 export function TouchControls() {
   const rootRef = useRef<HTMLDivElement>(null);
   const steerRef = useRef<HTMLDivElement>(null);
-  const cameraMode = useGameStore((s) => s.ui.cameraMode);
-  const hudOn = useGameStore((s) => s.ui.helpOpen);
-  const physicsOpen = useGameStore((s) => s.ui.physicsPanelOpen);
-  const fullscreen = useFullscreen();
-  const canFullscreen = typeof document !== 'undefined' && document.fullscreenEnabled;
 
   useEffect(() => {
     const root = rootRef.current;
@@ -107,8 +94,8 @@ export function TouchControls() {
       const padRect = pad.getBoundingClientRect();
       for (const f of fingers.values()) {
         if (f.kind === 'steer') {
-          // Latest finger on the pad wins; one that slid off steers nothing until it comes back.
-          if (distanceToRect(f.x, f.y, padRect) <= SLACK_PX) steer = steerFromPad(f.x, padRect);
+          // Latest finger on the pad wins; one that left it far up or down steers nothing until it comes back.
+          steer = steerFromFinger(f, padRect);
         } else if (f.kind === 'pedal') {
           // A pedal finger presses whichever pedal it is over, so a thumb can slide gas → brake.
           let best: HTMLElement | null = null;
@@ -165,7 +152,7 @@ export function TouchControls() {
       f.y = e.clientY;
       fingers.delete(e.pointerId);
       // Buttons fire on release over the button, like a click: sliding off cancels a mistaken tap.
-      if (f.kind === 'action' && isOver(f, f.el)) runAction(f.el.dataset.action as Action);
+      if (f.kind === 'action' && isOver(f, f.el)) runHotkeyAction(f.el.dataset.action as Action);
       sync();
     };
     const onCancel = (e: PointerEvent) => {
@@ -180,7 +167,18 @@ export function TouchControls() {
     };
     // Long-press on the controls or the canvas must not open the context menu / image callout.
     const noMenu = (e: Event) => e.preventDefault();
+    // No compatibility click after a touch on a control: ☰ opens the menu on pointerup, and the click
+    // that follows would land on whatever the menu put under the finger (its ✕ sits where ☰ was).
+    const noGhostClick = (e: TouchEvent) => {
+      if (e.cancelable) e.preventDefault();
+    };
 
+    // Opening the ☰ menu (it pauses the game) lets go of everything; those fingers must lift first.
+    const offMenu = useSelection.subscribe((s, prev) => {
+      if (s.menuOpen && !prev.menuOpen) releaseAll();
+    });
+
+    root.addEventListener('touchend', noGhostClick, { passive: false });
     root.addEventListener('pointerdown', onDown);
     root.addEventListener('pointermove', onMove);
     root.addEventListener('pointerup', onUp);
@@ -190,6 +188,8 @@ export function TouchControls() {
     document.addEventListener('visibilitychange', onVisibility);
     document.addEventListener('contextmenu', noMenu);
     return () => {
+      offMenu();
+      root.removeEventListener('touchend', noGhostClick);
       root.removeEventListener('pointerdown', onDown);
       root.removeEventListener('pointermove', onMove);
       root.removeEventListener('pointerup', onUp);
@@ -202,15 +202,6 @@ export function TouchControls() {
       clearTouchInput();
     };
   }, []);
-
-  const actions: { action: Action; icon: string; label: string; on?: boolean }[] = [
-    { action: 'respawn', icon: '⟲', label: 'RESPAWN' },
-    { action: 'restart', icon: '⏮', label: 'RESTART' },
-    { action: 'camera', icon: '◉', label: cameraMode.toUpperCase() },
-    { action: 'help', icon: '▤', label: 'HUD', on: hudOn },
-    { action: 'physics', icon: '⚙', label: 'PHYSICS', on: physicsOpen },
-  ];
-  if (canFullscreen) actions.push({ action: 'fullscreen', icon: fullscreen ? '⤡' : '⤢', label: fullscreen ? 'EXIT' : 'FULL' });
 
   return (
     <div className="tc" ref={rootRef} data-testid="touch-controls">
@@ -236,12 +227,12 @@ export function TouchControls() {
         ))}
       </div>
       <div className="tc-actions">
-        {actions.map(({ action, icon, label, on }) => (
+        {ACTIONS.map(({ action, icon, label }) => (
           <button
             key={action}
             type="button"
             tabIndex={-1}
-            className={`tc-btn tc-action${on ? ' is-on' : ''}`}
+            className={`tc-btn tc-action tc-action--${action}`}
             data-tc="action"
             data-action={action}
             data-testid={`touch-${action}`}

@@ -56,6 +56,28 @@ export interface TrackLayout {
    * The car controller multiplies its tyre friction by this; omitted = 1.
    */
   surfaceGrip?: number;
+  /** Sky, fog and lights for this map (scene/Environment.tsx); omitted = the default neon night. */
+  atmosphere?: TrackAtmosphere;
+}
+
+/**
+ * Per-map sky / fog / light colours (CSS colours). Read by scene/Environment.tsx from the
+ * registered layout, so they switch together with the map.
+ */
+export interface TrackAtmosphere {
+  /** Clear colour (the sky / void). */
+  background: string;
+  /** Linear fog: colour, start and end distance, m. */
+  fog: [color: string, near: number, far: number];
+  /** Hemisphere light: sky colour, ground colour, intensity. */
+  hemisphere: [sky: string, ground: string, intensity: number];
+  ambient: number;
+  /** The shadow-casting sun that follows the car. */
+  sun: { color: string; intensity: number };
+  /** Star field: 1 = shown, 0 = hidden (day skies). */
+  stars: number;
+  /** The faint grid far below the track: [main line colour, sub line colour], or null for none. */
+  voidGrid: [string, string] | null;
 }
 
 /** Number shown as "x / total" in the HUD: intermediate checkpoints plus the finish line. */

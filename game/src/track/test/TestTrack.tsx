@@ -37,7 +37,7 @@ const GATE_SIZE: Vec3 = [WIDTH, 9, 4];
 
 export const TEST_TRACK_LAYOUT: TrackLayout = {
   id: 'test',
-  name: 'Calibration Straight',
+  name: 'Proving Ground',
   spawn: { position: [0, 0, 0], yaw: 0 },
   checkpoints: [
     { index: 0, position: [0, 0, 0], yaw: 0, size: GATE_SIZE },

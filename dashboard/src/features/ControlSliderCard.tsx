@@ -4,20 +4,21 @@ import { Platform, StyleSheet, View, type KeyDownEvent, type KeyUpEvent } from '
 
 import {
   DEFAULT_SQUAD_CONTROLS,
-  FRONT_BODY_LIFT,
   SQUAD_CONTROL_SPECS,
   balanceToSuspensionStiffness,
   describeChassisBalance,
   driveForceN,
+  getCarClass,
   mapSquadControlsToPhysics,
   snapToSpec,
+  type CarClass,
   type RangeSpec,
   type SquadControlKey,
 } from '../../../shared/protocol';
 import { formatBalance, formatNumber, formatSigned } from '../lib/format';
 import { hapticForChange, playHaptic } from '../lib/haptics';
 import type { SliderPhase } from '../squad/controller';
-import { useControls, useSquad } from '../squad/SquadContext';
+import { useControls, useGameLink, useSquad } from '../squad/SquadContext';
 import { alpha, colors, glow } from '../theme';
 import { Badge } from '../ui/Badge';
 import { Panel } from '../ui/Panel';
@@ -33,11 +34,14 @@ const TICK_LABEL_WIDTH = 56;
  */
 const sliderValue = (v: number) => (v === 0 ? 1e-9 : v);
 
-/** Aero % at which the front wing exactly cancels body lift (below it the nose nets lift at speed). */
-const AERO_LIFT_THRESHOLD = (() => {
-  const full = mapSquadControlsToPhysics({ ...DEFAULT_SQUAD_CONTROLS, frontWingAero: 100 }).frontDownforce;
-  return Math.min(100, (FRONT_BODY_LIFT / full) * 100);
-})();
+/** Aero % at which the car's front wing exactly cancels its body lift (below it the nose nets lift at speed). */
+function aeroLiftThreshold(car: Readonly<CarClass>): number {
+  const full = mapSquadControlsToPhysics({ ...DEFAULT_SQUAD_CONTROLS, frontWingAero: 100 }, car).frontDownforce;
+  return full > 0 ? Math.min(100, (car.frontBodyLift / full) * 100) : 100;
+}
+
+/** The car class of the current session (a stable CAR_CLASSES reference, so it is a safe selector result). */
+const useSessionCar = (): Readonly<CarClass> => useGameLink((s) => getCarClass(s.session.carId));
 
 interface Mark {
   value: number;
@@ -89,13 +93,16 @@ function Ticks({ marks, spec, value, accent }: { marks: readonly Mark[]; spec: R
 }
 
 /** Below-track zone marking where the front wing loses to body lift. */
-function LiftZone() {
+function LiftZone({ car }: { car: Readonly<CarClass> }) {
   const spec = SQUAD_CONTROL_SPECS.frontWingAero;
+  const threshold = aeroLiftThreshold(car);
+  // The label sits left of the threshold, over the zone; a short zone (the formula car's 13 %) puts it to the right.
+  const labelRight = threshold < 35;
   return (
-    <View style={styles.zoneRow} pointerEvents="none">
-      <View style={[styles.zone, { width: `${pct(AERO_LIFT_THRESHOLD, spec)}%` }]} />
-      <Txt style={[styles.zoneLabel, { left: `${pct(AERO_LIFT_THRESHOLD, spec)}%` }]}>
-        {`◂ NET LIFT < ${Math.round(AERO_LIFT_THRESHOLD)}%`}
+    <View style={styles.zoneRow} pointerEvents="none" testID="lift-zone">
+      <View style={[styles.zone, { width: `${pct(threshold, spec)}%` }]} />
+      <Txt style={[styles.zoneLabel, labelRight ? styles.zoneLabelRight : null, { left: `${pct(threshold, spec)}%` }]}>
+        {`◂ NET LIFT < ${Math.round(threshold)}%`}
       </Txt>
     </View>
   );
@@ -139,11 +146,11 @@ function Detail({ items }: { items: { k: string; v: string; color?: string }[] }
   );
 }
 
-function detailFor(key: SquadControlKey, value: number): { k: string; v: string; color?: string }[] {
-  const physics = mapSquadControlsToPhysics({ ...DEFAULT_SQUAD_CONTROLS, [key]: value });
+function detailFor(key: SquadControlKey, value: number, car: Readonly<CarClass>): { k: string; v: string; color?: string }[] {
+  const physics = mapSquadControlsToPhysics({ ...DEFAULT_SQUAD_CONTROLS, [key]: value }, car);
   switch (key) {
     case 'frontWingAero': {
-      const net = physics.frontDownforce - FRONT_BODY_LIFT;
+      const net = physics.frontDownforce - car.frontBodyLift;
       return [
         { k: 'WING k', v: formatNumber(physics.frontDownforce, 2) },
         { k: 'NET FRONT', v: `${formatSigned(net, 2)} ${net < 0 ? 'LIFT' : 'DOWN'}`, color: net < 0 ? colors.magenta : colors.green },
@@ -152,13 +159,13 @@ function detailFor(key: SquadControlKey, value: number): { k: string; v: string;
     }
     case 'engineTier':
       return [
-        { k: 'REAR TORQUE', v: `${formatNumber(physics.engineTorque)} N·m` },
-        { k: 'DRIVE', v: `${formatNumber(driveForceN(physics))} N` },
+        { k: car.frontDriveShare > 0 ? 'AWD TORQUE' : 'REAR TORQUE', v: `${formatNumber(physics.engineTorque)} N·m` },
+        { k: 'DRIVE', v: `${formatNumber(driveForceN(physics, car))} N` },
         { k: 'MASS', v: `${formatNumber(physics.mass)} kg` },
       ];
     case 'chassisBalance': {
-      const split = describeChassisBalance(value);
-      const springs = balanceToSuspensionStiffness(physics.balance);
+      const split = describeChassisBalance(value, car);
+      const springs = balanceToSuspensionStiffness(physics.balance, car);
       return [
         { k: 'WEIGHT F/R', v: `${split.front} / ${split.rear} %` },
         { k: 'SPRINGS F/R', v: `${formatNumber(springs.front, 1)} / ${formatNumber(springs.rear, 1)}` },
@@ -202,6 +209,7 @@ export const ControlSliderCard = memo(function ControlSliderCard({ controlKey, i
   const value = useControls((s) => s.values[controlKey]);
   const position = useControls((s) => s.positions[controlKey]);
   const dragging = useControls((s) => s.dragging[controlKey]);
+  const car = useSessionCar();
   const inGesture = useRef(false);
 
   const change = useCallback(
@@ -285,13 +293,13 @@ export const ControlSliderCard = memo(function ControlSliderCard({ controlKey, i
         />
         {controlKey === 'frontWingAero' ? (
           <View style={{ marginHorizontal: TRACK_INSET }}>
-            <LiftZone />
+            <LiftZone car={car} />
           </View>
         ) : null}
       </View>
 
       <Txt style={styles.description}>{spec.description}</Txt>
-      <Detail items={detailFor(controlKey, value)} />
+      <Detail items={detailFor(controlKey, value, car)} />
     </Panel>
   );
 });
@@ -377,6 +385,9 @@ const styles = StyleSheet.create({
     fontSize: 10,
     color: colors.magenta,
     letterSpacing: 0.5,
+  },
+  zoneLabelRight: {
+    marginLeft: 4,
   },
   description: {
     marginTop: 8,

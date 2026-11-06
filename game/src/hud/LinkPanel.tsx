@@ -19,47 +19,30 @@ function ageText(lastUpdateAt: number | null): string {
 }
 
 /** Compact (phone) HUD: a one-line status chip that expands into the full panel on tap. */
-export function LinkPanel({ compact = false }: { compact?: boolean }) {
-  const [expanded, setExpanded] = useState(false);
+export function LinkStatusBadge({ testId = 'link-status' }: { testId?: string }) {
   const status = useGameStore((s) => s.linkStatus);
-  const url = useGameStore((s) => s.serverUrl);
-  const dashboards = useGameStore((s) => s.dashboards);
-  const rtt = useGameStore((s) => s.rttMs);
-  const controls = useGameStore((s) => s.controls);
-  const ageRef = useRef<HTMLElement>(null);
-
-  useRafLoop(() => setText(ageRef.current, ageText(useGameStore.getState().lastUpdateAt)), 250);
-
-  const statusBadge = (
-    <span className={`hud-status hud-status--${status}`} data-testid="link-status">
+  return (
+    <span className={`hud-status hud-status--${status}`} data-testid={testId}>
       <i />
       {STATUS_LABEL[status]}
     </span>
   );
-  if (compact && !expanded) {
-    return (
-      <button type="button" className="hud-panel hud-chip hud-link" data-testid="link-panel" onClick={() => setExpanded(true)} aria-expanded={false}>
-        {statusBadge}
-        {status === 'connected' && <span className="hud-dim">{dashboards}</span>}
-        <span className="hud-chip__more" aria-hidden="true">
-          ▾
-        </span>
-      </button>
-    );
-  }
+}
 
-  const balance = controls ? describeChassisBalance(controls.chassisBalance) : null;
+/** Relay, squad size, last update and the squad's setup (the expanded chip and the ☰ menu's SQUAD tab). */
+export function SquadDetails() {
+  const url = useGameStore((s) => s.serverUrl);
+  const dashboards = useGameStore((s) => s.dashboards);
+  const rtt = useGameStore((s) => s.rttMs);
+  const controls = useGameStore((s) => s.controls);
+  const carId = useGameStore((s) => s.carId);
+  const ageRef = useRef<HTMLElement>(null);
+
+  useRafLoop(() => setText(ageRef.current, ageText(useGameStore.getState().lastUpdateAt)), 250);
+
+  const balance = controls ? describeChassisBalance(controls.chassisBalance, carId) : null;
   return (
-    <div className={`hud-panel hud-link${compact ? ' is-expanded' : ''}`} data-testid="link-panel">
-      <div className="hud-panel__title">
-        SQUAD LINK
-        {statusBadge}
-        {compact && (
-          <button type="button" className="hud-btn hud-btn--ghost" onClick={() => setExpanded(false)} aria-label="Collapse squad link">
-            ▴
-          </button>
-        )}
-      </div>
+    <>
       <dl className="hud-kv">
         <dt>RELAY</dt>
         <dd className="hud-link__url">{url || '—'}</dd>
@@ -104,6 +87,40 @@ export function LinkPanel({ compact = false }: { compact?: boolean }) {
           <div className="hud-dim">Waiting for SquadHQ… using local defaults.</div>
         )}
       </div>
+    </>
+  );
+}
+
+export function LinkPanel({ compact = false }: { compact?: boolean }) {
+  const [expanded, setExpanded] = useState(false);
+  const status = useGameStore((s) => s.linkStatus);
+  const dashboards = useGameStore((s) => s.dashboards);
+
+  const statusBadge = <LinkStatusBadge />;
+  if (compact && !expanded) {
+    return (
+      <button type="button" className="hud-panel hud-chip hud-link" data-testid="link-panel" onClick={() => setExpanded(true)} aria-expanded={false}>
+        {statusBadge}
+        {status === 'connected' && <span className="hud-dim">{dashboards}</span>}
+        <span className="hud-chip__more" aria-hidden="true">
+          ▾
+        </span>
+      </button>
+    );
+  }
+
+  return (
+    <div className={`hud-panel hud-link${compact ? ' is-expanded' : ''}`} data-testid="link-panel">
+      <div className="hud-panel__title">
+        SQUAD LINK
+        {statusBadge}
+        {compact && (
+          <button type="button" className="hud-btn hud-btn--ghost" onClick={() => setExpanded(false)} aria-label="Collapse squad link">
+            ▴
+          </button>
+        )}
+      </div>
+      <SquadDetails />
     </div>
   );
 }

@@ -16,6 +16,7 @@ import {
   type ClientMessage,
   type ClientRole,
   type ErrorMessage,
+  type GameSessionInfo,
   type GameStateMessage,
   type GameTelemetryMessage,
   type OutgoingMessage,
@@ -24,7 +25,7 @@ import {
   type ServerSnapshot,
   type SquadControlsMessage,
 } from '../../shared/protocol';
-import { formatControls, formatPeers, formatPhysics } from './format';
+import { formatControls, formatPeers, formatPhysics, formatSession } from './format';
 import { displayHost } from './network';
 import { createThrottledLog } from './throttled-log';
 
@@ -265,8 +266,19 @@ export async function createRelayServer(options: RelayServerOptions = {}): Promi
       }
       case 'game:state': {
         snapshot.physics = message.physics;
+        const { carId, trackId, bigJumpKmh } = message;
+        if (carId !== undefined || trackId !== undefined || bigJumpKmh !== undefined) {
+          const session: GameSessionInfo = {};
+          if (carId !== undefined) session.carId = carId;
+          if (trackId !== undefined) session.trackId = trackId;
+          if (bigJumpKmh !== undefined) session.bigJumpKmh = bigJumpKmh;
+          snapshot.session = session;
+        }
         relay(c, message);
-        stateLog.push((n) => `game:state ← ${c.id}: ${formatPhysics(message.physics)}${n > 1 ? `  [${n}/s]` : ''}`);
+        const session = formatSession(message);
+        stateLog.push(
+          (n) => `game:state ← ${c.id}: ${session ? `${session} · ` : ''}${formatPhysics(message.physics)}${n > 1 ? `  [${n}/s]` : ''}`,
+        );
         return;
       }
       case 'game:telemetry': {

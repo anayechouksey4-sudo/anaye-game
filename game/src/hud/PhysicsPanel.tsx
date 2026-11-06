@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react';
 import { CAR_PHYSICS_KEYS, CAR_PHYSICS_SPECS, type CarPhysicsKey } from '@shared/protocol';
+import { useSelection } from '../state/selection';
 import { useGameStore } from '../state/store';
+import { SwipeSlider } from './SwipeSlider';
 
 const FLASH_MS = 900;
 
@@ -8,9 +10,11 @@ function decimalsFor(step: number): number {
   return Math.max(0, -Math.floor(Math.log10(step)));
 }
 
-/** Live physics tuning. Values flash when a change arrives over the squad link. */
-export function PhysicsPanel() {
-  const open = useGameStore((s) => s.ui.physicsPanelOpen);
+/**
+ * Live sliders for every physics param + reset. Values flash when a change arrives over the squad
+ * link. Used by the floating panel (P / pinned from the menu) and the ☰ menu's PHYSICS tab.
+ */
+export function PhysicsSliders() {
   const physics = useGameStore((s) => s.physics);
   const controls = useGameStore((s) => s.controls);
   const lastChange = useGameStore((s) => s.lastPhysicsChange);
@@ -23,9 +27,46 @@ export function PhysicsPanel() {
     return () => clearTimeout(timer);
   }, [lastChange]);
 
-  if (!open) return null;
-  const { patchPhysics, resetPhysics, togglePhysicsPanel } = useGameStore.getState();
+  const { patchPhysics, resetPhysics } = useGameStore.getState();
+  return (
+    <>
+      {CAR_PHYSICS_KEYS.map((key) => {
+        const spec = CAR_PHYSICS_SPECS[key];
+        const value = physics[key];
+        return (
+          <SwipeSlider
+            key={key}
+            className={flashing.has(key) ? 'is-flash' : undefined}
+            title={spec.description}
+            label={spec.label}
+            valueTestId={`physics-value-${key}`}
+            valueText={
+              <>
+                {value.toFixed(decimalsFor(spec.step))}
+                {spec.unit && <small> {spec.unit}</small>}
+              </>
+            }
+            min={spec.min}
+            max={spec.max}
+            step={spec.step}
+            value={value}
+            onChange={(v) => patchPhysics({ [key]: v }, 'local')}
+          />
+        );
+      })}
+      <button type="button" className="hud-btn" onClick={resetPhysics}>
+        RESET TO {controls ? 'SQUAD SETUP' : 'DEFAULTS'}
+      </button>
+    </>
+  );
+}
 
+/** Floating physics panel (P, or pinned from the ☰ menu's PHYSICS tab). The menu shows its own copy while open. */
+export function PhysicsPanel() {
+  const open = useGameStore((s) => s.ui.physicsPanelOpen);
+  const menuOpen = useSelection((s) => s.menuOpen);
+  if (!open || menuOpen) return null;
+  const { togglePhysicsPanel } = useGameStore.getState();
   return (
     <aside className="hud-panel hud-physics" data-testid="physics-panel">
       <div className="hud-panel__title">
@@ -34,43 +75,7 @@ export function PhysicsPanel() {
           ✕
         </button>
       </div>
-      {CAR_PHYSICS_KEYS.map((key) => {
-        const spec = CAR_PHYSICS_SPECS[key];
-        const value = physics[key];
-        return (
-          <label
-            key={key}
-            className={`hud-slider${flashing.has(key) ? ' is-flash' : ''}`}
-            title={spec.description}
-            // Clicking the name/value text would focus the slider via the label (after pointerup, so the blur
-            // below never runs) and swallow the driving keys. Only the slider itself should take focus.
-            onClick={(e) => {
-              if (!(e.target instanceof HTMLInputElement)) e.preventDefault();
-            }}
-          >
-            <span className="hud-slider__head">
-              <span>{spec.label}</span>
-              <b data-testid={`physics-value-${key}`}>
-                {value.toFixed(decimalsFor(spec.step))}
-                {spec.unit && <small> {spec.unit}</small>}
-              </b>
-            </span>
-            <input
-              type="range"
-              min={spec.min}
-              max={spec.max}
-              step={spec.step}
-              value={value}
-              onChange={(e) => patchPhysics({ [key]: Number(e.currentTarget.value) }, 'local')}
-              // A focused slider swallows the driving keys (and arrows would retune it): hand them back on release.
-              onPointerUp={(e) => e.currentTarget.blur()}
-            />
-          </label>
-        );
-      })}
-      <button type="button" className="hud-btn" onClick={resetPhysics}>
-        RESET TO {controls ? 'SQUAD SETUP' : 'DEFAULTS'}
-      </button>
+      <PhysicsSliders />
     </aside>
   );
 }

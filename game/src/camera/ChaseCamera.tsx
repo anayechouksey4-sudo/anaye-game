@@ -2,14 +2,14 @@
  * Camera rig. 'chase' (default) trails the car, 'hood' rides on the nose, 'orbit' lets the
  * mouse orbit around the moving car. `C` cycles (see game/hotkeys.ts). Follows the car's
  * interpolated render transform (its physics pose for a couple of steps after a teleport), never
- * React state.
+ * React state. Framing scales with the mounted car class (carRuntime.spec.camera): the small
+ * rally hatch sits a little closer, the tall buggy higher, and the onboard cam rides each roof.
  */
 import { useEffect, useRef, type ComponentRef } from 'react';
 import { useFrame, useThree } from '@react-three/fiber';
 import { OrbitControls } from '@react-three/drei';
 import { PerspectiveCamera, Quaternion, Vector3 } from 'three';
 import { carRuntime } from '../car/runtime';
-import { BODY, RIDE_HEIGHT } from '../car/vehicleSpec';
 import { onGameEvent } from '../game/events';
 import { useGameStore, type CameraMode } from '../state/store';
 
@@ -29,9 +29,6 @@ const PORTRAIT_FULL_ASPECT = 0.5;
 /** Extra follow distance / height at full portrait (fractions of the landscape values). */
 const PORTRAIT_PULLBACK = 0.3;
 const PORTRAIT_RISE = 0.45;
-/** Onboard "T-cam" just above the roof, behind the cockpit (chassis frame). */
-const ONBOARD_CAM_Y = BODY.height - RIDE_HEIGHT + 0.16;
-const ONBOARD_CAM_Z = -0.35;
 const _carPos = new Vector3();
 const _carQuat = new Quaternion();
 const _fwd = new Vector3();
@@ -108,9 +105,11 @@ function FollowRig({ mode }: { mode: Exclude<CameraMode, 'orbit'> }) {
     const aspect = camera instanceof PerspectiveCamera ? camera.aspect : 16 / 9;
     _fwd.set(0, 0, 1).applyQuaternion(_carQuat);
 
+    const framing = carRuntime.spec.camera;
     if (mode === 'hood') {
-      _desired.set(0, ONBOARD_CAM_Y, ONBOARD_CAM_Z).applyQuaternion(_carQuat).add(_carPos);
-      _look.set(0, ONBOARD_CAM_Y - 0.9, 30).applyQuaternion(_carQuat).add(_carPos);
+      // Onboard "T-cam" just above the roof, behind the cockpit (chassis frame).
+      _desired.set(0, framing.onboardY, framing.onboardZ).applyQuaternion(_carQuat).add(_carPos);
+      _look.set(0, framing.onboardY - 0.9, 30).applyQuaternion(_carQuat).add(_carPos);
       camera.position.copy(_desired);
       camera.lookAt(_look);
     } else {
@@ -126,8 +125,8 @@ function FollowRig({ mode }: { mode: Exclude<CameraMode, 'orbit'> }) {
       // In portrait the car would fill the narrow screen: pull back and up (with the wider FOV
       // below) so it takes about the share of the width it has in landscape.
       const portrait = portraitAmount(aspect);
-      const dist = (6.8 + speed * 0.01) * (1 + PORTRAIT_PULLBACK * portrait);
-      const height = (2.2 + speed * 0.002) * (1 + PORTRAIT_RISE * portrait);
+      const dist = (6.8 + speed * 0.01) * (1 + PORTRAIT_PULLBACK * portrait) * framing.distanceScale;
+      const height = (2.2 + speed * 0.002) * (1 + PORTRAIT_RISE * portrait) * framing.heightScale;
       _desired.copy(heading.current).multiplyScalar(-dist);
       _desired.y = height;
       if (snap.current) {
@@ -139,7 +138,7 @@ function FollowRig({ mode }: { mode: Exclude<CameraMode, 'orbit'> }) {
         smoothY.current += (_carPos.y - smoothY.current) * (1 - Math.exp(-dt * 8));
       }
       camera.position.set(_carPos.x + offset.current.x, smoothY.current + offset.current.y, _carPos.z + offset.current.z);
-      _look.set(_carPos.x + heading.current.x * 4, smoothY.current + 0.7, _carPos.z + heading.current.z * 4);
+      _look.set(_carPos.x + heading.current.x * 4, smoothY.current + 0.7 * framing.heightScale, _carPos.z + heading.current.z * 4);
       camera.lookAt(_look);
     }
     snap.current = false;
@@ -178,8 +177,9 @@ function OrbitRig() {
       _fwd.y = 0;
       if (_fwd.lengthSq() < 1e-4) _fwd.set(0, 0, 1);
       _fwd.normalize();
-      camera.position.copy(_carPos).addScaledVector(_fwd, -9);
-      camera.position.y += 4;
+      const framing = carRuntime.spec.camera;
+      camera.position.copy(_carPos).addScaledVector(_fwd, -9 * framing.distanceScale);
+      camera.position.y += 4 * framing.heightScale;
       snap.current = false;
     } else {
       // Ride along with the car so the user's orbit angle and distance are kept.

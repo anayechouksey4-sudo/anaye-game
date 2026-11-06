@@ -7,6 +7,9 @@ export interface CarDebugInfo {
   suspensionStiffness: number[];
   suspensionCompression: number[];
   suspensionRelaxation: number[];
+  /** Car class of the mounted car, and its ride height (body origin above flat ground at rest), m. */
+  carId: string;
+  rideHeight: number;
 }
 
 /** Filled by Car.tsx while mounted. */

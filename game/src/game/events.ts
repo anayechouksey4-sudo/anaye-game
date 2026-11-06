@@ -16,6 +16,12 @@ export interface GameEventMap {
   /** Car crossed checkpoint `index` (1…n-1) or the finish (index = totalCheckpoints). */
   checkpoint: { index: number; elapsedMs: number };
   finish: { elapsedMs: number; bestMs: number | null; isBest: boolean };
+  /**
+   * Start lights at the beginning of a run (first load, restart, map or car change; never on a
+   * respawn): 3, 2, 1, then 0 = GO, one step every COUNTDOWN_STEP_S of simulated time
+   * (game/countdown.ts). Throttle does nothing and the timer waits until GO.
+   */
+  countdown: { step: 3 | 2 | 1 | 0 };
 }
 
 export type GameEventType = keyof GameEventMap;

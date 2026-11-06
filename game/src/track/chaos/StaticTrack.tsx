@@ -65,7 +65,7 @@ function GateTriggers({ plan }: { plan: ChaosTrackPlan }) {
 
 export function StaticTrack({ plan }: { plan: ChaosTrackPlan }) {
   const geometry = useMemo(() => buildStaticScenery(plan), [plan]);
-  const material = useMemo(() => createVoxelMaterial(), []);
+  const material = useMemo(() => createVoxelMaterial({ roughness: plan.palette.surface.roughness, metalness: plan.palette.surface.metalness }), [plan]);
   useEffect(() => () => geometry.dispose(), [geometry]);
   useEffect(() => () => material.dispose(), [material]);
 

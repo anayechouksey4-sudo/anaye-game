@@ -5,21 +5,29 @@
  *
  * Physics callbacks read the latest params with `useGameStore.getState().physics`, so a
  * WebSocket update is applied on the very next fixed step with no remount.
+ *
+ * Car classes: the sliders map onto the selected car (selection.ts → carId) with
+ * mapSquadControlsToPhysics(controls, carId). Picking another car re-maps the physics (the last
+ * squad controls, or that car's defaults), loads that car's best time and restarts the run; a
+ * later physics:set patch still overrides as usual. Best times are kept per track AND car.
  */
 import { create } from 'zustand';
 import {
   CAR_PHYSICS_KEYS,
-  DEFAULT_CAR_PHYSICS,
+  DEFAULT_CAR_CLASS_ID,
   clampPhysics,
   clampSquadControls,
+  defaultPhysicsFor,
   mapSquadControlsToPhysics,
   type CarPhysicsKey,
   type CarPhysicsParams,
   type SquadControls,
 } from '@shared/protocol';
+import { resolveCarId } from '../car/catalog';
 import { emitGameEvent, type RespawnReason } from '../game/events';
 import { resetRunClock, runClock } from '../game/runClock';
 import { totalCheckpointsOf, type TrackLayout } from '../track/types';
+import { selectionState, useSelection } from './selection';
 
 export type LinkStatus = 'disabled' | 'connecting' | 'connected' | 'disconnected';
 /** Where a physics change came from: the relay, the relay's welcome snapshot, the HUD panel, or the debug handle. */
@@ -62,6 +70,8 @@ export interface PhysicsChange {
 }
 
 export interface GameState {
+  /** Car class the physics are mapped for (the selection's carId, resolved: unknown ids → hypercar). */
+  carId: string;
   physics: CarPhysicsParams;
   /** Squad controls last applied (null until a dashboard has spoken). */
   controls: SquadControls | null;
@@ -84,8 +94,10 @@ export interface GameState {
 
   applySquadControls: (controls: SquadControls, source?: UpdateSource) => void;
   patchPhysics: (patch: Partial<CarPhysicsParams>, source?: UpdateSource) => void;
-  /** Back to the mapping of the current squad controls (or the protocol defaults if none). */
+  /** Back to the mapping of the current squad controls (or the car's defaults if none). */
   resetPhysics: () => void;
+  /** The selected car changed: re-map physics for it, load its best time, restart the run. */
+  carChanged: (carId: string) => void;
 
   setLinkStatus: (status: LinkStatus) => void;
   setServerUrl: (url: string, source: GameState['serverUrlSource']) => void;
@@ -116,11 +128,19 @@ const UPLINK_LIMIT = 40;
 const COALESCE_MS = 1000;
 let uplinkId = 0;
 
-const bestKey = (trackId: string) => `gamerfleet.best.${trackId}`;
+/**
+ * localStorage key of a best time. The hypercar keeps the pre-garage key (`gamerfleet.best.<track>`)
+ * so records set before cars existed survive; every other car gets `gamerfleet.best.<track>.<car>`.
+ */
+export function bestTimeKey(trackId: string, carId: string): string {
+  const car = resolveCarId(carId);
+  return car === DEFAULT_CAR_CLASS_ID ? `gamerfleet.best.${trackId}` : `gamerfleet.best.${trackId}.${car}`;
+}
 
-function loadBest(trackId: string): number | null {
+/** Best finish time in ms for a track + car, or null (none yet / storage blocked). For the menu's map and garage cards. */
+export function loadBestTime(trackId: string, carId: string): number | null {
   try {
-    const raw = window.localStorage.getItem(bestKey(trackId));
+    const raw = window.localStorage.getItem(bestTimeKey(trackId, carId));
     const value = raw === null ? NaN : Number(raw);
     return Number.isFinite(value) && value > 0 ? value : null;
   } catch {
@@ -128,13 +148,16 @@ function loadBest(trackId: string): number | null {
   }
 }
 
-function saveBest(trackId: string, ms: number): void {
+function saveBest(trackId: string, carId: string, ms: number): void {
   try {
-    window.localStorage.setItem(bestKey(trackId), String(Math.round(ms)));
+    window.localStorage.setItem(bestTimeKey(trackId, carId), String(Math.round(ms)));
   } catch {
     // Storage blocked (private mode / sandboxed iframe): best time just isn't persisted.
   }
 }
+
+/** The selected car class (selection store), resolved. */
+const selectedCarId = (): string => resolveCarId(selectionState().carId);
 
 function changedKeys(a: CarPhysicsParams, b: CarPhysicsParams): CarPhysicsKey[] {
   return CAR_PHYSICS_KEYS.filter((k) => a[k] !== b[k]);
@@ -169,8 +192,10 @@ export const useGameStore = create<GameState>()((set, get) => {
     });
   };
 
+  const initialCar = selectedCarId();
   return {
-    physics: { ...DEFAULT_CAR_PHYSICS },
+    carId: initialCar,
+    physics: defaultPhysicsFor(initialCar),
     controls: null,
     physicsRevision: 0,
     lastPhysicsChange: null,
@@ -192,7 +217,7 @@ export const useGameStore = create<GameState>()((set, get) => {
       const clean = clampSquadControls(controls);
       const extra: Partial<GameState> = { controls: clean };
       if (source === 'ws' || source === 'snapshot') extra.lastUpdateAt = Date.now();
-      commitPhysics(mapSquadControlsToPhysics(clean), source, extra);
+      commitPhysics(mapSquadControlsToPhysics(clean, get().carId), source, extra);
     },
 
     patchPhysics: (patch, source = 'ws') => {
@@ -202,8 +227,21 @@ export const useGameStore = create<GameState>()((set, get) => {
     },
 
     resetPhysics: () => {
-      const { controls } = get();
-      commitPhysics(controls ? mapSquadControlsToPhysics(controls) : { ...DEFAULT_CAR_PHYSICS }, 'local');
+      const { controls, carId } = get();
+      commitPhysics(controls ? mapSquadControlsToPhysics(controls, carId) : defaultPhysicsFor(carId), 'local');
+    },
+
+    carChanged: (next) => {
+      const carId = resolveCarId(next);
+      if (carId === get().carId) return;
+      const { controls, run, trackLayout } = get();
+      // Re-map for the new car (physics:set patches made for the old car are dropped, like a controls frame).
+      commitPhysics(controls ? mapSquadControlsToPhysics(controls, carId) : defaultPhysicsFor(carId), 'local', { carId });
+      // A run that switched cars half-way means nothing: fresh run with this car's best time. The car
+      // remounts at the spawn; 'restart' resets the hazards and timer listeners.
+      resetRunClock();
+      set({ run: freshRun(run.totalCheckpoints, trackLayout ? loadBestTime(trackLayout.id, carId) : null) });
+      emitGameEvent('restart', { trackId: trackLayout?.id ?? null });
     },
 
     setLinkStatus: (status) => {
@@ -229,7 +267,7 @@ export const useGameStore = create<GameState>()((set, get) => {
 
     setTrackLayout: (layout) => {
       resetRunClock();
-      set({ trackLayout: layout, run: freshRun(totalCheckpointsOf(layout), loadBest(layout.id)) });
+      set({ trackLayout: layout, run: freshRun(totalCheckpointsOf(layout), loadBestTime(layout.id, get().carId)) });
     },
 
     startRun: () => {
@@ -259,7 +297,7 @@ export const useGameStore = create<GameState>()((set, get) => {
       const elapsedMs = Math.round(runClock.elapsedMs);
       const isBest = run.bestMs === null || elapsedMs < run.bestMs;
       const bestMs = isBest ? elapsedMs : run.bestMs;
-      if (isBest && trackLayout) saveBest(trackLayout.id, elapsedMs);
+      if (isBest && trackLayout) saveBest(trackLayout.id, get().carId, elapsedMs);
       set({ run: { ...run, finished: true, started: false, elapsedMs, checkpoint: run.totalCheckpoints, bestMs } });
       emitGameEvent('finish', { elapsedMs, bestMs, isBest });
     },
@@ -306,3 +344,9 @@ export const useGameStore = create<GameState>()((set, get) => {
 
 /** Non-hook accessor for physics callbacks and other imperative code. */
 export const gameState = (): GameState => useGameStore.getState();
+
+// Picking a car in the garage (or ?car=) re-maps the physics before React remounts the car, so the
+// new car's first physics step already runs its own params.
+useSelection.subscribe((s, prev) => {
+  if (s.carId !== prev.carId) useGameStore.getState().carChanged(s.carId);
+});

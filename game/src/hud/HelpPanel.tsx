@@ -11,6 +11,7 @@ const KEYS: [string, string][] = [
   ['C', 'Camera: chase / orbit / hood'],
   ['P', 'Physics panel'],
   ['H', 'Toggle this help'],
+  ['Esc / M', 'Menu: pause, garage, maps, settings'],
 ];
 
 export function HelpPanel() {

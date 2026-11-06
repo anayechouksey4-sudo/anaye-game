@@ -1,9 +1,12 @@
 // Pretends to be the racer: applies squad:controls / physics:set and streams plausible telemetry back.
 import {
-  DEFAULT_CAR_PHYSICS,
+  BIG_JUMP_LIP_KMH,
+  CAR_CLASS_IDS,
   TELEMETRY_INTERVAL_MS,
   assessBigJump,
   clampPhysics,
+  defaultPhysicsFor,
+  isCarClassId,
   mapSquadControlsToPhysics,
   squadControlsEqual,
   type CarPhysicsParams,
@@ -17,9 +20,10 @@ import { createFakeCar } from './fake-car';
 
 const USAGE = `Simulated racer: applies dashboard controls and streams game:state + game:telemetry.
 
-Usage: npm run sim:game -- [--url ws://localhost:8787] [--hz 10] [--duration 0] [--name sim-game]
+Usage: npm run sim:game -- [--url ws://localhost:8787] [--hz 10] [--duration 0] [--name sim-game] [--car hypercar]
 
   --url        Relay URL (host, host:port or ws://…)
+  --car        Car class to simulate: ${CAR_CLASS_IDS.join(', ')} (default hypercar)
   --hz         Telemetry rate (default ${1000 / TELEMETRY_INTERVAL_MS})
   --duration   Stop after this many seconds (default 0 = until Ctrl+C)
 `;
@@ -28,12 +32,18 @@ const { values } = parseToolArgs(USAGE, {
   hz: { type: 'string' },
   duration: { type: 'string' },
   name: { type: 'string', default: 'sim-game' },
+  car: { type: 'string', default: 'hypercar' },
 });
+if (!isCarClassId(values.car)) {
+  console.error(`unknown --car "${values.car}" (expected one of ${CAR_CLASS_IDS.join(', ')})`);
+  process.exit(2);
+}
+const carId = values.car;
 const hz = numberArg(values.hz, 'hz', 1000 / TELEMETRY_INTERVAL_MS, 1, 60);
 const durationSec = numberArg(values.duration, 'duration', 0, 0, 86_400);
 
 let controls: SquadControls | null = null;
-let physics: CarPhysicsParams = { ...DEFAULT_CAR_PHYSICS };
+let physics: CarPhysicsParams = defaultPhysicsFor(carId);
 const counts = { controls: 0, physicsSet: 0, state: 0, telemetry: 0 };
 /** The relay welcomes on connect and again after our hello; sync state once per connection. */
 let welcomed = false;
@@ -44,17 +54,18 @@ function physicsEqual(a: CarPhysicsParams, b: CarPhysicsParams): boolean {
 }
 
 function publishState(): void {
-  if (client.send({ type: 'game:state', physics, controls })) counts.state += 1;
+  const session = { carId, trackId: 'chaos', bigJumpKmh: BIG_JUMP_LIP_KMH };
+  if (client.send({ type: 'game:state', physics, controls, ...session })) counts.state += 1;
 }
 
 /** Dashboard controls are authoritative: they remap every param, discarding earlier physics:set patches. */
 function applyControls(next: SquadControls, source: string): void {
-  const nextPhysics = mapSquadControlsToPhysics(next);
+  const nextPhysics = mapSquadControlsToPhysics(next, carId);
   if (squadControlsEqual(next, controls) && physicsEqual(nextPhysics, physics)) return;
   controls = next;
   physics = nextPhysics;
   publishState();
-  const jump = assessBigJump(physics);
+  const jump = assessBigJump(physics, carId);
   applyLog.push(
     (n) =>
       `applied ${source}: ${formatControls(next)} → top ~${jump.topSpeedKmh.toFixed(0)} km/h, ` +
@@ -110,7 +121,7 @@ const client = connectToolClient({
   },
 });
 
-const car = createFakeCar();
+const car = createFakeCar(Math.random, carId);
 let lastTick = performance.now();
 let lastPrint = 0;
 const timer = setInterval(() => {

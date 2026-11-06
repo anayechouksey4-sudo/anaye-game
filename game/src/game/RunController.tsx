@@ -1,13 +1,15 @@
 /**
  * Run rules, evaluated after every physics step (so they also work under the debug
- * fast-forward): timer, checkpoints, finish, kill plane, speed trap, flip recovery.
+ * fast-forward): start lights, timer, checkpoints, finish, kill plane, speed trap, flip recovery.
  */
 import { useEffect, useRef } from 'react';
 import { useAfterPhysicsStep } from '@react-three/rapier';
 import { PHYSICS_DT } from '../config';
+import { getInputOverride } from '../car/input';
 import { carRuntime } from '../car/runtime';
 import { gameState } from '../state/store';
 import { isInsideGate } from '../track/types';
+import { cancelCountdown, isCountdownActive, tickCountdown } from './countdown';
 import { onGameEvent } from './events';
 import { runClock } from './runClock';
 
@@ -38,17 +40,25 @@ export function RunController() {
     const s = gameState();
     const layout = s.trackLayout;
     if (!layout || !carRuntime.ready) return;
+
+    if (runClock.running) {
+      runClock.elapsedMs += PHYSICS_DT * 1000;
+      if (++stepCounter.current % ELAPSED_SYNC_STEPS === 0) s.syncElapsed();
+    }
+    // Start lights (game/countdown.ts). The timer starts on the GO step and counts from the next one.
+    if (isCountdownActive()) {
+      const scripted = getInputOverride();
+      if (scripted && (scripted.throttle ?? 0) > 0.05) cancelCountdown();
+      else if (tickCountdown()) s.startRun();
+    }
+    // Without lights (a scripted driver skipped them): the run starts on the first throttle.
+    if (!isCountdownActive() && !s.run.started && !s.run.finished && carRuntime.throttle > 0.05) s.startRun();
+
     if (settleSteps.current > 0) {
       settleSteps.current--;
       return;
     }
     const pos = carRuntime.position;
-
-    if (!s.run.started && !s.run.finished && carRuntime.throttle > 0.05) s.startRun();
-    if (runClock.running) {
-      runClock.elapsedMs += PHYSICS_DT * 1000;
-      if (++stepCounter.current % ELAPSED_SYNC_STEPS === 0) s.syncElapsed();
-    }
 
     if (pos.y < layout.killY) {
       s.respawn('fall');

@@ -233,7 +233,7 @@ function tailFascia(ax: number, h: number, z: number): number {
   }
   const top = 0.74 - 0.06 * ax ** 4;
   if (h > top) return 0;
-  // F1-style rain light on the centre diffuser fin (brake channel).
+  // Race-style rain light on the centre diffuser fin (brake channel).
   if (ax < 0.04 && h > 0.18 && h < 0.34) return M.tail;
   if (ax < 0.66 && h > 0.36 && h < 0.58) return M.grille;
   return h < 0.36 ? M.carbon : M.paint;
