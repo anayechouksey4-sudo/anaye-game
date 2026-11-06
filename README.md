@@ -11,7 +11,7 @@ A voxel racing game you tune live from your phone.
 
 **https://anayechouksey4-sudo.github.io/anaye-game/**
 
-GitHub Pages serves the game from the [`docs/`](docs/) folder. One-time setup in the repository: Settings → Pages → Build and deployment → Source **Deploy from a branch** → Branch `main`, folder **/docs** (or **/ (root)**: the root `index.html` forwards to `docs/`) → Save, then wait a minute or two. `main` and the development branch `claude/racing-game-physics-dashboard-fzyqvv` carry the same verified game. The hosted copy plays offline (an https page can't reach a plain `ws://` relay), so tune the car with ☰ MENU → PHYSICS; `?ws=wss://…` still connects a relay that has TLS. After a game change, rebuild it with `node scripts/build-pages.mjs` and commit `docs/`.
+GitHub Pages serves the game from the [`docs/`](docs/) folder. One-time setup in the repository: Settings → Pages → Build and deployment → Source **Deploy from a branch** → Branch `main`, folder **/docs** (or **/ (root)**: the root `index.html` forwards to `docs/`) → Save, then wait a minute or two. The hosted copy plays offline (an https page can't reach a plain `ws://` relay), so tune the car with ☰ MENU → PHYSICS; `?ws=wss://…` still connects a relay that has TLS. After a game change, rebuild it with `node scripts/build-pages.mjs` and commit `docs/`.
 
 | Folder | What it is | Stack |
 | --- | --- | --- |
@@ -130,9 +130,3 @@ Chrome shows this when nothing is serving the page yet.
 | **Chassis Balance** | −50…+50 | Moves the rigid body's **centre of mass** (70/30 to 30/70 front/rear) and re-splits the **suspension stiffness** between the axles. |
 
 The **massive jump** at the end of the track needs about 183 km/h at the lip with the nose still down. That means Engine Tier 5 and a narrow wing window: roughly 15–35 % at balance 0, wider with a front-heavy balance. The dashboard's Big Jump Readiness card predicts READY / TOO SLOW / NOSE LIFT from the same formulas the game uses. It also shows the real speed the game measured at the lip.
-
-## Repository note
-
-Original description of this repository:
-
-> Make an app like claude and chatgpt mixed together and name it as Anaye.Ai
