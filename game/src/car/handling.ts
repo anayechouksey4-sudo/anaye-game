@@ -78,6 +78,50 @@ export function diffLockTransfer(diffLock: number, axleTorque: number, dOmegaSpe
   return diffLock * 0.5 * Math.abs(axleTorque) * clamp(dOmegaSpeedMs / slipRefMs, -1, 1);
 }
 
+/**
+ * Anti-roll bar: the load (N) the bar moves onto the left tyre, and off the right one, for a
+ * left/right suspension-travel difference. Left shorter (more compressed) ⇒ the bar lifts the body
+ * at the left wheel, which is more load on that tyre. A pure transfer, bounded by what the extended
+ * tyre carries (its spring force): a tyre at full droop has nothing left to give, so the bar's couple
+ * saturates there and the axle total never changes — the unloaded side can never go negative while
+ * the loaded side keeps gaining.
+ */
+export function antiRollTransferN(stiffnessN_m: number, leftTravelM: number, rightTravelM: number, leftSpringN: number, rightSpringN: number): number {
+  const f = -stiffnessN_m * (leftTravelM - rightTravelM);
+  return f > 0 ? Math.min(f, Math.max(0, rightSpringN)) : Math.max(f, -Math.max(0, leftSpringN));
+}
+
+/** Largest N / spring-force ratio the friction cap is scaled by (a spring near zero under a loaded tyre). */
+export const FRICTION_LOAD_RATIO_MAX = 4;
+
+/**
+ * Rapier caps a tyre's friction at frictionSlip × the spring force it computed itself, which never
+ * sees the anti-roll bar's transfer. Scaling frictionSlip by N / S makes that cap read the
+ * controller's own load N (spring + bar), so the tyre's budget is μ·N however stiff the bars are:
+ * a bar moves grip from the inside tyre to the outside one, it cannot add any.
+ */
+export function frictionSlipForLoad(mu: number, loadN: number, springForceN: number): number {
+  if (springForceN <= 1) return mu;
+  return mu * clamp(loadN / springForceN, 0, FRICTION_LOAD_RATIO_MAX);
+}
+
+/**
+ * Slip ratio in the direction the wheel is driven (+1 forward, −1 reverse): positive when the tyre
+ * surface outruns the ground that way, against a speed floor so a crawl is not all slip.
+ */
+export function driveSlipRatio(wheelSurfaceSpeedMs: number, groundSpeedMs: number, driveDirection: 1 | -1, speedFloorMs: number): number {
+  return (driveDirection * (wheelSurfaceSpeedMs - groundSpeedMs)) / Math.max(speedFloorMs, Math.abs(groundSpeedMs));
+}
+
+/**
+ * Traction control's torque factor: drops at once when the slip ratio passes tcSlip (tcGain per unit
+ * of excess, floored at 0.15) and climbs back at tcRecover per second otherwise.
+ */
+export function tractionControlFactor(previous: number, slipRatio: number, tcSlip: number, tcGain: number, tcRecover: number, dt: number): number {
+  if (slipRatio > tcSlip) return Math.min(previous, clamp(1 - (slipRatio - tcSlip) * tcGain, 0.15, 1));
+  return Math.min(1, previous + tcRecover * dt);
+}
+
 /** Live brake bias: the static front share blended toward the axle-load split (clamped 0.4…0.8). */
 export function brakeFrontShare(staticShare: number, frontLoadN: number, rearLoadN: number, liveBlend: number): number {
   const total = frontLoadN + rearLoadN;

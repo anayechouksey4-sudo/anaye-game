@@ -10,9 +10,15 @@
  * unloads one side every other step and halves its traction (it stalled on the Crown Climb). Every
  * other car is ≤ 0.75 except the kart (≈ 1.6, decaying).
  *
- * Off the island no resolver is installed and nothing changes. On the island the roll inertia (about
- * the chassis Z axis only: pitch and yaw stay as specified) is raised just enough to bring that number
- * down to ROLL_STABILITY_MAX. Today only the formula is affected.
+ * Off the island no resolver is installed and nothing changes for a legacy class. On the island the
+ * roll inertia (about the chassis Z axis only: pitch and yaw stay as specified) is raised just enough
+ * to bring that number down to ROLL_STABILITY_MAX. Handling v2 classes apply the same floor on every
+ * map (carController.applyParams), and their number also carries the explicit stiffness term: the
+ * suspension springs and the anti-roll bars push with k·(angle) computed from the last step, which
+ * the semi-implicit integration tolerates while dt²·K_roll/I + 2·dt·C_roll/I < 4, so the number is
+ * dt·C/I + dt²·K/(2·I) (the same 2 limit, the same 1.6 target). A stiff bar on a car already at the
+ * damping limit otherwise rolls left/right every step until one tyre unloads (the formula with the
+ * plan's 60000/45000 bars on the Proving Ground, stage C0 report).
  */
 import { PHYSICS_DT } from '../../../config';
 import type { Tuple3, VehicleSpec } from '../../../car/vehicleSpec';
@@ -20,7 +26,7 @@ import type { Tuple3, VehicleSpec } from '../../../car/vehicleSpec';
 /** Target for dt·m·(c_f·t_f² + c_r·t_r²)/2 / I_roll (explicit-damping limit 2; overshoot above 1). */
 export const ROLL_STABILITY_MAX = 1.6;
 
-/** The roll-damping stability number of a car at a mass / suspension setting. */
+/** The roll stability number of a car at a mass / suspension setting (damping, plus the explicit stiffness term for Handling v2 classes). */
 export function rollStabilityNumber(spec: VehicleSpec, mass: number, stiffness: { front: number; rear: number }, rollInertia: number): number {
   const ratio = Math.max(spec.tuning.dampingCompressionRatio, spec.tuning.dampingRelaxationRatio);
   let front = 0;
@@ -34,7 +40,12 @@ export function rollStabilityNumber(spec: VehicleSpec, mass: number, stiffness: 
   const cr = ratio * Math.sqrt(stiffness.rear);
   const tf = 2 * front;
   const tr = 2 * rear;
-  return (PHYSICS_DT * mass * (cf * tf * tf + cr * tr * tr)) / 2 / rollInertia;
+  const damping = (PHYSICS_DT * mass * (cf * tf * tf + cr * tr * tr)) / 2 / rollInertia;
+  if (!spec.tuning.handlingV2) return damping;
+  // Roll stiffness: springs k·m per wheel at ± track/2, bars k_bar per axle across the full track.
+  const springs = (mass * (stiffness.front * tf * tf + stiffness.rear * tr * tr)) / 2;
+  const bars = spec.tuning.antiRollFrontN_m * tf * tf + spec.tuning.antiRollRearN_m * tr * tr;
+  return damping + (PHYSICS_DT * PHYSICS_DT * (springs + bars)) / 2 / rollInertia;
 }
 
 /** The chassis-inertia resolver the island installs: raises I_roll (Z) only where the number exceeds the target. */

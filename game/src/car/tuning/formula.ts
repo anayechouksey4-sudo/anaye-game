@@ -26,11 +26,11 @@ export const FORMULA_TUNING: Partial<CarTuning> = {
   handlingV2: true,
   loadSensitivity: 0.18,
   peakSlipRad: 0.12,
-  // The plan's 60000 / 45000 bars read 2.2 g at 33 m/s on the bench against a tyre budget of 1.96
-  // (μ 1.4 × 1.4 of load): the bar's per-step vertical impulses pump the suspension forces the friction
-  // cap reads. With the base bars the same car reads 1.62 g, which is the row. Still the stiffest car
-  // by spring rate (120 vs 50); the bars are the hypercar's.
-  antiRollFrontN_m: 24000,
-  antiRollRearN_m: 18000,
+  // The plan's stiff bars (the stiffest car by spring rate too, 120 vs 50). In stage B they read 2.2 g
+  // at 33 m/s against a tyre budget of 1.96 because Rapier's friction cap read the spring forces, which
+  // never saw the bar's transfer; since the bar became a chassis roll torque plus a transfer on the
+  // controller's own N, stiff bars only move grip across an axle (bench: see the stage C0 report).
+  antiRollFrontN_m: 60000,
+  antiRollRearN_m: 45000,
   diffLock: 0.2,
 };

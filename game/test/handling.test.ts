@@ -30,15 +30,20 @@ import {
 } from '@shared/protocol';
 import { PHYSICS_DT } from '../src/config';
 import {
+  FRICTION_LOAD_RATIO_MAX,
   LOAD_SCALE_MAX,
   LOAD_SCALE_MIN,
   absBrakeCap,
   ackermannAngles,
+  antiRollTransferN,
   brakeFrontShare,
   diffLockTransfer,
+  driveSlipRatio,
   frictionEllipseScale,
+  frictionSlipForLoad,
   lateralBudgetScale,
   loadSensitivityScale,
+  tractionControlFactor,
 } from '../src/car/handling';
 import { ALL_VEHICLE_SPECS, chassisInertiaFor, getVehicleSpec } from '../src/car/vehicleSpec';
 import { ROLL_STABILITY_MAX, rollStabilityNumber, stableRollInertia } from '../src/track/world/physics/rollStability';
@@ -164,6 +169,56 @@ test('ABS cap, live brake bias and the differential lock', () => {
   close(diffLockTransfer(0.35, 2000, 10, 2), 0.35 * 0.5 * 2000);
   close(diffLockTransfer(0.35, 2000, -10, 2), -0.35 * 0.5 * 2000);
   assert.equal(diffLockTransfer(0, 2000, 10, 2), 0);
+});
+
+test('anti-roll bar: a pure transfer bounded by the extended tyre, and a friction cap that reads μ·N', () => {
+  // Left compressed by 2 cm: 60000 N/m moves 1200 N onto the left tyre and off the right one.
+  close(antiRollTransferN(60000, 0.10, 0.12, 3000, 3000), 1200);
+  close(antiRollTransferN(60000, 0.12, 0.10, 3000, 3000), -1200);
+  close(antiRollTransferN(60000, 0.1, 0.1, 3000, 3000), 0);
+  // The right tyre carries 400 N: the bar can move no more than that (the axle total never changes).
+  close(antiRollTransferN(60000, 0.10, 0.12, 3000, 400), 400);
+  close(antiRollTransferN(60000, 0.12, 0.10, 400, 3000), -400);
+  close(antiRollTransferN(60000, 0.1, 0.15, 3000, 0), 0);
+  for (const [sl, sr] of [[3000, 3000], [3000, 400], [4000, 0]]) {
+    const f = antiRollTransferN(60000, 0.1, 0.13, sl, sr);
+    const nl = sl + f;
+    const nr = sr - f;
+    assert.ok(nr >= 0 && nl >= 0, `${nl} / ${nr}`);
+    close(nl + nr, sl + sr);
+  }
+  // Rapier caps at frictionSlip × spring: scaled by N / spring the cap is μ·N, and a stiff bar (N = 2 S
+  // on the loaded tyre, 0 on the unloaded one) sums to the same μ × axle load as no bar at all.
+  close(frictionSlipForLoad(1.4, 6000, 3000) * 3000, 1.4 * 6000);
+  close(frictionSlipForLoad(1.4, 0, 3000) * 3000, 0);
+  close(frictionSlipForLoad(1.4, 6000, 3000) * 3000 + frictionSlipForLoad(1.4, 0, 3000) * 3000, 1.4 * 6000);
+  assert.equal(frictionSlipForLoad(1.4, 3000, 3000), 1.4);
+  assert.equal(frictionSlipForLoad(1.4, 500, 0), 1.4);
+  close(frictionSlipForLoad(1.4, 1e6, 10), 1.4 * FRICTION_LOAD_RATIO_MAX);
+});
+
+test('reverse: flat torque × reverseTorqueRatio, and traction control sees backwards wheelspin', () => {
+  // The controller's reverse torque is −engineTorque × throttle × ratio for every class (no gear multiplication).
+  for (const id of CAR_CLASS_IDS) {
+    const spec = getVehicleSpec(id);
+    const p = mapSquadControlsToPhysics({ frontWingAero: 50, engineTier: 5, chassisBalance: 0 }, CAR_CLASSES[id]);
+    const reverse = p.engineTorque * spec.tuning.reverseTorqueRatio;
+    // Less than the rears can hold at a standstill: a car held on the brake never spins its wheels backwards.
+    const rearStatic = p.mass * GRAVITY * (1 - CAR_CLASSES[id].frontWeightNeutral);
+    const rearGrip = p.traction * spec.tuning.longitudinalGripRatio * rearStatic * CAR_CLASSES[id].driveWheelRadius;
+    assert.ok(reverse < rearGrip, `${id}: reverse torque ${reverse.toFixed(0)} N·m vs rear budget ${rearGrip.toFixed(0)} at tier 5`);
+    if (CAR_CLASSES[id].engine) assert.ok(reverse < p.engineTorque * gearRatioToTop(CAR_CLASSES[id].engine!, 1), `${id}: 1st gear would be ${gearRatioToTop(CAR_CLASSES[id].engine!, 1).toFixed(2)}× more`);
+  }
+  // Slip ratio in the drive direction: a wheel spinning backwards while reversing reads positive.
+  close(driveSlipRatio(-6, -1, -1, 10), 0.5);
+  close(driveSlipRatio(6, 1, 1, 10), 0.5);
+  close(driveSlipRatio(-6, -1, 1, 10), -0.5);
+  close(driveSlipRatio(30, 20, 1, 10), 0.5);
+  // The TC factor drops at once past tcSlip and recovers at tcRecover per second.
+  close(tractionControlFactor(1, 0.4, 0.15, 4, 1.5, PHYSICS_DT), Math.max(0.15, 1 - 0.25 * 4), 1e-9);
+  close(tractionControlFactor(0.5, 0.0, 0.15, 4, 1.5, PHYSICS_DT), 0.5 + 1.5 * PHYSICS_DT);
+  assert.equal(tractionControlFactor(1, 0.0, 0.15, 4, 1.5, PHYSICS_DT), 1);
+  assert.equal(tractionControlFactor(1, -0.4, 0.15, 4, 1.5, PHYSICS_DT), 1);
 });
 
 test('every class: an engine model implies handlingV2, the roll-stability number stays ≤ 1.6 on the island', () => {

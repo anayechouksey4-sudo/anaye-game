@@ -6,22 +6,30 @@ import type { CarTuning } from '../tuning';
 
 export const MUSCLE_TUNING: Partial<CarTuning> = {
   aeroNormalToFlow: 1,
-  longitudinalGripRatio: 0.95,
+  // Handling v2: drag-style rears, more forward bite than side bite (0.95 before v2).
+  longitudinalGripRatio: 1.1,
   spinGripLoss: 0.6,
   steerMax: 0.52,
   steerSpeedFalloff: 12,
   steerRate: 2.3,
   steerReturnRate: 4,
-  brakeForceG: 1.05,
+  // 1.05 g of pedal stopped it in 33 m from 100 km/h; the plan's 40 m wants about 0.88 g plus drag.
+  brakeForceG: 0.88,
   burnoutRearGrip: 0.3,
   handbrakeForceN: 11000,
   airPitchStiffness: 80,
   airPitchDamping: 70,
   airPitchDampingBase: 400,
   airRollDamping: 650,
-  // ── Handling v2 (plan §2 starting points; inert until handlingV2 is switched on for this class) ──
+  // ── Handling v2 (plan §1 row: 0–100 4.2 s at tier 5, 0.95 g skidpad, 100–0 in 40 m) ──
+  handlingV2: true,
+  // Heavy nose: the loaded outer front gives up first (0.22), the stiff front bar adds to it on entry,
+  // the half-locked diff hands the exit to the rears (power oversteer).
   loadSensitivity: 0.22,
-  peakSlipRad: 0.15,
+  // Tall soft sidewalls: the peak is a wide slip angle. At 0.15 the slip-aware steer cap held the lock
+  // short in 50–80 km/h bends (front slip ≈ 0.12 rad in a steady 1 g arc at 80) and the autopilot
+  // pushed it off the ribbon eleven times a lap; at 0.19 it finishes clean.
+  peakSlipRad: 0.19,
   antiRollFrontN_m: 22000,
   antiRollRearN_m: 14000,
   diffLock: 0.5,
