@@ -16,7 +16,8 @@ export const KART: Readonly<CarClass> = {
   dragBase: 2.0,
   dragPerAero: 1.0,
   frontWingMax: 2.5,
-  traction: 1.6,
+  // Handling v2: 1.6 held 1.59 g at 33 m/s on the bench; the plan's 1.4 g row.
+  traction: 1.42,
   frontBodyLift: 0.6,
   rearDownforce: 0.6,
   driveWheelRadius: 0.26,
@@ -34,4 +35,16 @@ export const KART: Readonly<CarClass> = {
   jumpSpeedScale: 1.04,
   noseLiftMarginKmh: 1000,
   noseLiftReserveKmh: 8,
+  /**
+   * Handling v2 engine: single speed (a centrifugal clutch is the 1st-gear launch floor of the model),
+   * a two-stroke's peaky curve that climbs to its best at 75–85 % of the redline and holds 98 % of it at
+   * the top-speed fit point (93 %). No shifts, no cuts.
+   */
+  engine: {
+    gears: 1,
+    firstGearFrac: 1,
+    torqueCurve: [0.6, 0.65, 0.7, 0.78, 0.86, 0.93, 0.98, 1.02, 1.03, 1.0, 0.94],
+    shiftUpFrac: 1,
+    shiftCutS: 0,
+  },
 };

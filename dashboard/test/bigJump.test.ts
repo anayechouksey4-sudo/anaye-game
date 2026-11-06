@@ -54,7 +54,7 @@ describe('big-jump verdict rule (assessBigJump)', () => {
     assert.equal(at('muscle', '20/5/0').verdict, 'READY'); // sim: lip 182.6, clears
     assert.equal(at('formula', '22/5/-40').verdict, 'TOO SLOW'); // sim: lip 185.4, short
     assert.equal(at('buggy', '0/5/0').verdict, 'TOO SLOW'); // sim: lip 128.7, short
-    assert.equal(at('rally', '0/4/10').verdict, 'TOO SLOW'); // top 169.6 < lift-off 172.9: never lifts
+    assert.equal(at('rally', '0/4/10').verdict, 'TOO SLOW'); // top 169.6 < lift-off 173.5 (172.9 before Handling v2): never lifts
     assert.equal(at('muscle', '0/3/30').verdict, 'NOSE LIFT'); // lift-off 147.6 < top 150.9 < 185.6
     assert.equal(at('formula', '0/3/-20', 163).verdict, 'TOO SLOW'); // Isles: top 166.1 < lift-off 169.4
   });
@@ -100,16 +100,28 @@ describe('big-jump hints match their verdict', () => {
     // Hypercar gaps re-pinned for its Handling v2 engine (shared/cars/hypercar.ts): past the top-gear fit
     // point the torque curve falls, so above top speed the drive unloads the nose less (3.3 → 3.8, 10.0 → 13.4);
     // its reserve is 15 km/h now, so 27/4/50 still counts as "lift-off close to top speed".
+    // Rally gap re-pinned for its v2 engine and 1.14 μ tyres (shared/cars/rally.ts) the same way (2.1 → 2.51); the
+    // v2 sim still lifts the nose at 5/4/30 (at 164.6, off the track before the lip).
     const lifted: [CarClassId, string, number][] = [
       ['hypercar', '12/4/0', 3.79], // nose up at 171.5 km/h, off the track
-      ['rally', '5/4/30', 2.1], // nose up at 163.4
+      ['rally', '5/4/30', 2.51], // nose up at 163.4 (v2: 164.6)
       ['muscle', '18/4/36', 6.5], // nose up at 163.9
-      ['formula', '1/4/-40', 2.0], // nose up at 183.6
       ['hypercar', '27/4/50', 13.44], // nose up at 166.6: the largest gap that lifted
       ['muscle', '20/4/40', 8.7], // nose up at 163.9
-      ['rally', '17/5/50', 8.5], // ran off at the kink
-      ['formula', '6/4/20', 4.6], // fell before the lip
+      // Formula re-pinned for its Handling v2 aero (shared/cars/formula.ts: 4.0 × wing − 1.0 body lift, rear 1.4,
+      // μ 1.4, sized to the plan's 1.6 g / 2.4 g lateral row): gap 4.6 → 2.35; the v2 sim still lifts at 182.2 and
+      // runs off. Its 1/4/−40 (gap 2.0 before) now has lift-off 33.7 km/h above top speed: planted list below.
+      ['formula', '6/4/20', 2.35], // fell before the lip
     ];
+    // Rally 17/5/50 ran off at the kink on both trees (v2: no nose-lift flag before it left the road), but its v2
+    // estimate puts lift-off 12.6 km/h above top speed, past the rally's 10 km/h reserve, so the hint no longer
+    // says "balance forward first". Stage C re-measures the lift windows and sets the reserve (the hypercar's went
+    // 12 → 15 for the same reason); until then only the verdict and the gap are pinned here.
+    {
+      const j = at('rally', '17/5/50');
+      assert.equal(j.verdict, 'TOO SLOW');
+      assert.ok(Math.abs(j.liftOffKmh! - j.topSpeedKmh - 12.63) < 0.1, `rally 17/5/50 gap ${j.liftOffKmh! - j.topSpeedKmh}`);
+    }
     for (const [car, setting, gap] of lifted) {
       const j = at(car, setting);
       assert.equal(j.verdict, 'TOO SLOW', `${car} ${setting}`);
@@ -133,7 +145,8 @@ describe('big-jump hints match their verdict', () => {
       ['hypercar', '6/4/-40'], // gap 14.9, lip 174.6, short
       ['muscle', '11/4/0'], // gap 14.9
       ['rally', '1/4/0'], // gap 14.5
-      ['formula', '5/4/0'], // gap 13.2
+      ['formula', '5/4/0'], // gap 20.6 (13.2 before the v2 aero); sim: short at 183.4
+      ['formula', '1/4/-40'], // gap 33.7 (2.0 before the v2 aero, when it lifted at 183.6); v2 sim: no lift, clears from 188.3
       ['hypercar', '50/3/0'], // never lifts
     ];
     for (const [car, setting] of planted) {
@@ -173,13 +186,16 @@ describe('big-jump hints match their verdict', () => {
     // 182.4; 20/5/0 clears at 182.6.
     assert.equal(
       hintAt('rally', '5/5/0'),
-      'Not enough top speed, and less wing lifts the nose at this balance (lift-off 194 km/h is close to top speed 188): move Chassis Balance forward first, then trim the front wing, or tap the JUMP ATTEMPT preset.',
+      // Lift-off 194 before Handling v2: past the top-gear fit point the rally's torque curve falls, so above top speed the
+      // drive unloads the nose a little less (195.3 now, with the 1.14 μ tyres' grip cap in the estimate).
+      'Not enough top speed, and less wing lifts the nose at this balance (lift-off 195 km/h is close to top speed 188): move Chassis Balance forward first, then trim the front wing, or tap the JUMP ATTEMPT preset.',
     );
     assert.match(hintAt('muscle', '23/5/30'), /^Not enough top speed, and less wing lifts the nose at this balance .*move Chassis Balance forward first/);
     assert.equal(at('rally', '2/5/-40').verdict, 'READY'); // its JUMP ATTEMPT preset
     assert.equal(at('muscle', '20/5/0').verdict, 'READY'); // its JUMP ATTEMPT preset
 
     let topTierFixes = 0;
+    const fixesByCar: Partial<Record<CarClassId, number>> = {};
     for (const car of CAR_CLASS_IDS) {
       const k = CAR_CLASSES[car];
       const preset = JUMP_PRESETS[car].controls;
@@ -193,6 +209,7 @@ describe('big-jump hints match their verdict', () => {
             assert.doesNotMatch(hint, /raise Engine Tier/, tag);
             if (!hint.includes('JUMP ATTEMPT')) continue;
             topTierFixes++;
+            fixesByCar[car] = (fixesByCar[car] ?? 0) + 1;
             // The advice holds: the car's JUMP ATTEMPT preset is READY here, at tier 5 with the balance
             // further forward and less wing than this setting.
             assert.equal(at(car, `${preset.frontWingAero}/${preset.engineTier}/${preset.chassisBalance}`, map.bigJumpKmh!).verdict, 'READY', tag);
@@ -202,10 +219,17 @@ describe('big-jump hints match their verdict', () => {
         }
       }
     }
-    // rally 360 + muscle 108 on chaos (the lift-off window, then NOSE LIFT while too slow) + kart 37 on
-    // the Isles (its only reachable jump, where its JUMP ATTEMPT 10/T5/−30 is READY). The four newer
-    // road cars add none: their presets sit inside wide READY windows.
-    assert.equal(topTierFixes, 360 + 108 + 37, 'rally + muscle on chaos, kart on the Isles');
+    // rally 335 (360 before Handling v2: its geared engine lifts the nose a little later above top speed, so the
+    // window where "less wing lifts the nose" is narrower) + muscle 108 on chaos (the lift-off window, then NOSE
+    // LIFT while too slow) + kart 29 on the Isles (its only reachable jump, where its JUMP
+    // ATTEMPT 10/T5/−30 is READY; 37 before its single-speed v2 curve — 98 % of the top-end torque at the launch
+    // floor, 104 % at 80 % of the redline — moved a few low-wing / rearward lift-off estimates past the 8 km/h
+    // reserve). The four newer road cars add none: their presets sit inside wide READY windows (the coupe's v2
+    // engine briefly added 22 at its old 1.5 μ; at 1.27 μ the grip cap in the lift-off estimate puts them back).
+    assert.equal(fixesByCar.rally, 335, 'rally on chaos');
+    assert.equal(fixesByCar.muscle, 108, 'muscle on chaos');
+    assert.equal(fixesByCar.kart, 29, 'kart on the Isles');
+    assert.equal(topTierFixes, 335 + 108 + 29, 'rally + muscle on chaos, kart on the Isles');
   });
 
   it("tells the Dune Goblin player that no setup reaches either jump, with the car's best", () => {

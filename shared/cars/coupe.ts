@@ -18,7 +18,8 @@ export const COUPE: Readonly<CarClass> = {
   dragBase: 2.8,
   dragPerAero: 1.5,
   frontWingMax: 5.5,
-  traction: 1.5,
+  // Handling v2: 1.5 held 1.36 g at 33 m/s on the bench; the 1.15 g row of the plan wants a road tyre.
+  traction: 1.27,
   frontBodyLift: 2.2,
   rearDownforce: 2.3,
   driveWheelRadius: 0.35,
@@ -36,4 +37,16 @@ export const COUPE: Readonly<CarClass> = {
   jumpSpeedScale: 1.02,
   noseLiftMarginKmh: 1000,
   noseLiftReserveKmh: 12,
+  /**
+   * Handling v2 engine: the 6-speed gearing of its flat-six sound (0.3 first-gear span), a curve with a
+   * broad plateau from 50 % to 70 % of the redline that falls to 86 % of it at the top-gear fit point
+   * (93 %), 90 ms shift cuts. Top gear at 93 % of the redline is exactly the estimated top speed.
+   */
+  engine: {
+    gears: 6,
+    firstGearFrac: 0.3,
+    torqueCurve: [0.5, 0.68, 0.82, 0.92, 0.98, 1.0, 1.0, 0.98, 0.94, 0.88, 0.8],
+    shiftUpFrac: 0.96,
+    shiftCutS: 0.09,
+  },
 };

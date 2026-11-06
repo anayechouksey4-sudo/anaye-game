@@ -6,17 +6,21 @@ import type { CarTuning } from '../tuning';
 
 export const ELECTRIC_TUNING: Partial<CarTuning> = {
   aeroNormalToFlow: 1,
-  longitudinalGripRatio: 0.85,
+  // Handling v2: all-wheel drive never needs a low longitudinal ratio; the 1.3 g pedal stopped in 28 m
+  // from 100 km/h, the 35 m row wants about 1.0 g plus drag on a 2 t car.
+  longitudinalGripRatio: 1.0,
   steerMax: 0.54,
   steerSpeedFalloff: 13,
   steerRate: 2.6,
-  brakeForceG: 1.3,
+  brakeForceG: 1.0,
   airPitchStiffness: 90,
   airPitchDamping: 80,
   airPitchDampingBase: 450,
   airRollDamping: 700,
-  // ── Handling v2 (plan §2 starting points; inert until handlingV2 is switched on for this class) ──
-  loadSensitivity: 0.18,
+  // ── Handling v2 (plan §1 row: 0–100 3.0 s, top speed kept, 1.15 g skidpad, 100–0 in 35 m) ──
+  handlingV2: true,
+  // The heaviest car: its tyres run furthest up the load curve (plan: 0.22 for the heavy classes).
+  loadSensitivity: 0.22,
   peakSlipRad: 0.15,
   antiRollFrontN_m: 30000,
   antiRollRearN_m: 26000,
