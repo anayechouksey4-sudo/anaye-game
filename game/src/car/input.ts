@@ -1,7 +1,9 @@
 /**
- * Driver input: keyboard + standard-mapping gamepad, with an optional override used by the
- * debug handle / automated tests. Polled by the car controller every physics step.
+ * Driver input: keyboard + on-screen touch controls + standard-mapping gamepad, with an optional
+ * override used by the debug handle / automated tests. Polled by the car controller every physics
+ * step.
  */
+import { getQueryParam } from '../config';
 
 export interface DriverInput {
   /** 0…1 */
@@ -16,6 +18,8 @@ export interface DriverInput {
 
 const pressed = new Set<string>();
 let override: Partial<DriverInput> | null = null;
+/** Written by the on-screen controls (hud/TouchControls.tsx); all zero while nothing is held. */
+const touch: DriverInput = { throttle: 0, brake: 0, steer: 0, handbrake: 0 };
 
 const THROTTLE_KEYS = ['KeyW', 'ArrowUp'];
 const BRAKE_KEYS = ['KeyS', 'ArrowDown'];
@@ -56,7 +60,38 @@ export function installKeyboardInput(): () => void {
   };
 }
 
-/** Partial override (missing fields fall back to keyboard/gamepad); null releases it. */
+/**
+ * Touch-first device (phone / tablet): the primary pointer is coarse, or there are touch points
+ * and no pointer that can hover. A laptop with a touchscreen keeps its fine, hovering pointer and
+ * stays a desktop.
+ */
+export function isTouchDevice(): boolean {
+  if (typeof window === 'undefined') return false;
+  const media = (q: string) => typeof window.matchMedia === 'function' && window.matchMedia(q).matches;
+  return media('(pointer: coarse)') || (navigator.maxTouchPoints > 0 && media('(hover: none)'));
+}
+
+/** On-screen touch controls: `?touch=1` / `?touch=0` force them on / off, otherwise touch devices get them. */
+export function wantsTouchControls(): boolean {
+  const forced = getQueryParam('touch')?.toLowerCase();
+  if (forced !== undefined) return !['0', 'off', 'false', 'no'].includes(forced);
+  return isTouchDevice();
+}
+
+/** Merge the on-screen controls' state (pedals 0…1, steer −1…+1) into the driver input. */
+export function setTouchInput(next: Partial<DriverInput>): void {
+  Object.assign(touch, next);
+}
+
+/** Release every on-screen control (finger lifted / cancelled, tab hidden, controls unmounted). */
+export function clearTouchInput(): void {
+  touch.throttle = 0;
+  touch.brake = 0;
+  touch.steer = 0;
+  touch.handbrake = 0;
+}
+
+/** Partial override (missing fields fall back to keyboard/touch/gamepad); null releases it. */
 export function setInputOverride(next: Partial<DriverInput> | null): void {
   override = next ? { ...next } : null;
 }
@@ -90,6 +125,11 @@ export function readDriverInput(out: DriverInput): DriverInput {
   out.brake = anyPressed(BRAKE_KEYS) ? 1 : 0;
   out.steer = (anyPressed(RIGHT_KEYS) ? 1 : 0) - (anyPressed(LEFT_KEYS) ? 1 : 0);
   out.handbrake = anyPressed(HANDBRAKE_KEYS) ? 1 : 0;
+  // Touch works like a second keyboard: pedals add up, a held steer pad wins over released keys.
+  out.throttle = Math.max(out.throttle, touch.throttle);
+  out.brake = Math.max(out.brake, touch.brake);
+  out.handbrake = Math.max(out.handbrake, touch.handbrake);
+  if (touch.steer !== 0 && out.steer === 0) out.steer = touch.steer;
   readGamepad(out);
   if (override) {
     if (override.throttle !== undefined) out.throttle = override.throttle;

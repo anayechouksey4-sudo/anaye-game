@@ -51,6 +51,25 @@ so opening the game from another device on the LAN just works.
 
 A standard-mapping gamepad also works (RT throttle, LT brake, left stick steer, A/B handbrake).
 
+### Touch (phones and tablets)
+
+Phones and tablets get on-screen controls automatically (a coarse primary pointer, or touch with no
+hover-capable pointer; a laptop with a touchscreen stays a desktop). `?touch=1` forces them on,
+`?touch=0` off. They work alongside the keyboard, and `__RACER__.setInput` still overrides both.
+
+| Control | Action |
+| --- | --- |
+| Steer pad (left thumb, ◀ ▶) | Analog steer from the finger's position: a thumb on ◀ / ▶ (or further out) is full lock like A / D, sliding toward the centre gives partial lock for fine corrections. Sliding off the pad lets go. |
+| GAS · BRAKE / REVERSE · DRIFT (right thumb) | Throttle, brake (reverses once stopped), handbrake. A finger presses whichever pedal it is on, so one thumb can slide gas → brake or gas → drift. |
+| ⟲ RESPAWN · ⏮ RESTART · ◉ camera · ▤ HUD · ⚙ PHYSICS | Same actions as R · T · C · H · P. HUD (H) hides the status chips for a clean view. Buttons fire when the finger lifts on them; slide off to cancel. |
+| ⤢ FULL | Fullscreen and, where the browser allows it, locks to landscape. Portrait stays fully playable (the camera pulls back and widens). |
+
+Every finger is tracked separately (steer and throttle at the same time) and everything is
+released when a finger is cancelled, the window loses focus or the tab is hidden. On phone-sized
+screens the HUD is compact: Squad Link and telemetry are chips that expand on tap, the run panel is
+timer + checkpoint, and the physics panel opens (scrollable) in the space between the thumbs.
+Touch devices render at a device-pixel ratio of at most 1.5 with a 512 px sun shadow map.
+
 ## Physics model
 
 Everything is read from the store **every fixed step** (`1/60 s`), so a dashboard change is applied

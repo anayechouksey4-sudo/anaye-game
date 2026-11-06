@@ -1,10 +1,11 @@
-import { Suspense, useEffect } from 'react';
-import { Canvas } from '@react-three/fiber';
+import { Suspense, useEffect, useLayoutEffect } from 'react';
+import { Canvas, useThree } from '@react-three/fiber';
 import { Physics } from '@react-three/rapier';
 import { GRAVITY } from '@shared/protocol';
+import { DirectionalLight } from 'three';
 import { ChaseCamera } from './camera/ChaseCamera';
 import { Car } from './car/Car';
-import { installKeyboardInput } from './car/input';
+import { installKeyboardInput, isTouchDevice } from './car/input';
 import { PHYSICS_DT, isPhysicsDebug } from './config';
 import { RacerDebugHandle } from './debug/racerHandle';
 import { useGlobalHotkeys } from './game/hotkeys';
@@ -14,6 +15,30 @@ import { useSquadLink } from './net/squadLink';
 import { Environment } from './scene/Environment';
 import { useGameStore } from './state/store';
 import { Track } from './track/Track';
+
+/** Phones and tablets: high-DPI screens with mobile GPUs. Desktop rendering is untouched. */
+const TOUCH_DEVICE = isTouchDevice();
+const DPR: [number, number] = TOUCH_DEVICE ? [1, 1.5] : [1, 2];
+/** Sun shadow map edge on touch devices (the scene's own setting, 1024, elsewhere). */
+const TOUCH_SHADOW_MAP_SIZE = 512;
+
+/**
+ * Touch devices only: shrink the shadow maps of the shadow-casting directional lights (the sun in
+ * scene/Environment.tsx). Mounted inside the same Suspense boundary, so the lights exist by this
+ * layout effect, which runs before the first frame allocates the maps.
+ */
+function TouchShadowBudget() {
+  const scene = useThree((s) => s.scene);
+  useLayoutEffect(() => {
+    scene.traverse((obj) => {
+      if (!(obj instanceof DirectionalLight) || !obj.castShadow || obj.shadow.mapSize.x <= TOUCH_SHADOW_MAP_SIZE) return;
+      obj.shadow.mapSize.set(TOUCH_SHADOW_MAP_SIZE, TOUCH_SHADOW_MAP_SIZE);
+      obj.shadow.map?.dispose();
+      obj.shadow.map = null;
+    });
+  }, [scene]);
+  return null;
+}
 
 /** The car mounts once the track has registered its layout, keyed so a new track gets a fresh car. */
 function PlayerCar() {
@@ -31,7 +56,7 @@ export function App() {
       <Canvas
         className="app__canvas"
         shadows="percentage"
-        dpr={[1, 2]}
+        dpr={DPR}
         camera={{ fov: 62, near: 0.1, far: 3000, position: [0, 4, -9] }}
         gl={{ antialias: true, powerPreference: 'high-performance' }}
       >
@@ -44,6 +69,7 @@ export function App() {
             <RacerDebugHandle />
           </Physics>
           <ChaseCamera />
+          {TOUCH_DEVICE && <TouchShadowBudget />}
         </Suspense>
       </Canvas>
       <HUD />

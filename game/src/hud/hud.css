@@ -202,3 +202,150 @@
   .hud-corner-tl { width: 230px; }
   .hud-run { min-width: 0; }
 }
+
+/* ── Compact HUD (phones: touch controls, or a phone-sized window) ── */
+/* Nothing below applies on a desktop-sized window without touch controls. */
+.hud--compact {
+  --hud-l: max(10px, env(safe-area-inset-left));
+  --hud-r: max(10px, env(safe-area-inset-right));
+  --hud-t: max(8px, env(safe-area-inset-top));
+  --hud-b: max(8px, env(safe-area-inset-bottom));
+  /* Height kept free at the bottom for the speedometer (and the touch controls, below). */
+  --hud-reserve-b: 72px;
+}
+.hud-chip { pointer-events: auto; display: inline-flex; align-items: center; gap: 8px; min-height: 34px; padding: 6px 14px 6px 12px; font: inherit; font-size: 10px; color: var(--text); letter-spacing: 0.14em; text-align: left; cursor: pointer; touch-action: manipulation; }
+.hud-chip:active { background: rgba(0, 240, 255, 0.18); }
+.hud-chip__label { color: var(--cyan); font-weight: 700; }
+.hud-chip__more { color: var(--cyan); }
+.hud--compact .hud-corner-tl { top: var(--hud-t); left: var(--hud-l); width: auto; max-width: min(290px, calc(100vw - var(--hud-l) - var(--hud-r))); max-height: calc(100% - var(--hud-t) - var(--hud-b) - var(--hud-reserve-b)); gap: 6px; align-items: flex-start; overflow-y: auto; overscroll-behavior: contain; touch-action: pan-y; }
+.hud--compact .hud-corner-tl:has(.is-expanded) { pointer-events: auto; }
+.hud--compact .hud-panel.is-expanded { pointer-events: auto; width: 100%; flex-shrink: 0; }
+.hud--compact .hud-panel.is-expanded .hud-panel__title { gap: 8px; }
+.hud--compact .hud-panel.is-expanded .hud-panel__title .hud-btn--ghost { padding: 4px 8px; margin: -4px -6px -4px 0; font-size: 14px; }
+.hud--compact .hud-squad__item { grid-template-columns: 96px 1fr 44px; }
+.hud--compact .hud-top { top: var(--hud-t); }
+.hud-run--compact { min-width: 0; padding: 6px 14px; }
+.hud-run__row { display: flex; align-items: baseline; justify-content: center; gap: 12px; }
+.hud-run--compact .hud-run__timer { font-size: 22px; }
+.hud-run__cp { display: flex; align-items: baseline; gap: 5px; }
+.hud-run__cp b { font-size: 15px; color: var(--yellow); font-variant-numeric: tabular-nums; }
+.hud-run--compact .hud-run__hint { margin-top: 1px; font-size: 9px; letter-spacing: 0.24em; }
+.hud--compact .hud-feed { display: none; }
+.hud--compact .hud-corner-tr { top: var(--hud-t); right: var(--hud-r); width: min(300px, calc(100vw - var(--hud-l) - var(--hud-r))); }
+.hud--compact .hud-physics { max-height: calc(100vh - var(--hud-t) - var(--hud-b) - var(--hud-reserve-b)); overflow-y: auto; overscroll-behavior: contain; touch-action: pan-y; }
+.hud--compact .hud-physics .hud-panel__title { position: sticky; top: -10px; z-index: 1; margin: -10px -12px 0; padding: 10px 12px 6px; background: rgb(8, 10, 18); border-bottom: 1px solid var(--line); }
+.hud--compact .hud-physics .hud-btn--ghost { padding: 4px 8px; font-size: 16px; }
+.hud--compact .hud-slider input { height: 28px; }
+.hud--compact .hud-bottom { bottom: var(--hud-b); }
+/* Without touch controls (`?touch=0`, small desktop window) the PHYSICS / CAM / HELP row sits below the speedometer. */
+.hud--compact .hud-corner-br { bottom: var(--hud-b); right: var(--hud-r); }
+.hud--compact .hud-corner-br .hud-btn { padding: 6px 8px; letter-spacing: 0.08em; }
+.hud--compact .hud-help { display: none; }
+.hud--compact .hud-speedo { padding: 4px 14px 7px; }
+.hud--compact .hud-speedo__row { gap: 7px; }
+.hud--compact .hud-speedo__value { font-size: 30px; text-shadow: 0 0 12px rgba(0, 240, 255, 0.8); }
+.hud--compact .hud-speedo__gear { font-size: 13px; }
+.hud--compact .hud-speedo__unit { font-size: 9px; }
+.hud--compact .hud-speedo__est { display: none; }
+.hud--compact .hud-bar--speed { width: 128px; height: 4px; margin-top: 3px; }
+.hud--compact .hud-banners { top: 30%; max-width: calc(100vw - 2 * var(--hud-r)); }
+.hud--compact .hud-banner { font-size: 14px; letter-spacing: 0.18em; padding: 6px 14px; }
+.hud--compact .hud-banner--good,
+.hud--compact .hud-banner--info { font-size: 12px; }
+.hud--compact .hud-banner--finish { font-size: 18px; }
+.hud--compact.hud--physics-open .hud-corner-tl,
+.hud--compact.hud--physics-open .hud-bottom { display: none; }
+@media (orientation: portrait) {
+  /* Narrow screen: chips on the left, timer on the right. */
+  .hud--compact .hud-top { left: auto; right: var(--hud-r); transform: none; align-items: flex-end; }
+  .hud--compact .hud-chip { padding: 6px 10px; letter-spacing: 0.1em; }
+  .hud-run--compact { padding: 6px 10px; }
+  .hud-run--compact .hud-run__row { gap: 8px; }
+  .hud-run--compact .hud-run__timer { font-size: 19px; }
+  /* An expanded chip opens below the timer instead of under it. */
+  .hud--compact .hud-corner-tl:has(.is-expanded) { top: calc(var(--hud-t) + 62px); max-height: calc(100% - var(--hud-t) - 62px - var(--hud-b) - var(--hud-reserve-b)); }
+  .hud--compact:not(.hud--touch) .hud-bottom { bottom: calc(var(--hud-b) + 40px); }
+}
+@media (orientation: landscape) {
+  /* Short screen: expanded chips stay left of the centred timer. */
+  .hud--compact .hud-corner-tl { max-width: min(290px, calc(50vw - 110px - var(--hud-l))); }
+}
+.hud--compact .hud-tele-row { grid-template-columns: 74px 1fr 58px; }
+.hud--compact .hud-lift-tag { right: 62px; }
+
+/* ── Touch controls ─────────────────────────────────── */
+.hud--touch {
+  --tc-steer-w: clamp(150px, 26vw, 230px);
+  --tc-steer-h: 100px;
+  --tc-brake-w: 76px;
+  --tc-gas-w: 92px;
+  --tc-drift-h: 58px;
+  --tc-gas-h: 112px;
+  --tc-cluster-w: calc(var(--tc-brake-w) + var(--tc-gas-w) + 8px);
+  --tc-cluster-h: calc(var(--tc-drift-h) + var(--tc-gas-h) + 8px);
+  --tc-action: 48px;
+  --hud-reserve-b: calc(var(--tc-steer-h) + 10px);
+}
+.tc { position: absolute; inset: 0; pointer-events: none; }
+.tc-steer,
+.tc-btn,
+.tc-rotate { pointer-events: auto; touch-action: none; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; -webkit-tap-highlight-color: transparent; }
+.tc-btn {
+  font: inherit;
+  color: var(--text);
+  background: rgba(8, 10, 18, 0.32);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  padding: 0;
+  outline: none;
+  transition: background 60ms, transform 60ms, box-shadow 60ms;
+}
+.tc-btn small { font-size: 8px; letter-spacing: 0.16em; color: var(--dim); }
+.tc-btn.is-pressed { transform: scale(0.95); color: #fff; }
+
+/* Left thumb: steer pad. Position maps to steer (see TouchControls.tsx). */
+.tc-steer { --steer: 0; position: absolute; left: var(--hud-l); bottom: var(--hud-b); width: var(--tc-steer-w); height: var(--tc-steer-h); display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.tc-steer__half { display: flex; align-items: center; justify-content: center; font-size: 30px; color: var(--cyan); background: rgba(8, 10, 18, 0.32); border: 1px solid var(--line); border-radius: 14px; text-shadow: 0 0 10px rgba(0, 240, 255, 0.6); transition: background 60ms; }
+.tc-steer.is-left .tc-steer__half--left,
+.tc-steer.is-right .tc-steer__half--right { background: rgba(0, 240, 255, 0.34); color: #fff; box-shadow: 0 0 16px rgba(0, 240, 255, 0.45); }
+.tc-steer__knob { position: absolute; top: 10px; bottom: 10px; left: calc(50% + var(--steer) * 50%); width: 4px; margin-left: -2px; border-radius: 2px; background: #fff; box-shadow: 0 0 10px var(--cyan); opacity: 0; transition: opacity 80ms; }
+.tc-steer.is-left .tc-steer__knob,
+.tc-steer.is-right .tc-steer__knob { opacity: 0.9; }
+
+/* Right thumb: pedals. A finger can slide between them. */
+.tc-pedals { position: absolute; right: var(--hud-r); bottom: var(--hud-b); display: grid; grid-template-columns: var(--tc-brake-w) var(--tc-gas-w); grid-template-rows: var(--tc-drift-h) var(--tc-gas-h); gap: 8px; }
+.tc-pedal { font-size: 13px; font-weight: 800; letter-spacing: 0.18em; }
+.tc-pedal--handbrake { grid-column: 1 / -1; color: var(--yellow); border-color: rgba(245, 230, 99, 0.45); }
+.tc-pedal--brake { color: var(--magenta); border-color: rgba(255, 42, 109, 0.5); }
+.tc-pedal--throttle { color: var(--green); border-color: rgba(57, 255, 20, 0.5); font-size: 16px; }
+.tc-pedal--handbrake.is-pressed { background: rgba(245, 230, 99, 0.32); box-shadow: 0 0 16px rgba(245, 230, 99, 0.45); }
+.tc-pedal--brake.is-pressed { background: rgba(255, 42, 109, 0.34); box-shadow: 0 0 16px rgba(255, 42, 109, 0.5); }
+.tc-pedal--throttle.is-pressed { background: rgba(57, 255, 20, 0.3); box-shadow: 0 0 16px rgba(57, 255, 20, 0.5); }
+
+/* Action buttons (same actions as R / T / C / H / P). */
+.tc-actions { position: absolute; top: var(--hud-t); right: var(--hud-r); display: grid; grid-template-columns: repeat(3, var(--tc-action)); grid-auto-rows: var(--tc-action); gap: 6px; }
+.tc-action { border-radius: 10px; font-size: 17px; color: var(--cyan); line-height: 1; }
+.tc-action small { font-size: 7px; letter-spacing: 0.1em; }
+.tc-action.is-on { border-color: var(--cyan); box-shadow: inset 0 0 10px rgba(0, 240, 255, 0.35); }
+.tc-action.is-pressed { background: rgba(0, 240, 255, 0.34); }
+
+.tc-rotate { display: none; }
+
+/* Placement around the thumbs. */
+.hud--touch .hud-banners { max-width: calc(100vw - 2 * (var(--hud-r) + var(--tc-action) + 8px)); }
+/* The physics panel opens in the free space between the thumbs (landscape) or above them (portrait). */
+.hud--touch .hud-physics { --top: calc(var(--hud-t) + 58px); --bottom: var(--hud-b); position: fixed; top: var(--top); left: 50%; transform: translateX(-50%); width: min(340px, calc(100vw - 2 * (max(var(--tc-steer-w), var(--tc-cluster-w)) + 34px))); max-height: calc(100% - var(--top) - var(--bottom)); }
+@media (orientation: portrait) {
+  .hud--touch { --hud-reserve-b: calc(var(--tc-cluster-h) + 72px); }
+  .hud--touch .hud-corner-tl { max-width: calc(100vw - var(--hud-l) - var(--hud-r) - var(--tc-action) - 10px); }
+  .hud--touch .hud-bottom { bottom: calc(var(--hud-b) + var(--tc-cluster-h) + 10px); }
+  .hud--touch .tc-actions { top: calc(var(--hud-t) + 62px); grid-template-columns: var(--tc-action); }
+  .hud--touch .hud-physics { --top: calc(var(--hud-t) + 62px); --bottom: calc(var(--hud-b) + var(--tc-cluster-h) + 10px); left: var(--hud-l); right: calc(var(--hud-r) + var(--tc-action) + 10px); width: auto; transform: none; }
+  .hud--touch .tc-rotate { pointer-events: auto; display: inline-flex; align-items: center; gap: 8px; min-height: 34px; padding: 6px 12px; font: inherit; font-size: 10px; letter-spacing: 0.12em; color: var(--yellow); background: rgba(8, 10, 18, 0.6); border: 1px dashed rgba(245, 230, 99, 0.5); border-radius: 8px; }
+}
+.hud--bare .hud-corner-tl { display: none; }

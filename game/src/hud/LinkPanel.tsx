@@ -1,4 +1,4 @@
-import { useRef } from 'react';
+import { useRef, useState } from 'react';
 import { describeChassisBalance, SQUAD_CONTROL_SPECS } from '@shared/protocol';
 import { useGameStore, type LinkStatus } from '../state/store';
 import { setText, useRafLoop } from './hudUtils';
@@ -18,7 +18,9 @@ function ageText(lastUpdateAt: number | null): string {
   return `${Math.floor(s / 60)} min ago`;
 }
 
-export function LinkPanel() {
+/** Compact (phone) HUD: a one-line status chip that expands into the full panel on tap. */
+export function LinkPanel({ compact = false }: { compact?: boolean }) {
+  const [expanded, setExpanded] = useState(false);
   const status = useGameStore((s) => s.linkStatus);
   const url = useGameStore((s) => s.serverUrl);
   const dashboards = useGameStore((s) => s.dashboards);
@@ -28,15 +30,35 @@ export function LinkPanel() {
 
   useRafLoop(() => setText(ageRef.current, ageText(useGameStore.getState().lastUpdateAt)), 250);
 
+  const statusBadge = (
+    <span className={`hud-status hud-status--${status}`} data-testid="link-status">
+      <i />
+      {STATUS_LABEL[status]}
+    </span>
+  );
+  if (compact && !expanded) {
+    return (
+      <button type="button" className="hud-panel hud-chip hud-link" data-testid="link-panel" onClick={() => setExpanded(true)} aria-expanded={false}>
+        {statusBadge}
+        {status === 'connected' && <span className="hud-dim">{dashboards}</span>}
+        <span className="hud-chip__more" aria-hidden="true">
+          ▾
+        </span>
+      </button>
+    );
+  }
+
   const balance = controls ? describeChassisBalance(controls.chassisBalance) : null;
   return (
-    <div className="hud-panel hud-link" data-testid="link-panel">
+    <div className={`hud-panel hud-link${compact ? ' is-expanded' : ''}`} data-testid="link-panel">
       <div className="hud-panel__title">
         SQUAD LINK
-        <span className={`hud-status hud-status--${status}`} data-testid="link-status">
-          <i />
-          {STATUS_LABEL[status]}
-        </span>
+        {statusBadge}
+        {compact && (
+          <button type="button" className="hud-btn hud-btn--ghost" onClick={() => setExpanded(false)} aria-label="Collapse squad link">
+            ▴
+          </button>
+        )}
       </div>
       <dl className="hud-kv">
         <dt>RELAY</dt>

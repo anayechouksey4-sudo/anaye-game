@@ -4,7 +4,8 @@ import { runClock } from '../game/runClock';
 import { useGameStore } from '../state/store';
 import { formatRaceTime, setText, useRafLoop } from './hudUtils';
 
-export function RunPanel() {
+/** Compact (phone) HUD: just the timer and the checkpoint count. */
+export function RunPanel({ compact = false }: { compact?: boolean }) {
   // Field-level selection: the run object is refreshed at ~10 Hz for the timer mirror.
   const run = useGameStore(
     useShallow((s) => ({
@@ -26,10 +27,31 @@ export function RunPanel() {
     setText(timerRef.current, formatRaceTime(r.finished ? r.elapsedMs : runClock.elapsedMs));
   });
 
+  const timerClass = `hud-run__timer${run.finished ? ' is-finished' : run.started ? ' is-running' : ''}`;
+  const hint = !run.started && !run.finished && run.pristine && <div className="hud-run__hint">THROTTLE TO START</div>;
+  if (compact) {
+    return (
+      <div className="hud-panel hud-run hud-run--compact" data-testid="run-panel">
+        <div className="hud-run__row">
+          <div className={timerClass}>
+            <span ref={timerRef}>0:00.000</span>
+          </div>
+          <div className="hud-run__cp">
+            <label>CP</label>
+            <b data-testid="hud-checkpoint">
+              {run.checkpoint}/{run.totalCheckpoints}
+            </b>
+          </div>
+        </div>
+        {hint}
+      </div>
+    );
+  }
+
   return (
     <div className="hud-panel hud-run" data-testid="run-panel">
       <div className="hud-run__track">{trackName}</div>
-      <div className={`hud-run__timer${run.finished ? ' is-finished' : run.started ? ' is-running' : ''}`}>
+      <div className={timerClass}>
         <span ref={timerRef}>0:00.000</span>
       </div>
       <div className="hud-run__stats">
@@ -52,7 +74,7 @@ export function RunPanel() {
           <b>{run.speedTrapKmh === null ? '—' : `${run.speedTrapKmh.toFixed(0)}`}</b>
         </div>
       </div>
-      {!run.started && !run.finished && run.pristine && <div className="hud-run__hint">THROTTLE TO START</div>}
+      {hint}
     </div>
   );
 }

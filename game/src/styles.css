@@ -15,13 +15,28 @@ body,
   overscroll-behavior: none;
 }
 
+/* A game surface, not a document: no panning, pinch / double-tap zoom, pull-to-refresh, text
+   selection, long-press callouts or tap flashes (the physics panel opts back into vertical pan). */
+html,
+body {
+  touch-action: none;
+}
+
 body {
   -webkit-font-smoothing: antialiased;
-  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+  -webkit-tap-highlight-color: transparent;
 }
 
 .app,
 .app__canvas {
   position: fixed;
   inset: 0;
+}
+
+.app__canvas,
+.app__canvas canvas {
+  touch-action: none;
 }

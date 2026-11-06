@@ -14,6 +14,21 @@ import { onGameEvent } from '../game/events';
 import { useGameStore, type CameraMode } from '../state/store';
 
 const BASE_FOV = 62;
+const DEG = Math.PI / 180;
+/**
+ * Portrait / narrow screens: the vertical FOV widens so the horizontal FOV never drops below this
+ * (deg). BASE_FOV already gives more on anything wider than ~1.08:1, so landscape phones and
+ * desktops keep their framing exactly.
+ */
+const MIN_HFOV = 66;
+/** Cap on that widening (deg), so a tall phone does not turn into a fisheye. */
+const MAX_VFOV = 100;
+/** Aspect ratios between which the chase cam also pulls back and up (1 = full portrait pull-back). */
+const PORTRAIT_FROM_ASPECT = 1.08;
+const PORTRAIT_FULL_ASPECT = 0.5;
+/** Extra follow distance / height at full portrait (fractions of the landscape values). */
+const PORTRAIT_PULLBACK = 0.3;
+const PORTRAIT_RISE = 0.45;
 /** Onboard "T-cam" just above the roof, behind the cockpit (chassis frame). */
 const ONBOARD_CAM_Y = BODY.height - RIDE_HEIGHT + 0.16;
 const ONBOARD_CAM_Z = -0.35;
@@ -56,6 +71,21 @@ function readCarPose(settling: boolean): boolean {
   return true;
 }
 
+/**
+ * Vertical FOV (deg) for `aspect`: `fov`, widened to keep `minHFov` horizontally. The widening is
+ * capped at MAX_VFOV plus half the speed kick, so portrait still gets a (smaller) sense of speed.
+ */
+function fitFov(fov: number, minHFov: number, aspect: number): number {
+  const needed = (2 * Math.atan(Math.tan((minHFov * DEG) / 2) / aspect)) / DEG;
+  return Math.max(fov, Math.min(MAX_VFOV + (fov - BASE_FOV) / 2, needed));
+}
+
+/** 0 on landscape / desktop screens … 1 on a tall portrait phone. */
+function portraitAmount(aspect: number): number {
+  const t = (PORTRAIT_FROM_ASPECT - aspect) / (PORTRAIT_FROM_ASPECT - PORTRAIT_FULL_ASPECT);
+  return Math.min(1, Math.max(0, t));
+}
+
 function FollowRig({ mode }: { mode: Exclude<CameraMode, 'orbit'> }) {
   const camera = useThree((s) => s.camera);
   const heading = useRef(new Vector3(0, 0, 1));
@@ -73,7 +103,9 @@ function FollowRig({ mode }: { mode: Exclude<CameraMode, 'orbit'> }) {
     const settling = carRuntime.stepCount < settleUntil.current;
     if (!readCarPose(settling)) return;
     if (settling) snap.current = true;
+    const snapping = snap.current;
     const dt = Math.min(delta, 0.1);
+    const aspect = camera instanceof PerspectiveCamera ? camera.aspect : 16 / 9;
     _fwd.set(0, 0, 1).applyQuaternion(_carQuat);
 
     if (mode === 'hood') {
@@ -91,8 +123,11 @@ function FollowRig({ mode }: { mode: Exclude<CameraMode, 'orbit'> }) {
         else heading.current.lerp(flat, 1 - Math.exp(-dt * 4)).normalize();
       }
       const speed = Math.min(carRuntime.speedKmh, 300);
-      const dist = 6.8 + speed * 0.01;
-      const height = 2.2 + speed * 0.002;
+      // In portrait the car would fill the narrow screen: pull back and up (with the wider FOV
+      // below) so it takes about the share of the width it has in landscape.
+      const portrait = portraitAmount(aspect);
+      const dist = (6.8 + speed * 0.01) * (1 + PORTRAIT_PULLBACK * portrait);
+      const height = (2.2 + speed * 0.002) * (1 + PORTRAIT_RISE * portrait);
       _desired.copy(heading.current).multiplyScalar(-dist);
       _desired.y = height;
       if (snap.current) {
@@ -110,9 +145,12 @@ function FollowRig({ mode }: { mode: Exclude<CameraMode, 'orbit'> }) {
     snap.current = false;
 
     if (camera instanceof PerspectiveCamera) {
-      const fov = BASE_FOV + Math.min(carRuntime.speedKmh / 300, 1) * (mode === 'hood' ? 10 : 16);
+      const kick = Math.min(carRuntime.speedKmh / 300, 1) * (mode === 'hood' ? 10 : 16);
+      const fov = fitFov(BASE_FOV + kick, MIN_HFOV + kick, aspect);
       if (Math.abs(camera.fov - fov) > 0.05) {
-        camera.fov += (fov - camera.fov) * (1 - Math.exp(-dt * 3));
+        // A widened (portrait) FOV snaps with the rig, so a portrait start doesn't zoom out on screen.
+        const widened = fov > BASE_FOV + kick;
+        camera.fov = snapping && widened ? fov : camera.fov + (fov - camera.fov) * (1 - Math.exp(-dt * 3));
         camera.updateProjectionMatrix();
       }
     }

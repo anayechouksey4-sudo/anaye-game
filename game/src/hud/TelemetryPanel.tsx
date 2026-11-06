@@ -1,4 +1,4 @@
-import { useMemo, useRef } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { assessBigJump } from '@shared/protocol';
 import { carRuntime } from '../car/runtime';
 import { useGameStore } from '../state/store';
@@ -22,7 +22,9 @@ function JumpVerdict() {
   );
 }
 
-export function TelemetryPanel() {
+/** Compact (phone) HUD: collapsed to a chip by default, expands on tap. */
+export function TelemetryPanel({ compact = false }: { compact?: boolean }) {
+  const [expanded, setExpanded] = useState(false);
   const refs = {
     throttle: useRef<HTMLDivElement>(null),
     brake: useRef<HTMLDivElement>(null),
@@ -65,9 +67,27 @@ export function TelemetryPanel() {
     }
   });
 
+  if (compact && !expanded) {
+    return (
+      <button type="button" className="hud-panel hud-chip hud-telemetry" data-testid="telemetry-panel" onClick={() => setExpanded(true)} aria-expanded={false}>
+        <span className="hud-chip__label">F1 TELEMETRY</span>
+        <span className="hud-chip__more" aria-hidden="true">
+          ▾
+        </span>
+      </button>
+    );
+  }
+
   return (
-    <div className="hud-panel hud-telemetry" data-testid="telemetry-panel">
-      <div className="hud-panel__title">F1 TELEMETRY</div>
+    <div className={`hud-panel hud-telemetry${compact ? ' is-expanded' : ''}`} data-testid="telemetry-panel">
+      <div className="hud-panel__title">
+        F1 TELEMETRY
+        {compact && (
+          <button type="button" className="hud-btn hud-btn--ghost" onClick={() => setExpanded(false)} aria-label="Collapse telemetry">
+            ▴
+          </button>
+        )}
+      </div>
       <div className="hud-pedals">
         <div className="hud-pedal">
           <div className="hud-vbar hud-vbar--throttle" ref={refs.throttle} />
