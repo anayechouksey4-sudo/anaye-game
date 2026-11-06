@@ -11,7 +11,7 @@ A voxel racing game you tune live from your phone.
 
 **https://anayechouksey4-sudo.github.io/anaye-game/**
 
-GitHub Pages serves the game from this branch's [`docs/`](docs/) folder. One-time setup in the repository: Settings → Pages → Build and deployment → Source **Deploy from a branch** → Branch `claude/racing-game-physics-dashboard-fzyqvv`, folder **/docs** (or **/ (root)**: the root `index.html` forwards to `docs/`) → Save, then wait a minute or two. The hosted copy plays offline (an https page can't reach a plain `ws://` relay), so tune the car with ☰ MENU → PHYSICS; `?ws=wss://…` still connects a relay that has TLS. After a game change, rebuild it with `node scripts/build-pages.mjs` and commit `docs/`.
+GitHub Pages serves the game from the [`docs/`](docs/) folder. One-time setup in the repository: Settings → Pages → Build and deployment → Source **Deploy from a branch** → Branch `main`, folder **/docs** (or **/ (root)**: the root `index.html` forwards to `docs/`) → Save, then wait a minute or two. `main` and the development branch `claude/racing-game-physics-dashboard-fzyqvv` carry the same verified game. The hosted copy plays offline (an https page can't reach a plain `ws://` relay), so tune the car with ☰ MENU → PHYSICS; `?ws=wss://…` still connects a relay that has TLS. After a game change, rebuild it with `node scripts/build-pages.mjs` and commit `docs/`.
 
 | Folder | What it is | Stack |
 | --- | --- | --- |
@@ -66,7 +66,7 @@ Press Ctrl+C to stop all three services. Closing the terminal (or the Termux ses
 
 ```bash
 pkg update && pkg install nodejs-lts git
-git clone --depth 1 -b claude/racing-game-physics-dashboard-fzyqvv https://github.com/anayechouksey4-sudo/anaye-game.git
+git clone --depth 1 https://github.com/anayechouksey4-sudo/anaye-game.git
 cd anaye-game
 termux-wake-lock
 npm run dev:all
