@@ -75,6 +75,15 @@ export interface CarRuntime {
   /** Aero lift has both front wheels off the ground at speed. */
   noseLift: boolean;
 
+  /**
+   * Forward drive force asked of the driven tyres this step (engine torque × throttle × launch boost
+   * ÷ wheel radius), N; 0 off throttle or reversing. Read-only diagnostics for visuals (TireSmoke's
+   * launch dust): the physics never reads it back.
+   */
+  driveForceN: number;
+  /** Longitudinal grip budget of the driven tyres on the ground this step (μ × their loads), N. */
+  driveGripN: number;
+
   wheelsGrounded: number;
   frontAxleLoadN: number;
   rearAxleLoadN: number;
@@ -132,6 +141,8 @@ export const carRuntime: CarRuntime = {
   dragN: 0,
   groundEffect: 1,
   noseLift: false,
+  driveForceN: 0,
+  driveGripN: 0,
   wheelsGrounded: 0,
   frontAxleLoadN: 0,
   rearAxleLoadN: 0,

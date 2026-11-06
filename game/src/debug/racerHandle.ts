@@ -55,6 +55,9 @@ export interface RacerState {
   rearSlip: number;
   frontAxleLoadN: number;
   rearAxleLoadN: number;
+  /** Drive force asked of the driven tyres, and their grip budget, N (carRuntime; visuals only). */
+  driveForceN: number;
+  driveGripN: number;
   throttle: number;
   brake: number;
   steer: number;
@@ -141,6 +144,8 @@ function snapshot(): RacerState {
     rearSlip: rt.rearSlip,
     frontAxleLoadN: rt.frontAxleLoadN,
     rearAxleLoadN: rt.rearAxleLoadN,
+    driveForceN: rt.driveForceN,
+    driveGripN: rt.driveGripN,
     throttle: rt.throttle,
     brake: rt.brake,
     steer: rt.steer,

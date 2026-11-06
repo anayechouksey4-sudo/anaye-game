@@ -111,3 +111,63 @@ describe('SquadController session (car + map)', () => {
     t.controller.dispose();
   });
 });
+
+describe('SquadController speed trap (jump outcome from telemetry)', () => {
+  beforeEach(() => {
+    FakeSocket.all = [];
+    mock.timers.enable({ apis: ['setTimeout', 'setInterval', 'Date'], now: 1_000_000 });
+  });
+  afterEach(() => mock.timers.reset());
+
+  const frame = (speedTrapKmh: number | null, falls: number, finished: boolean) => ({
+    speedKmh: 150,
+    wheelsGrounded: 0,
+    checkpoint: 5,
+    totalCheckpoints: 6,
+    elapsedMs: 40_000,
+    falls,
+    finished,
+    bestMs: null,
+    speedTrapKmh,
+  });
+  const telemetry = (speedTrapKmh: number | null, falls: number, finished: boolean) => ({
+    type: 'game:telemetry',
+    telemetry: frame(speedTrapKmh, falls, finished),
+  });
+
+  it('settles CLEARED on the finish and SHORT on a fall, and a restart clears it', () => {
+    const t = setup();
+    const jump = () => t.controller.telemetry.getState().jump;
+    t.socket.deliver(welcome({}));
+    assert.equal(jump(), null);
+    t.socket.deliver(telemetry(null, 0, false));
+    t.socket.deliver(telemetry(161.6, 0, false));
+    assert.deepEqual(jump(), { trapKmh: 161.6, falls: 0, outcome: 'pending' });
+    const inAir = jump();
+    t.socket.deliver(telemetry(161.6, 0, false));
+    assert.equal(jump(), inAir, 'same object between frames');
+    t.socket.deliver(telemetry(161.6, 0, true));
+    assert.equal(jump()?.outcome, 'cleared');
+
+    t.socket.deliver(telemetry(null, 0, false)); // restart
+    assert.equal(jump(), null);
+    t.socket.deliver(telemetry(183, 0, false));
+    t.socket.deliver(telemetry(183, 1, false));
+    assert.deepEqual(jump(), { trapKmh: 183, falls: 0, outcome: 'short' });
+    t.controller.dispose();
+  });
+
+  it("judges the relay's snapshot telemetry for a dashboard that joins mid-run", () => {
+    const finished = setup();
+    finished.socket.deliver(welcome({ telemetry: frame(188.1, 0, true) }));
+    assert.deepEqual(finished.controller.telemetry.getState().jump, { trapKmh: 188.1, falls: 0, outcome: 'cleared' });
+    finished.controller.dispose();
+
+    const inAir = setup();
+    inAir.socket.deliver(welcome({ telemetry: frame(183, 0, false) }));
+    assert.equal(inAir.controller.telemetry.getState().jump?.outcome, 'pending');
+    inAir.socket.deliver(telemetry(183, 1, false));
+    assert.equal(inAir.controller.telemetry.getState().jump?.outcome, 'short');
+    inAir.controller.dispose();
+  });
+});

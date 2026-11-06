@@ -120,6 +120,16 @@ function MedalTargets({ medals, bestMs, testId }: { medals: TrackMedals | null; 
   );
 }
 
+/**
+ * The map's setup tip for this car. The catalog tips recommend settings for the big jump (e.g. a
+ * JUMP ATTEMPT preset), which would contradict the JUMP OUT OF REACH note for a car no setting gets
+ * over it, so that car gets an honest line instead.
+ */
+function setupTip(tip: string | undefined, reach: JumpReach | null, carName: string): string | undefined {
+  if (reach && !reach.reachable) return `No setup reaches this jump with the ${carName}.`;
+  return tip;
+}
+
 /** "JUMP OUT OF REACH" badge for a car that can't clear a map's big jump with any setting. */
 function ReachBadge({ reach, testId }: { reach: JumpReach | null; testId: string }) {
   if (!reach || reach.reachable) return null;
@@ -155,6 +165,7 @@ function RaceTab({ goTo }: { goTo: (tab: MenuTab) => void }) {
   const medals = medalsFor(trackId, carId);
   const reach = jumpReach(trackId, carId);
   const medal = medalFor(best, medals);
+  const tip = setupTip(track.tip, reach, car.name);
   return (
     <>
       <div className="gm-now" style={{ ['--accent' as string]: track.accent }}>
@@ -218,7 +229,11 @@ function RaceTab({ goTo }: { goTo: (tab: MenuTab) => void }) {
             </div>
           ))}
         </dl>
-        {track.tip && <p className="gm-tip">TIP · {track.tip}</p>}
+        {tip && (
+          <p className="gm-tip" data-testid="menu-tip">
+            TIP · {tip}
+          </p>
+        )}
       </Section>
     </>
   );
@@ -289,6 +304,7 @@ function MapsTab() {
           const best = loadBestTime(t.id, carId);
           const medals = medalsFor(t.id, carId);
           const reach = jumpReach(t.id, carId);
+          const tip = setupTip(t.tip, reach, car.name);
           return (
             <button
               key={t.id}
@@ -319,7 +335,11 @@ function MapsTab() {
                 </span>
               )}
               <span className="gm-card__text">{t.description}</span>
-              {t.tip && <span className="gm-card__tip">SETUP · {t.tip}</span>}
+              {tip && (
+                <span className="gm-card__tip" data-testid={`map-tip-${t.id}`}>
+                  SETUP · {tip}
+                </span>
+              )}
               <span className="gm-card__foot">
                 <span className="gm-k">BEST</span>
                 <b data-testid={`map-best-${t.id}`}>{best === null ? 'NO TIME YET' : formatRaceTime(best)}</b>

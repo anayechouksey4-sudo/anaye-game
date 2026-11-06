@@ -119,8 +119,13 @@ export function Results() {
         </button>
         <div className="hud-results__head">
           <b>FINISH</b>
-          <span>
-            {r.trackName} · {r.carName}
+          {/* Two pieces, so a narrow card wraps at the dot and still names the car its medals are for.
+              The dot leads the car piece, so the map piece is as short as it can be. */}
+          <span className="hud-results__sub" data-testid="results-sub">
+            <span>{r.trackName}</span>{' '}
+            <span>
+              · <span data-testid="results-car">{r.carName}</span>
+            </span>
           </span>
         </div>
         <div className="hud-results__main">

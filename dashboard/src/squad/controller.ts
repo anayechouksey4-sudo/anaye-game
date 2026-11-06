@@ -17,6 +17,7 @@ import {
 import { ControlsThrottle } from '../net/controlsThrottle';
 import { SquadLink, type LinkState, type SocketLike } from '../net/squadLink';
 import { createStore, type Store } from '../state/store';
+import { NO_SPEED_TRAP_WATCH, watchSpeedTrap, type JumpAttempt, type SpeedTrapWatch } from './bigJump';
 import { DEFAULT_SESSION, mergeSession, sessionEqual, sessionInfoOf, type PlaySession } from './session';
 import { NOT_DRAGGING, mergeRemoteControls, resolveWelcomeSync, type DragState } from './sync';
 
@@ -64,6 +65,11 @@ export interface TelemetryState {
   receivedAt: number | null;
   /** True when the value came from the welcome snapshot (may be from a game that already left). */
   fromSnapshot: boolean;
+  /**
+   * The latest big-jump lip crossing and its outcome (CLEARED after a finish, SHORT after a fall),
+   * folded from every telemetry frame by watchSpeedTrap. Same object until it changes.
+   */
+  jump: JumpAttempt | null;
 }
 
 /** onValueChange phases coming from a slider card. */
@@ -99,6 +105,7 @@ export class SquadController {
   private readonly now: () => number;
   /** The relay welcomes on connect and again after our hello; run the sync rule once per connection. */
   private syncedThisConnection = false;
+  private trapWatch: SpeedTrapWatch = NO_SPEED_TRAP_WATCH;
 
   constructor(options: SquadControllerOptions) {
     this.now = options.now ?? Date.now;
@@ -126,7 +133,7 @@ export class SquadController {
       appliedFromSnapshot: false,
       session: DEFAULT_SESSION,
     });
-    this.telemetry = createStore<TelemetryState>({ telemetry: null, receivedAt: null, fromSnapshot: false });
+    this.telemetry = createStore<TelemetryState>({ telemetry: null, receivedAt: null, fromSnapshot: false, jump: null });
 
     this.link = new SquadLink(
       {
@@ -244,9 +251,7 @@ export class SquadController {
         if (snapshot.session || snapshot.physics) {
           this.game.setState({ session: this.nextSession(snapshot.session ?? {}, 'snapshot') });
         }
-        if (snapshot.telemetry) {
-          this.telemetry.setState({ telemetry: snapshot.telemetry, receivedAt: this.now(), fromSnapshot: true });
-        }
+        if (snapshot.telemetry) this.onTelemetry(snapshot.telemetry, true);
         const state = this.controls.getState();
         if (resolveWelcomeSync(snapshot.controls, state.touched) === 'adopt' && snapshot.controls) {
           this.controls.setState({
@@ -281,7 +286,7 @@ export class SquadController {
         });
         return;
       case 'game:telemetry':
-        this.telemetry.setState({ telemetry: message.telemetry, receivedAt: this.now(), fromSnapshot: false });
+        this.onTelemetry(message.telemetry, false);
         return;
       case 'server:error':
         this.connection.setState({ serverError: `${message.code}: ${message.message}` });
@@ -290,6 +295,12 @@ export class SquadController {
         // hello / ping / physics:set from other clients need no dashboard reaction.
         return;
     }
+  }
+
+  /** Every telemetry frame, live or from the welcome snapshot, also goes through the speed-trap watch. */
+  private onTelemetry(telemetry: GameTelemetry, fromSnapshot: boolean): void {
+    this.trapWatch = watchSpeedTrap(this.trapWatch, telemetry);
+    this.telemetry.setState({ telemetry, receivedAt: this.now(), fromSnapshot, jump: this.trapWatch.attempt });
   }
 
   /** The session after `info`; the current object when nothing changed, so subscribers don't re-render. */

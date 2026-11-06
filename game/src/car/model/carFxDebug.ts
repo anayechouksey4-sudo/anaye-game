@@ -12,10 +12,12 @@ export interface SmokeDebugStats {
   alive: number;
   /** Puffs emitted since load. */
   emitted: number;
-  /** Current emission rate, puffs/s (rear wheels, plus a driven front wheel in drive wheelspin on AWD cars). */
+  /** Current emission rate, puffs/s (rear-wheel smoke plus, on all-wheel-drive cars, launch dust). */
   rate: number;
-  /** Puffs emitted from driven front wheels since the car mounted (AWD only; 0 for rear-drive cars). */
-  frontEmitted: number;
+  /** The launch-dust part of `rate`, puffs/s (all-wheel-drive cars only; always 0 for rear-drive cars). */
+  dustRate: number;
+  /** Launch-dust puffs emitted since the smoke emitter mounted (all-wheel-drive cars only; 0 for rear-drive cars). */
+  dustEmitted: number;
 }
 
 export interface CarFxLiveState {

@@ -261,6 +261,17 @@ export class CarController {
       frontAxleShare = requested > 0 ? frontForce / requested : frontAxleShare;
     }
 
+    // Drive asked of the tyres vs their grip, for the visuals only (TireSmoke's launch dust): plain
+    // reads of this step's inputs and last step's tyre loads, nothing here feeds back into a force.
+    let driveForceN = 0;
+    let driveGripN = 0;
+    if (throttle > 0 && !reversing && !noDrive) {
+      driveForceN = (p.engineTorque * throttle * drive) / car.driveWheelRadius;
+      for (const wheel of this.wheels) {
+        if (wheel.driven && vehicle.wheelIsInContact(wheel.index)) driveGripN += longMu * (vehicle.wheelSuspensionForce(wheel.index) ?? 0);
+      }
+    }
+
     for (const wheel of this.wheels) {
       const i = wheel.index;
       const front = wheel.axle === 'front';
@@ -349,6 +360,8 @@ export class CarController {
     rt.rearAeroN = rearAero;
     rt.dragN = dragMag;
     rt.groundEffect = 0.5 * (frontGround + rearGround);
+    rt.driveForceN = driveForceN;
+    rt.driveGripN = driveGripN;
     this.updateWheelRuntime(dt, vFwd, frontAero, mass * GRAVITY * balanceToFrontWeightFraction(p.balance, car));
   }
 

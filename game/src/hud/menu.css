@@ -289,12 +289,16 @@
   border-radius: 18px;
   box-shadow: 0 16px 60px rgba(0, 0, 0, 0.6), 0 0 30px color-mix(in srgb, var(--accent) 25%, transparent);
   animation: hud-results-in 0.3s ease-out;
+  /* The header reflows by the card's own width (see the @container rule below). */
+  container: results-card / inline-size;
 }
 @keyframes hud-results-in { from { transform: translateY(18px) scale(0.96); opacity: 0; } to { transform: none; opacity: 1; } }
 .hud-results__close { position: absolute; top: 6px; right: 6px; width: 44px; height: 44px; font: inherit; font-size: 16px; color: var(--dim); background: none; border: none; cursor: pointer; }
 .hud-results__head { display: flex; flex-direction: column; gap: 2px; padding-right: 40px; }
 .hud-results__head b { font-size: 20px; letter-spacing: 0.4em; color: var(--green); text-shadow: 0 0 14px var(--green); }
-.hud-results__head span { font-size: 10px; letter-spacing: 0.14em; color: var(--dim); }
+.hud-results__sub { font-size: 10px; line-height: 1.3; letter-spacing: 0.14em; color: var(--dim); }
+/* Map and car wrap as whole pieces (at the dot); a piece longer than the line ellipsizes alone. */
+.hud-results__sub > span { display: inline-block; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: top; }
 .hud-results__main { display: grid; justify-items: start; gap: 6px; }
 .hud-results__time { font-size: 44px; font-weight: 800; line-height: 1; color: #fff; font-variant-numeric: tabular-nums; text-shadow: 0 0 18px rgba(0, 240, 255, 0.7); }
 .hud-results__record { font-size: 13px; font-weight: 800; letter-spacing: 0.24em; color: var(--yellow); text-shadow: 0 0 12px var(--yellow); animation: hud-record 0.6s steps(2, jump-none) 5; }
@@ -326,14 +330,23 @@
   .hud--compact .hud-results__time { font-size: 32px; }
   .hud--compact .hud-results__actions { gap: 6px; }
   .hud--compact .hud-results__actions .gm-btn { min-height: 46px; font-size: 10px; letter-spacing: 0.06em; }
-  /* Short screen: one-line header, time with record + medal beside it, buttons before the stats. */
+  /* Short screen: header on one row (map · car beside FINISH, wrapping to a second line at the dot
+     when narrow), time with record + medal beside it, buttons before the stats. */
   .hud--compact .hud-results__head { flex-direction: row; align-items: baseline; gap: 10px; padding-right: 36px; }
-  .hud--compact .hud-results__head span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .hud--compact .hud-results__sub { min-width: 0; }
   .hud--compact .hud-results__main { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; }
   .hud--compact .hud-results__time { flex-basis: 100%; }
   .hud--compact .hud-results__actions { order: 3; }
   .hud--compact .hud-results__stats { order: 4; }
   .hud--compact .hud-results__close { top: 2px; right: 2px; }
+}
+/* A card too narrow for the longest map name beside FINISH (content box under 268 px leaves less
+   than the ~130 px the longest map piece needs, e.g. 740×280 between the thumbs): map · car goes on
+   its own line under FINISH instead of being cut. The time gives back the height that line takes,
+   so RETRY / NEXT MAP / GARAGE stay inside the card on a short screen with a medal-to-find line. */
+@container results-card (max-width: 267px) {
+  .hud--compact .hud-results__head { flex-direction: column; align-items: flex-start; gap: 0; }
+  .hud--compact .hud-results__time { font-size: 24px; }
 }
 
 /* ── Start gate (StartGate.tsx, touch devices: the tap that unlocks sound) ── */

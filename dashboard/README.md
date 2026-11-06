@@ -70,7 +70,7 @@ on Engine Tier), and Home/End for min/max.
 | **Engine Tier** T1–T5 | Drive torque, contact-patch drive force and mass for the current car. On the Neon Hypercar that is 700→3500 N·m on the rear axle and +60 kg per tier; the all-wheel-drive Glitch Rally and Dune Goblin show `AWD TORQUE`. |
 | **Chassis Balance** −50…+50 | Front/rear weight split (`describeChassisBalance`) and spring split (`balanceToSuspensionStiffness`) for the current car. Has a centre notch at 0. |
 | **Presets** | BALANCED 50/3/0 · MAX DOWNFORCE 100/2/−10 · TOP SPEED 0/5/+10 · JUMP ATTEMPT, plus RESET. JUMP ATTEMPT is set per car (see below). Each preset shows its big-jump verdict for the current car and map, or its estimated top speed on a map without a big jump. |
-| **Big Jump Readiness** | `assessBigJump` for the current car and the map's lip speed: **READY** / **TOO SLOW** / **NOSE LIFT**, the estimated top speed vs what this car needs, the nose-lift speed, and a hint that matches the verdict (`src/squad/bigJump.ts`; for the Dune Goblin, which no setup gets to either jump, it says so and names its best). A map's lip speed is set for the Neon Hypercar, and most other cars need a little more (e.g. 183 km/h → 186 for the Bruiser V8, 188 for the Glitch Rally, 192 for the Razorwing). After the game reports `speedTrapKmh`, the card also shows the real lip speed against the lip speed that **lands** for this car on this map (measured in the game's sim, see below), e.g. `CLEARED +1.5` or `SHORT −2.5`. On a map without a big jump the card says **NO BIG JUMP**, still shows top speed and nose lift, and names the maps that have one. |
+| **Big Jump Readiness** | `assessBigJump` for the current car and the map's lip speed: **READY** / **TOO SLOW** / **NOSE LIFT**, the estimated top speed vs what this car needs, the nose-lift speed, and a hint that matches the verdict (`src/squad/bigJump.ts`; for the Dune Goblin, which no setup gets to either jump, it says so and names its best). A map's lip speed is set for the Neon Hypercar, and most other cars need a little more (e.g. 183 km/h → 186 for the Bruiser V8, 188 for the Glitch Rally, 192 for the Razorwing). After the game reports `speedTrapKmh`, the card also shows the real lip speed and what came of the jump: `CLEARED` once the run finishes, `SHORT` after a fall, and `LIKELY CLEARS` / `LIKELY SHORT` (grey) while the car is still in the air, guessed from the lip speed that **lands** for this car on this map (measured in the game's sim, see below). The margin against that speed is shown too, e.g. `CLEARED −2.9` or `SHORT +1.0`. On a map without a big jump the card says **NO BIG JUMP**, still shows top speed and nose lift, and names the maps that have one. |
 | **Tune Preview** | `mapSquadControlsToPhysics(controls, car)` applied to your sliders: top speed, nose-lift speed (`NEVER` when the wing beats body lift; warns if the nose lifts below top speed), front aero at 200 km/h, drag, torque, weight and springs. **Applied in game** shows what the racer reports in `game:state`, with a badge: `SYNCED` / `SYNCING` / `OVERRIDE` (physics:set on top) / `UNCONFIRMED` / `LAST KNOWN`. |
 | **Race Telemetry** | Speed, throttle and brake bars, front and rear aero load (front turns magenta **LIFT** when negative), flashing **NOSE LIFT** warning, rear slip meter (**TYRE SMOKE** at ≥ 50 %), wheels down, checkpoint, falls, run timer, best lap. Shows `NO SIGNAL` if telemetry stops for 2.5 s and `NO GAME LINKED` with no game on the relay. |
 
@@ -108,24 +108,66 @@ slider mapping and every estimate (top speed, lift-off, needed speed) are unchan
 the verdict for fast-enough setups changed. It used to say NOSE LIFT only when lift-off was below the 183 km/h
 lip, but the game's sim lifted the nose and ran off the track at settings it called READY (e.g. 8 % / T5 / −40:
 nose up at 192.3 km/h). Over all 51,005 slider positions, 590 (all Engine Tier 5) went READY → NOSE LIFT;
-every other hypercar verdict is the same as before, e.g. 12 % / T4 / 0 is still TOO SLOW (top 175.5, lift-off 178.8).
+every other hypercar verdict is the same as before, e.g. 12 % / T4 / 0 is still TOO SLOW (top 175.5, lift-off 178.8;
+its hint says to keep the wing, see below).
 
-**Speed trap: judged against the speed that lands.** The lip sign (`bigJumpKmh`) is the estimate's target,
-not the speed that lands. Each map's landing lip speed was measured in the game's sim (standstill at the
-jump's checkpoint, full throttle, sliders swept around each car's edge): it is the first 0.5 km/h step above
-the fastest lip speed that fell, so every measured run at or above it landed. `CLEARED` / `SHORT` compare the
-game's `speedTrapKmh` with that number (`src/squad/bigJump.ts → landingSpeedFor`):
+**TOO SLOW hint: keep the wing when lift-off is close** (`bigJumpHint` in `src/squad/bigJump.ts`). TOO SLOW
+does not mean the nose stays down. When lift-off is less than the car's reserve above its top speed (12 km/h
+on the Neon Hypercar and Bruiser V8, 10 on the Glitch Rally, 8 on the Razorwing), the hint says *raise Engine
+Tier and keep the front wing (lift-off X km/h is close to top speed Y; less wing lifts the nose)*, and warns
+that more engine lifts it too, so the next stop is usually NOSE LIFT and its hint. Each wing point less lowers
+lift-off far faster than it raises top speed (median: −2.5 vs +0.5 km/h on the Neon Hypercar, −8.3 vs +1.1 on
+the Razorwing). 12 % / T4 / 0 is one of these: in the game's sim its
+nose came up at 171.5 km/h and it left the track before the lip, so it is not a setting that only lacks speed.
+Sim check (chaos jump, standstill at the jump's checkpoint, full throttle): of 88 TOO SLOW settings with a
+lift-off, 30 lifted the nose or ran off before the lip, all within their car's reserve (largest gap 10.0 km/h,
+hypercar at +50 balance; rearward balance lifts at the larger gaps). None of the 19 at or above the reserve
+lifted. Settings further from lift-off, or that never lift, keep *raise Engine Tier or trim the front wing (less drag)*.
+
+**At Engine Tier 5 no hint asks for more tier.** The card passes the tier being judged to `bigJumpHint`. When
+the car is too slow at the top tier with the nose already light (TOO SLOW inside the reserve, or NOSE LIFT
+while too slow), the only speed left is less wing, and less wing lifts the nose, so the hint says *move Chassis
+Balance forward first, then trim the front wing, or tap the JUMP ATTEMPT preset*. That only happens to the Glitch
+Rally (177 + 255 slider positions) and the Bruiser V8 (72 + 36) on chaos. For every one of them the car's JUMP
+ATTEMPT preset is READY, with the balance further forward and less wing (`test/bigJump.test.ts`). Sim check (chaos,
+standstill at the jump's checkpoint, full throttle): rally 5 % / T5 / 0 falls short at 179.8 km/h and trimming
+to 3 % lifts the nose, while 5 % / T5 / −40 clears at 184.3 and 2 % / T5 / −40 at 185.0; Bruiser V8 23 % / T5 /
++30 lifts at 182.4 and 20 % / T5 / 0 clears at 182.6. Plain TOO SLOW at tier 5 says *trim the front wing (less drag)*.
+
+**Speed trap: judged by what happened.** `LAST LIP SPEED (GAME)` shows the game's `speedTrapKmh` for the
+latest crossing. Its verdict comes from what the game reported next (`watchSpeedTrap` in
+`src/squad/bigJump.ts`, fed every telemetry frame by `src/squad/controller.ts`):
+
+- **`CLEARED`** (green) once `finished` turns true after the reading. On both jump maps the big jump is the last
+  section: one checkpoint at the start of its run-up, then the lip, the landing and the finish gate, with no
+  checkpoint after the lip. So a finish proves the latest jump landed.
+- **`SHORT`** (magenta) once `falls` goes up after the reading (a short jump drops into the void).
+- **`LIKELY CLEARS` / `LIKELY SHORT`** (neutral grey) while neither has happened: the car is in the air, or it
+  landed and flipped (that respawn counts no fall). This compares the reading with the measured landing speed below.
+
+The margin against that landing speed is shown either way, for information: a Razorwing that lands on the Isles
+at 161.6 reads `CLEARED −2.9`, and a Bruiser V8 that falls on chaos at 183 reads `SHORT +1.0`. A restart, car
+change or map change clears the reading. A retry after a fall gets its own verdict. A dashboard that joins
+mid-run takes a finished run as `CLEARED`, and otherwise waits for the next finish or fall; because that reading
+might be a jump made after the finish (RESPAWN after finishing keeps the run finished), a fall it then sees still
+turns it `SHORT`. A finished frame with a different finish time (the game freezes `elapsedMs` at the finish) is a
+new finish, so a dashboard whose link dropped across a restart still sees the next run's finish. A crossing after
+a finish the dashboard saw can only go `SHORT` or stay `LIKELY`.
+
+The lip sign (`bigJumpKmh`) is the estimate's target, not the speed that lands. Each map's landing lip speed
+was measured in the game's sim (standstill at the jump's checkpoint, full throttle, sliders swept around each
+car's edge): it is the first 0.5 km/h step above the fastest lip speed that fell, so every measured run at or
+above it landed (`landingSpeedFor`):
 
 | Map (lip sign) | Neon Hypercar | Glitch Rally | Bruiser V8 | Razorwing | Dune Goblin |
 | --- | --- | --- | --- | --- | --- |
 | GamerFleet Chaos (183) | 183.5 | 184 | 182 | 188.5 | can't reach it (≈ 129 at the lip) |
 | Cloudbreak Isles (163) | 160.5 | 160.5 | 156.5 | 164.5 | can't reach it (≈ 125 at the lip) |
 
-A car with no measurement (or an unknown car id) is judged against the Neon Hypercar's number and the card says
-so; a map this build doesn't know, or a game reporting a different lip than the copy here, is judged against the
-lip it reports. Just below a landing speed a jump can still land (the edge is a coin flip over 1–2 km/h, and
-low-wing setups fly farther, landing up to ~3 km/h lower), so `SHORT −0.3` on a jump that landed means you got
-away with it; `CLEARED` means every measured run at that speed landed.
+A car with no measurement (or an unknown car id) uses the Neon Hypercar's number and the card says so; a map
+this build doesn't know, or a game reporting a different lip than the copy here, uses the lip it reports. Just below a landing speed a jump can still land (the edge is a coin flip over 1–2 km/h, and
+low-wing setups fly farther, landing up to ~3 km/h lower). That is why the verdict waits for the finish or the
+fall instead of trusting this number.
 
 Haptics: a tick on every Engine Tier step, a tick every 10 units on the other two sliders, a firmer bump when
 Chassis Balance lands on 0, and a confirmation buzz on presets. Web has no haptics.

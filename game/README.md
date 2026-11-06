@@ -167,10 +167,11 @@ card), kept between the steer pad and the pedals in landscape. A scripted driver
 throttle > 0) skips the lights and the run starts on its first throttle, as before, so automated
 runs keep their timings.
 
-**Results.** Crossing the finish shows the time, NEW RECORD (with the improvement), the medal against
-this car's medal times on the map (`medalsFor(trackId, carId)`, [Medals per car](#medals-per-car)) and
-the time to the next one (e.g. GOLD AT 0:34.000 for the Dune Goblin on the strip), best for this car + map, checkpoints, falls and
-the big-jump lip speed; RETRY, NEXT MAP (the next catalog map) and GARAGE (opens the menu on the
+**Results.** Crossing the finish shows the map · car it was driven with (on a narrow landscape card it
+wraps at the dot, or drops under FINISH, rather than cut the car's name), the time, NEW RECORD (with
+the improvement), the medal against this car's medal times on the map (`medalsFor(trackId, carId)`,
+[Medals per car](#medals-per-car)) and the time to the next one (e.g. GOLD AT 0:34.500 for the Dune
+Goblin on the strip), best for this car + map, checkpoints, falls and the big-jump lip speed; RETRY, NEXT MAP (the next catalog map) and GARAGE (opens the menu on the
 garage). The car keeps rolling underneath; ✕ hides the card. Best times are per map and car
 (`loadBestTime(trackId, carId)` in `state/store.ts`); medal maths in `state/records.ts`.
 
@@ -204,9 +205,8 @@ you are driving.
 - The hypercar drives bit-identically to the single-car game (checked by the CARS pass on both tracks).
   The rally and the buggy use a torque-sensing centre diff that never asks the front tyres for more
   than 60 % of their grip, so an AWD launch hooks up: on tarmac no wheel spins at any tier (no smoke
-  — that traction is the AWD advantage), on ice only the rears spin and smoke. The smoke system also
-  emits from a driven front wheel in drive wheelspin ([Tyre smoke](#tyre-smoke-srccarsmoke)), which
-  today only happens for a step on a throttle-held touch-down.
+  — that traction is the AWD advantage), on ice only the rears spin and smoke. Their hard launches
+  kick up light dust instead, a purely visual effect ([Tyre smoke](#tyre-smoke-srccarsmoke)).
 - Each car is one body mesh, 4 wheels and its wing elements (7–8 draw calls), built once per page
   and cached; the whole frame stays at 34–35 draw calls at the chaos spawn with any car.
 - `game:state` carries `carId`, `trackId` and `bigJumpKmh` (null on maps without a big jump), and is
@@ -228,9 +228,12 @@ switching through all six) and each brings its own sky, fog, lights and palette.
 | Midnight Strip (`strip`) | 1 km night drag strip (CPs at 400 / 800 m), then 400 m to brake | 1000 m / 2 | — | 24.5 / 27 / 31 s |
 | Proving Ground (`test`) | 1.85 km flat calibration straight with a speed-trap kicker (no gap: no jump verdict) | 1800 m / 2 | — | — |
 
-\* Any lip speed over 160 km/h lands on the Isles; the sign and the dashboard ask for 163 because the
-number is also the estimated top speed `assessBigJump` wants, and the short runway leaves cars
-5–6 km/h below their top speed at the lip (see [Big jump honesty](#big-jump-honesty-integration-pass)).
+\* The lip speed that lands the Isles leap is below the sign: from 160.5 km/h for the hypercar and the
+Glitch Rally, 156.5 for the Bruiser V8 and 164.5 for the Razorwing (measured, `landKmh` /
+`landKmhByCar` in `track/catalog.ts`; the landing-speed table in
+[Big jump honesty](#big-jump-honesty-integration-pass)). The sign and the dashboard ask for 163 because
+that number is also the estimated top speed `assessBigJump` wants, and the 520 m runway leaves cars
+5–6 km/h below their top speed at the lip: estimated top 162.6 fell, 163.1 cleared.
 
 Ice: tyre friction **and** pedal braking scale with `surfaceGrip` (hypercar on ice: 0.74 g peak
 lateral vs 1.34 g, 0–60 in 6.6 s vs 3.7 s, 60→0 in 18.3 m vs 10.5 m). The AWD rally keeps its launch
@@ -246,12 +249,27 @@ and a faster one has to earn its gold (`src/state/records.ts`: `MEASURED_COURSE_
 
 - **Measured**: full-course autopilot runs from the spawn (`?ws=off`, `__RACER__.advance`), the same
   driver for every car (the maps / integration autopilot: pure-pursuit steering on the ideal line,
-  curvature + braking speed plan, shutter / pendulum timing, plus a gentle traction control so the
-  torquey Bruiser V8 can stay on the ice) and the same sliders for every car: the ones each map's
-  hypercar medals were set with (ribbon 60/4/0, isles 30/5/0, cryo 50/3/0, strip 20/5/0, chaos
-  50/3/0 switching to the car's JUMP ATTEMPT preset at the jump checkpoint). 24 runs per car per map
-  (8 on the Isles and the strip, where runs barely vary), each started at a different hazard phase;
-  the median of the runs without a fall.
+  curvature + braking speed plan, shutter / pendulum timing) and the same sliders for every car: the
+  ones each map's hypercar medals were set with (ribbon 60/4/0, isles 30/5/0, cryo 50/3/0, strip
+  20/5/0, chaos 50/3/0 switching to the car's JUMP ATTEMPT preset at the jump checkpoint). 24 runs
+  per car per map (8 on the Isles and the strip, where runs barely vary), each started at a different
+  hazard phase; the median of the runs without a fall.
+- **Flat out vs traction control**: the touch GAS is on/off, so every car was driven twice over the
+  same phases, flat out and with a gentle traction control (easing off while a tyre slips, like
+  pulsing the GAS; without it the torquey Bruiser V8 can't finish Ribbon or Cryo, 0 of 24). On the
+  **strip** flat out is clearly quicker, 0.39 s for the hypercar and 0.37 s for the Bruiser V8
+  (24.27 vs 24.66 and 24.23 vs 24.60), so the strip row uses the flat-out medians. The hypercar's
+  slower traction-control median, the base every car's scale divides by, had set the rally's,
+  Razorwing's and Dune Goblin's golds below what they make flat out (real touch runs on the old
+  build: SILVER at 24.200, 23.267 and 34.133 against golds of 24.0, 23.0 and 34.0). On the other
+  maps the two modes agree within run-to-run noise (the median per-phase gap is 0.16 s or less), so
+  they keep the traction-control medians: taking the lower of two noisy medians would only nudge
+  medals down at random (it would have moved the Bruiser V8's chaos gold from 44.0 to 43.5 s with no
+  real difference in pace).
+- **Checked on the strip with real touch**: Pixel 7 landscape, the map tip's 20 % / tier 5, the start
+  card tapped and a finger held on GAS from the start lights to the line, no steering: every car gets
+  GOLD (hypercar 24.300, rally 24.200, Bruiser V8 24.283, Razorwing 23.283 vs gold 23.5, Dune Goblin
+  34.133 vs gold 34.5).
 - **Scale** = car median / hypercar median; inside ±2 % (the autopilot's run-to-run noise: hazard
   waits move a chaos median that much) a car keeps the hypercar's times. Medal = hypercar medal ×
   scale, rounded to 0.5 s, kept strictly gold < silver < bronze. The hypercar's medals are the
@@ -263,21 +281,32 @@ and a faster one has to earn its gold (`src/state/records.ts`: `MEASURED_COURSE_
 | ribbon | 40.96 → **41 / 47 / 55** | 40.82 (×0.997) → 41 / 47 / 55 | 40.88 (×0.998) → 41 / 47 / 55 | 41.62 (×1.016) → 41 / 47 / 55 | 44.11 (×1.077) → **44 / 50.5 / 59** |
 | isles | 48.83 → **49 / 56 / 66** | 49.20 (×1.008) → 49 / 56 / 66 | 49.08 (×1.005) → 49 / 56 / 66 | 49.21 (×1.008) → 49 / 56 / 66 | jump out of reach: no medals |
 | cryo | 56.67 → **58 / 67 / 80** | 52.67 (×0.929) → **54 / 62.5 / 74.5** | 56.52 (×0.997) → 58 / 67 / 80 | 55.00 (×0.971) → **56.5 / 65 / 77.5** | 61.16 (×1.079) → **62.5 / 72.5 / 86.5** |
-| strip | 24.66 → **24.5 / 27 / 31** | 24.15 (×0.979) → **24 / 26.5 / 30.5** | 24.60 (×0.998) → 24.5 / 27 / 31 | 23.27 (×0.944) → **23 / 25.5 / 29.5** | 34.07 (×1.382) → **34 / 37.5 / 43** |
+| strip | 24.27 flat out → **24.5 / 27 / 31** | 24.15 (×0.995) → 24.5 / 27 / 31 | 24.23 (×0.998) → 24.5 / 27 / 31 | 23.23 (×0.957) → **23.5 / 26 / 29.5** | 34.07 (×1.404) → **34.5 / 38 / 43.5** |
 
-(Median autopilot time → gold / silver / bronze in seconds; bold = differs from the hypercar's. The
-autopilot drives every car at the same cornering limit, so on the technical maps the cars land
+(Median autopilot time, traction control except the strip's flat-out row → gold / silver / bronze in
+seconds; bold = differs from the hypercar's. Changed by the flat-out strip row: the rally, Razorwing
+and Dune Goblin strip medals; the other maps are unchanged. The autopilot drives every car at the same cornering limit, so on the technical maps the cars land
 close together; the drag strip and the ice show the real spread. The Proving Ground has no medals.)
 
-**Big jump out of reach.** `jumpReach(trackId, carId)` scans every dashboard setting (engine tier 5
-down to 1, the full Front Wing Aero and Chassis Balance ranges in slider steps) through the
-protocol's `assessBigJump` with the map's `bigJumpKmh` and stops at the first READY. No ids are
+**Big jump out of reach.** `jumpReach(trackId, carId)` asks whether any dashboard setting (engine
+tier 5 down to 1, the full Front Wing Aero and Chassis Balance ranges in slider steps) gets a READY
+from the protocol's `assessBigJump` with the map's `bigJumpKmh`. READY needs an estimated top speed of
+at least the car's requirement, so it first works out the car's fastest estimated top speed from 10
+estimates: `estimateTopSpeedKmh` reads only mass, drag and torque, so balance never changes it, and
+at each tier it falls as the wing adds drag, so the fastest wing is an end of the slider. Below the
+requirement the answer is "unreachable" with that speed, no scan; otherwise it scans the settings
+and stops at the first READY. No ids are
 hard-coded: today only the Dune Goblin comes out unreachable, on chaos (needs 183 km/h of estimated
 top speed, tops out at 133) and the Isles (needs 163). Then the maps card and the garage card show
 JUMP OUT OF REACH (with needs … · max …), no medals are shown or awarded for that car on that map,
 and the RACE tab, the touch start card and the start lights say what speed it needs vs the car's
-maximum. The scan is memoized per car + jump speed (the full scan of an unreachable car is ~51 k
-estimates, ~7 ms in headless desktop Chromium; reachable cars stop early). Checked at 412×839 and 780×360
+maximum. The map card's setup tip and the RACE tab's tip, which recommend jump setups, become "No
+setup reaches this jump with the Dune Goblin." for that car. Memoized per car + jump speed. Checked
+against the old full scan (all 51,005 settings): same reachable flag and the same max top speed, to the
+last bit, for every car on both jump maps and 23 synthetic lip speeds (60–400 km/h, including 133–135
+around the buggy's 132.84). First open at 6× CPU throttle (headless Chromium, fresh page, cold cache):
+MAPS with the Dune Goblin 305 → 3 ms, GARAGE on chaos 197 → 32 ms, GARAGE on the Isles 239 → 35 ms; MAPS
+with the hypercar stays ~21 ms (its early-exit scan). Checked at 412×839 and 780×360
 (and the start-light note for overlaps at 360×640 … 863×360): no card content overflows, nothing
 covers the thumb controls.
 
@@ -410,21 +439,29 @@ car remounts on a track change.
 World-space voxel puffs from both rear contact points. Emission starts when a grounded rear wheel's
 `slip01` passes 0.25 (full at 0.85): tier 4–5 launches, burnouts (W + S), handbrake turns and slides.
 
-All-wheel-drive cars (a driven front axle in their spec) also emit from a **front** wheel while it
-is in drive wheelspin: throttle on, the tread outrunning the car, longitudinal slip bigger than the
-sideways slide (`smokeRules.ts → frontSpinIntensity`), so a front tyre scrubbing through a corner or
-locking under braking stays clean. The fronts share the rears' budget (they only get what the rears
-leave of 2 × 75 puffs/s) and the same 384-puff pool, so there is no extra draw call or particle.
-Rear-drive cars never enter that branch: the hypercar's smoke is unchanged (scripted burnout and
-launch in fixed 16 ms frames from Playwright's fake clock, `Math.random` reseeded; 2.5 s windows hold
-149–151 physics steps depending on the accumulator phase, and on both builds the count follows that:
-370 puffs at 150 steps for the tier-3 burnout on both, 374 at 151 steps for the tier-5 launch on
-both, i.e. 150 puffs/s flat out). Measured honestly, the front tyres of today's AWD
-cars barely ever spin: the centre diff caps front drive at 60 % of their grip, so at a launch the
-fronts creep at 0.11–0.16 m/s (`slip01` 0) on tarmac and on ice, and the rally / buggy hook up with
-no wheelspin at all on tarmac (on ice their rears spin and smoke as before). The front emitter fires
-for a step on a throttle-held touch-down (front tread up to 30 m/s fast) and would cover any future
-drivetrain that lets the fronts break loose.
+**Launch dust (all-wheel-drive cars, purely visual).** The rally's and the buggy's centre diff never
+asks the front tyres for more than 60 % of their grip, so their launches hook up: on tarmac no tyre
+spins at any tier and wheelspin smoke never shows (on ice their rears spin and smoke as usual). So
+cars with a driven front axle kick up light dust instead (`smokeRules.ts → launchDustIntensity`):
+throttle at least 0.6, below 40 km/h (full strength up to 15 km/h), scaled by the drive force asked
+of the driven tyres over their grip budget (`carRuntime.driveForceN / driveGripN`, none at 0.2, full at
+0.65; tier 5 on tarmac is ~0.59 for the rally and ~0.48 for the buggy, tier 1 ~0.14–0.19, so a gentle
+launch stays clean). Up to 24 puffs/s from each driven wheel on the ground, low and thrown back off the
+tread, lighter and shorter-lived than smoke, warm grey on tarmac and pale snow spray on a low-grip
+surface; the Dune Goblin gets 1.5× the dust (rate, bigger and denser puffs). It shares the smoke's
+budget (dust only gets what rear smoke leaves of 2 × 75 puffs/s, so a spinning-rear launch on ice is
+smoke, not dust) and the same 384-puff pool: no extra draw call or particle.
+
+Nothing in the physics changes: `driveForceN` / `driveGripN` are plain reads of the step's throttle,
+launch boost and last tyre loads, written to `carRuntime` for the visuals only. Checked with the
+scripted launches below (fixed 16 ms frames from Playwright's fake clock, `Math.random` reseeded): every
+car ends each 2.5 s window at the same speed on both builds (rally tier 5 68.2 km/h, tier 4 56.4, buggy
+39.1 at 150 physics steps), and rear-drive cars never enter the dust branch, so the hypercar's smoke is
+identical: 370 puffs at 150 steps, 374 at 151 (the window holds 150 or 151 steps depending on the
+accumulator phase), for both the tier-3 burnout and the tier-5 launch, before and after. Dust per 2.5 s
+launch on tarmac: rally tier 5 84–88 puffs, tier 4 76, buggy tier 5 152; a rally cornering at
+64 km/h: 0. (The old front-wheel-spin emitter it replaces never fired at a launch: the AWD front
+tyres creep at 0.11–0.16 m/s.)
 Rate up to 75 puffs/s per wheel, and puff size and opacity scale with slip. Wheelspin throws smoke
 backwards and slides throw it sideways. Each puff starts with 30 % of the car's velocity, then air
 drag bleeds that off while buoyancy lifts it. It grows on an ease-out curve and fades in and out.
@@ -584,8 +621,9 @@ Two fixes came out of it:
   above top speed). A car that is too slow gets no reserve (protocol-fix pass): NOSE LIFT only when it
   actually reaches lift-off (lift-off < top speed), otherwise TOO SLOW, as before the garage. Over all
   51,005 slider positions this changes exactly 590 hypercar verdicts from the old game, all Engine Tier 5,
-  READY → NOSE LIFT; tiers 1–4 read as before (e.g. 12 / 4 / 0: top 175.5, lift-off 178.8, TOO SLOW; an
-  interim build had called 751 such too-slow settings NOSE LIFT, whose "add wing" hint made them slower).
+  READY → NOSE LIFT; tiers 1–4 read as before (e.g. 12 / 4 / 0: top 175.5, lift-off 178.8, TOO SLOW, though
+  its nose lifts in the sim, see "TOO SLOW is not always nose-down" below; an interim build had called 751
+  such too-slow settings NOSE LIFT, whose "add wing" hint made them slower).
   The 90 sim runs above keep their verdicts under the final rule.
 - **Cloudbreak Isles requirement 160 → 163** (`track/maps/isles.ts`). The requirement is also the
   estimated top speed the hypercar needs, and the 520 m runway leaves cars 5–6 km/h short of top speed
@@ -606,9 +644,28 @@ other nose-lift edges held (rally, muscle and formula READY settings within 12�
 cleared). On the Isles the NOSE LIFT verdict is a true warning (the nose did lift within 2 % of the
 estimated speed every time, and you can't steer while it's up) but not a guaranteed fall.
 
+**TOO SLOW is not always nose-down** (dashboard-polish pass, `bigJumpHint` in
+`dashboard/src/squad/bigJump.ts`). 12 / 4 / 0 does lack speed, but it doesn't only lack speed: in the sim
+its nose comes up at 171.5 km/h and it leaves the track before the lip. The same happens to rally 5 / 4 / 30
+(163.4), muscle 18 / 4 / 36 (163.9) and formula 1 / 4 / −40 (183.6). The old TOO SLOW hint said "raise
+Engine Tier or trim the front wing", and each wing point less lowers lift-off far faster than it raises
+top speed (median in that window: hypercar −2.5 / +0.5 km/h, rally −3.5 / +0.4, muscle −1.9 / +0.3,
+formula −8.3 / +1.1). When lift-off is less than the car's `noseLiftReserveKmh` above top speed (12 / 10
+/ 12 / 8 km/h for hypercar / rally / muscle / formula), the hint now says "raise Engine Tier and keep the
+front wing (lift-off X km/h is close to top speed Y; less wing lifts the nose)". It also warns that more
+engine lowers lift-off too, so the next verdict is usually NOSE LIFT. Calibration: 88 TOO SLOW settings
+with a lift-off on the chaos jump (tiers 2–5, balance −45…+50, standstill at the checkpoint, full
+throttle). 30 lifted the nose or ran off before the lip, every one within its car's reserve. The largest
+gaps were hypercar 10.0 km/h (27 / 4 / +50), muscle 8.7, rally 8.5 and formula 4.6: rearward balance
+lifts at the larger gaps, forward balance only within ~3 km/h. None of the 19 settings at or above the
+reserve lifted. At Engine Tier 5 the hint can't ask for more tier: there it says to move Chassis Balance
+forward first, then trim the wing, or use the JUMP ATTEMPT preset (rally 5 / 5 / 0 falls short at 179.8
+and 3 / 5 / 0 lifts its nose, while 5 / 5 / −40 clears at 184.3 and 2 / 5 / −40 at 185.0; muscle
+23 / 5 / 30 lifts at 182.4 and 20 / 5 / 0 clears at 182.6). See `dashboard/README.md`.
+
 **Landing speed vs the lip sign** (protocol-fix pass). `bigJumpKmh` (the sign, `game:state`, the
 estimate's target) is not the lip speed that lands, so the map catalog also carries `landKmh` (hypercar)
-and `landKmhByCar`, and the dashboard's speed trap judges CLEARED / SHORT against those
+and `landKmhByCar`, and the dashboard's speed trap guesses LIKELY CLEARS / LIKELY SHORT against those
 (`landKmhOf` in `track/catalog.ts`, copied in `dashboard/src/squad/garage.ts`). Measured with the same
 standstill-at-the-checkpoint runs, sliders swept around each car's edge (≈ 70 runs): the value is the
 first 0.5 km/h step above the fastest lip speed that fell, so every measured run at or above it landed.
@@ -621,6 +678,18 @@ first 0.5 km/h step above the fastest lip speed that fell, so every measured run
 Below these a jump can still land (the edge is a coin flip over 1–2 km/h, and low wing flies farther:
 the hypercar lands from 182.0 at 38 % on chaos, the formula from 161.6 at tier 4 on the Isles). The
 buggy has no landing speed: it never gets near either lip.
+
+**The speed trap's verdict is the outcome** (dashboard-polish pass, `watchSpeedTrap` in
+`dashboard/src/squad/bigJump.ts`). Since a landed jump can sit 1–3 km/h under these numbers (formula Isles
+23 / 4 / 0 landed at 161.6 vs 164.5; muscle chaos 28 / 5 / 0 at 180.6 vs 182), CLEARED / SHORT come from the
+telemetry after the reading. On both jump maps `bigJump()` (`track/chaos/plan.ts`) is the last section:
+one checkpoint at the start of its run-up, then the lip, the landing hill and the finish gate 36 m into the
+run-out, with no checkpoint after the lip. So `finished` turning true after a `speedTrapKmh` reading means
+that jump landed (CLEARED). A rise in `falls` means it dropped into the void (SHORT). Until either happens
+the card shows LIKELY CLEARS / LIKELY SHORT in grey against the landing speed, and the margin stays on screen
+for information (`CLEARED −2.9`, `SHORT +1.0`). `speedTrapKmh` is set on every lip crossing and only cleared
+by a restart, car change or map change (`freshRun`). A respawn keeps it, so a retry after a fall is a new
+reading with its own verdict.
 
 Full-course autopilot from the spawn (default settings 50 / 3 / 0, `?ws=off`): CP1 6.7 s, CP2 11.1 s,
 CP3 15.8 s, CP4 19.8 s, **CP 5 at 23.3 s with 0 falls**, 12 tiles collapsed exactly 60 steps after
@@ -702,6 +771,7 @@ __RACER__.getState()   // { position, velocity, up, speedKmh, forwardSpeed, whee
                        //   wheels: [{ inContact, suspensionForce, slip01, suspensionLength, lateralSlip,
                        //              longitudinalSlip, spinRate, steering, groundColliderHandle }] (FL, FR, RL, RR),
                        //   noseLift, frontAeroN, rearAeroN, groundEffect, rearSlip, frontAxleLoadN, rearAxleLoadN,
+                       //   driveForceN, driveGripN (drive asked of the driven tyres vs their grip; visuals only),
                        //   throttle, brake, steer, airborneTime, physics, controls, link, serverUrl, dashboards,
                        //   checkpoint, totalCheckpoints, falls, finished, elapsedMs, bestMs, speedTrapKmh,
                        //   track, stepCount, simTime, car: { bodyHandle, mass, localCom, suspensionStiffness[],
@@ -728,7 +798,8 @@ unchanged. Other handles: `window.__HUD__` (menu, start lights, results — see 
 
 `window.__CARFX__` (car visuals, read-only): `model()` (voxel/face counts, build time), `live()`
 (wing angles/chords, light-channel radiance, flame length, car draw calls), `smoke()` (capacity,
-alive, emitted, current rate, `frontEmitted` = puffs from driven front wheels), `renderInfo()` (renderer calls/triangles/geometries/programs).
+alive, emitted, current rate, `dustRate` = the launch-dust part of it, `dustEmitted` = launch-dust puffs
+since the emitter mounted; both 0 for rear-drive cars), `renderInfo()` (renderer calls/triangles/geometries/programs).
 
 ## Code map / extension points
 
@@ -741,7 +812,8 @@ src/state/selection.ts         persisted player choices: carId, trackId, menuOpe
 src/state/store.ts             zustand store (carId, physics, controls, link, uplink feed, run, trackLayout, ui) + actions;
                                loadBestTime(trackId, carId)
 src/state/records.ts           medals per car (MEASURED_COURSE_S → medalScale → medalsFor) on top of the catalog's
-                               hypercar medalsMs; jumpReach() (can this car ever clear this map's big jump?)
+                               hypercar medalsMs; jumpReach() / computeJumpReach() (can this car ever clear this
+                               map's big jump? top-speed short-circuit, then an early-exit scan)
 src/game/events.ts             typed bus: restart, respawn, teleported, checkpoint, finish, countdown
 src/game/countdown.ts          3 · 2 · 1 · GO start lights (simulated time) + the throttle/brake drive lock
 src/game/RunController.tsx     timer, checkpoints, finish, kill plane, speed trap, flip recovery, start lights
@@ -756,8 +828,8 @@ src/car/model/                 voxel cars: models.ts (per-car shape, livery, whe
                                shapeKit.ts, CarModel.tsx (meshes, live wing/lights/exhaust, useWheelPose),
                                frontWing.ts, wheelVoxels.ts, voxelGrid.ts (hidden-face mesher), carMaterial.ts,
                                carAssets.ts (build-once cache), carFxDebug.ts (window.__CARFX__)
-src/car/smoke/                 TireSmoke.tsx (emitter, frozen while paused), smokeRules.ts (which tyres smoke: rears
-                               on slip, AWD fronts on drive wheelspin), smokePool.ts, smokeMaterial.ts
+src/car/smoke/                 TireSmoke.tsx (emitter, frozen while paused), smokeRules.ts (rears smoke on slip,
+                               AWD launch dust from drive force / grip), smokePool.ts, smokeMaterial.ts
 src/audio/                     GameAudio.tsx + audioSystem.ts (WebAudio engine/tyres/wind/sfx), gearbox.ts,
                                presets.ts (per car), haptics.ts, engineReadout.ts (gear for the HUD), README.md
 src/track/catalog.ts           map cards (TRACK_CATALOG: difficulty, medals, tips), bigJumpKmhOf(layout)

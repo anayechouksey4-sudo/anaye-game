@@ -11,6 +11,7 @@
 import {
   SQUAD_CONTROL_SPECS,
   assessBigJump,
+  estimateTopSpeedKmh,
   mapSquadControlsToPhysics,
   requiredJumpKmh,
   type SquadControls,
@@ -50,18 +51,27 @@ export function nextMedal(ms: number | null | undefined, medals: TrackMedals | n
  * Full-course autopilot times, seconds: the median of the runs without a fall, out of 24 runs per
  * car per map (8 on the Isles and the Strip, where runs barely vary), each started at a different
  * hazard phase. Same driver for every car (the maps / integration autopilot: pure pursuit on the
- * ideal line, curvature + braking speed plan, hazard timing, plus a gentle traction control) and the
- * same sliders for every car: the ones each map's hypercar medals were set with (ribbon 60/4/0,
- * isles 30/5/0, cryo 50/3/0, strip 20/5/0, chaos 50/3/0 with the car's JUMP ATTEMPT preset from the
- * jump checkpoint). Missing = can't finish (big jump out of reach). Measured with `?ws=off` and
- * `__RACER__.advance`; README "Medals per car" has the resulting medal table.
+ * ideal line, curvature + braking speed plan, hazard timing) and the same sliders for every car: the
+ * ones each map's hypercar medals were set with (ribbon 60/4/0, isles 30/5/0, cryo 50/3/0, strip
+ * 20/5/0, chaos 50/3/0 with the car's JUMP ATTEMPT preset from the jump checkpoint).
+ *
+ * Each car was driven twice over the same phases: flat out (the touch GAS is on/off, so a phone
+ * player can't feather it) and with a gentle traction control (easing off while a tyre slips, like
+ * pulsing the GAS). The Strip uses the flat-out medians, because flat out is clearly quicker there:
+ * by 0.39 s for the hypercar and 0.37 s for the Bruiser V8 (a real-touch run holding GAS through the
+ * lights takes gold with every car). On the other maps the two modes agree within run-to-run noise
+ * (phase for phase, 0.16 s or less, median), so those keep the traction-control medians: taking
+ * the lower of two noisy medians would only tilt the medals down at random (it would have moved the
+ * Bruiser V8's chaos gold from 44.0 to 43.5 s with no real difference in pace).
+ * Missing = can't finish (big jump out of reach). Measured with `?ws=off` and `__RACER__.advance`;
+ * README "Medals per car" has the resulting medal table.
  */
 export const MEASURED_COURSE_S: Readonly<Record<string, Readonly<Record<string, number>>>> = {
   chaos: { hypercar: 54.15, rally: 54.67, muscle: 51.54, formula: 53.56 },
   ribbon: { hypercar: 40.96, rally: 40.82, muscle: 40.88, formula: 41.62, buggy: 44.11 },
   isles: { hypercar: 48.83, rally: 49.2, muscle: 49.08, formula: 49.21 },
   cryo: { hypercar: 56.67, rally: 52.67, muscle: 56.52, formula: 55.0, buggy: 61.16 },
-  strip: { hypercar: 24.66, rally: 24.15, muscle: 24.6, formula: 23.27, buggy: 34.07 },
+  strip: { hypercar: 24.27, rally: 24.15, muscle: 24.23, formula: 23.23, buggy: 34.07 },
 };
 
 /**
@@ -134,19 +144,52 @@ function* allControls(): Generator<SquadControls> {
   }
 }
 
+/** First and last wing value allControls visits. */
+function wingEnds(): [number, number] {
+  const wing = SQUAD_CONTROL_SPECS.frontWingAero;
+  let last = wing.min;
+  for (let a = wing.min; a <= wing.max; a += wing.step) last = a;
+  return [wing.min, last];
+}
+
 /**
- * Can this car ever clear this map's big jump? Scans every dashboard setting (all tiers, the full
- * wing and balance ranges, in slider steps) through the protocol's `assessBigJump` with the map's
- * `bigJumpKmh` and stops at the first READY. null when the map has no big jump. Memoized per car +
- * jump speed (the full scan of an unreachable car is ~50 k estimates, a few tens of ms once).
+ * The fastest ESTIMATED top speed (estimateTopSpeedKmh, the number assessBigJump compares) over
+ * every setting allControls visits, from 10 estimates instead of ~50 k:
+ *   - estimateTopSpeedKmh reads only mass, drag and engineTorque. Chassis balance only sets
+ *     `balance` (mapSquadControlsToPhysics), so it never changes the estimate;
+ *   - at a fixed tier the wing changes only drag, which is affine in the wing (dragBase +
+ *     dragPerAero · a, then clamped and rounded, both monotonic), and the estimate falls as drag
+ *     rises (both branches: v = √(net/drag), and the boosted-band root of drag·v² + β·v − c = 0);
+ *   - so per tier the fastest wing is one end of the slider (0 % for every class today, whose
+ *     dragPerAero is positive). Tiers are all checked: whether more tier is faster depends on the
+ *     class's torque-per-tier against the added mass.
+ * Checked against the full scan for every car on both jump maps and synthetic lip speeds
+ * (README "Medals per car").
  */
-export function jumpReach(trackId: string, carId: string): JumpReach | null {
-  const track = TRACK_CATALOG.find((t) => t.id === trackId);
-  const mapKmh = track?.hasBigJump ? track.bigJumpKmh : undefined;
-  if (mapKmh === undefined || !Number.isFinite(mapKmh) || mapKmh <= 0) return null;
-  const key = `${carId}@${mapKmh}`;
-  const cached = reachCache.get(key);
-  if (cached) return cached;
+function maxEstimatedTopKmh(carId: string): number {
+  const { engineTier: tier, chassisBalance: balance } = SQUAD_CONTROL_SPECS;
+  const controls: SquadControls = { frontWingAero: 0, engineTier: 0, chassisBalance: balance.default };
+  let maxTop = 0;
+  for (let t = tier.max; t >= tier.min; t -= tier.step) {
+    for (const a of wingEnds()) {
+      controls.frontWingAero = a;
+      controls.engineTier = t;
+      maxTop = Math.max(maxTop, estimateTopSpeedKmh(mapSquadControlsToPhysics(controls, carId), carId));
+    }
+  }
+  return maxTop;
+}
+
+/**
+ * Big-jump reach of a car for a jump speed (uncached; see jumpReach). READY needs an estimated top
+ * speed of at least requiredJumpKmh (assessBigJump: below it the verdict is TOO SLOW or NOSE LIFT),
+ * so when even the fastest setting is short the answer is "unreachable" with that top speed, without
+ * a scan. Otherwise every setting goes through assessBigJump until the first READY.
+ */
+export function computeJumpReach(mapKmh: number, carId: string): JumpReach {
+  const requiredKmh = requiredJumpKmh(mapKmh, carId);
+  const fastest = maxEstimatedTopKmh(carId);
+  if (fastest < requiredKmh) return { mapKmh, requiredKmh, reachable: false, maxTopKmh: fastest };
   let reachable = false;
   let maxTop = 0;
   for (const controls of allControls()) {
@@ -157,7 +200,23 @@ export function jumpReach(trackId: string, carId: string): JumpReach | null {
     }
     maxTop = Math.max(maxTop, verdict.topSpeedKmh);
   }
-  const result: JumpReach = { mapKmh, requiredKmh: requiredJumpKmh(mapKmh, carId), reachable, maxTopKmh: reachable ? null : maxTop };
+  return { mapKmh, requiredKmh, reachable, maxTopKmh: reachable ? null : maxTop };
+}
+
+/**
+ * Can this car ever clear this map's big jump? Some dashboard setting (all tiers, the full wing and
+ * balance ranges, in slider steps) gets a READY from the protocol's `assessBigJump` with the map's
+ * `bigJumpKmh` (computeJumpReach). null when the map has no big jump. Memoized per car + jump speed;
+ * a car too slow for the jump costs 10 estimates, a fast one stops at its first READY setting.
+ */
+export function jumpReach(trackId: string, carId: string): JumpReach | null {
+  const track = TRACK_CATALOG.find((t) => t.id === trackId);
+  const mapKmh = track?.hasBigJump ? track.bigJumpKmh : undefined;
+  if (mapKmh === undefined || !Number.isFinite(mapKmh) || mapKmh <= 0) return null;
+  const key = `${carId}@${mapKmh}`;
+  const cached = reachCache.get(key);
+  if (cached) return cached;
+  const result = computeJumpReach(mapKmh, carId);
   reachCache.set(key, result);
   return result;
 }

@@ -3,7 +3,7 @@ import { StyleSheet, View } from 'react-native';
 
 import type { BigJumpAssessment, CarClass } from '../../../shared/protocol';
 import { formatKmh, formatNumber, formatSigned } from '../lib/format';
-import { bigJumpHint, judgeSpeedTrap, landingSpeedFor, speedTrapNote } from '../squad/bigJump';
+import { bigJumpHint, judgeSpeedTrap, landingSpeedFor, speedTrapNote, type SpeedTrapVerdict } from '../squad/bigJump';
 import { BIG_JUMP_MAPS, describeMap } from '../squad/garage';
 import { previewSetup, type PlaySession } from '../squad/session';
 import { useControls, usePlaySession, useTelemetry } from '../squad/SquadContext';
@@ -62,30 +62,49 @@ function SpeedGauge({ topSpeed, markers, ready }: { topSpeed: number; markers: M
   );
 }
 
+/** Green / magenta only for what the game showed; the landing-speed guess stays neutral. */
+const TRAP_COLOR: Record<SpeedTrapVerdict, string> = {
+  CLEARED: colors.green,
+  SHORT: colors.magenta,
+  'LIKELY CLEARS': colors.text,
+  'LIKELY SHORT': colors.text,
+};
+
 /**
- * The game's measured lip speed vs the lip speed that actually lands this map's jump with this car
- * (measured in the sim; see squad/bigJump.ts landingSpeedFor), not vs the estimate's target.
+ * The game's lip speed for the latest jump and what came of it: CLEARED once the run finishes, SHORT
+ * after a fall (squad/bigJump.ts watchSpeedTrap). Until then, LIKELY CLEARS / LIKELY SHORT against the
+ * lip speed that lands this map's jump with this car (landingSpeedFor), not the estimate's target.
  */
 function SpeedTrap({ session }: { session: PlaySession }) {
-  const trap = useTelemetry((s) => s.telemetry?.speedTrapKmh ?? null);
+  const attempt = useTelemetry((s) => s.jump);
   const landing = landingSpeedFor(session);
   if (!landing || session.bigJumpKmh === null) return null;
-  if (trap === null) {
+  if (attempt === null) {
     return <Txt style={styles.trapIdle}>SPEED TRAP · waiting for the first run at the lip</Txt>;
   }
-  const reading = judgeSpeedTrap(trap, landing);
-  const color = reading.cleared ? colors.green : colors.magenta;
+  const reading = judgeSpeedTrap(attempt, landing);
+  const color = TRAP_COLOR[reading.verdict];
   return (
-    <View style={[styles.trap, { borderColor: alpha(color, 0.5) }]} testID="speed-trap">
+    <View
+      style={[styles.trap, { borderColor: reading.settled ? alpha(color, 0.5) : alpha(colors.textDim, 0.45) }]}
+      testID="speed-trap"
+    >
       <Txt style={styles.k}>LAST LIP SPEED (GAME)</Txt>
       <View style={styles.trapRow}>
-        <Txt font="display" style={[styles.trapValue, { color }, glow(color, 10)]} testID="speed-trap-value">
-          {`${formatNumber(trap, 1)} KM/H`}
+        <Txt
+          font="display"
+          style={[styles.trapValue, { color }, reading.settled ? glow(color, 10) : null]}
+          testID="speed-trap-value"
+        >
+          {`${formatNumber(attempt.trapKmh, 1)} KM/H`}
         </Txt>
-        <Txt font="display" style={[styles.trapVerdict, { color }]} testID="speed-trap-verdict">
+        <Txt font="display" style={[styles.trapVerdict, { color: reading.settled ? color : colors.textDim }]} testID="speed-trap-verdict">
           {reading.label}
         </Txt>
       </View>
+      <Txt style={styles.trapStatus} testID="speed-trap-status">
+        {reading.status}
+      </Txt>
       <Txt style={styles.sub} testID="speed-trap-note">
         {speedTrapNote(landing, session.bigJumpKmh, session.carId)}
       </Txt>
@@ -120,7 +139,20 @@ function NoJump({ topSpeedKmh, liftOffKmh, mapName }: { topSpeedKmh: number; lif
   );
 }
 
-function Verdict({ jump, lipKmh, car, session }: { jump: BigJumpAssessment; lipKmh: number; car: Readonly<CarClass>; session: PlaySession }) {
+function Verdict({
+  jump,
+  lipKmh,
+  car,
+  session,
+  engineTier,
+}: {
+  jump: BigJumpAssessment;
+  lipKmh: number;
+  car: Readonly<CarClass>;
+  session: PlaySession;
+  /** The Engine Tier being judged, so the hint never asks for a tier above the top one. */
+  engineTier: number;
+}) {
   const color = VERDICT_COLOR[jump.verdict];
   const scaled = Math.abs(jump.requiredKmh - lipKmh) >= 0.5;
   const markers: Marker[] = [
@@ -153,7 +185,7 @@ function Verdict({ jump, lipKmh, car, session }: { jump: BigJumpAssessment; lipK
       </View>
       <SpeedGauge topSpeed={jump.topSpeedKmh} markers={markers} ready={jump.ready} />
       <Txt style={[styles.hint, { color }]} testID="jump-hint">
-        {bigJumpHint(jump, car)}
+        {bigJumpHint(jump, car, engineTier)}
       </Txt>
       <SpeedTrap session={session} />
     </>
@@ -170,7 +202,7 @@ export const BigJumpCard = memo(function BigJumpCard() {
     <Panel title="BIG JUMP READINESS" tag="06" accent={accent} testID="big-jump">
       <SessionLine testID="jump-session" />
       {preview.jump && session.bigJumpKmh !== null ? (
-        <Verdict jump={preview.jump} lipKmh={session.bigJumpKmh} car={preview.car} session={session} />
+        <Verdict jump={preview.jump} lipKmh={session.bigJumpKmh} car={preview.car} session={session} engineTier={values.engineTier} />
       ) : (
         <NoJump topSpeedKmh={preview.topSpeedKmh} liftOffKmh={preview.liftOffKmh} mapName={describeMap(session.trackId).name} />
       )}
@@ -276,6 +308,12 @@ const styles = StyleSheet.create({
   trapVerdict: {
     fontSize: 12,
     letterSpacing: 1.4,
+  },
+  trapStatus: {
+    fontSize: 11,
+    lineHeight: 15,
+    color: colors.textDim,
+    marginTop: 4,
   },
   sub: {
     fontSize: 11,
