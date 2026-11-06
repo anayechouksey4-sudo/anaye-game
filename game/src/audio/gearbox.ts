@@ -16,10 +16,11 @@
  *   - an upshift cuts the ignition for `shiftTime` (the audible "bap" of a fast gearbox) and drops the rpm
  *     by the ratio step; 1st and reverse slip the clutch so the engine revs at a standstill launch.
  */
+import { TOP_GEAR_RPM_FRAC } from '@shared/protocol';
 import type { EnginePreset } from './presets';
 
-/** Top speed is reached in top gear at this fraction of the redline. */
-export const TOP_GEAR_RPM_FRAC = 0.93;
+/** Top speed is reached in top gear at this fraction of the redline (shared with the Handling v2 engine math). */
+export { TOP_GEAR_RPM_FRAC };
 /** Minimum time between two shifts: this many upshift cuts, clamped to [MIN, MAX] s (quick boxes shift more often). */
 const SHIFT_INTERVAL_CUTS = 3;
 const SHIFT_INTERVAL_MIN = 0.2;
@@ -78,6 +79,8 @@ export class Gearbox {
   limiter = false;
   /** In an upshift's ignition cut. */
   shifting = false;
+  /** Ignition cut this frame (an upshift's cut or the limiter's off phase): no torque. */
+  cut = false;
   /** Bits of GEAR_EVENT_* raised by the latest update. */
   events = 0;
   shifts = 0;
@@ -123,6 +126,7 @@ export class Gearbox {
     this.load = 0;
     this.limiter = false;
     this.shifting = false;
+    this.cut = false;
     this.events = 0;
     this.throttleSmooth = 0;
     this.recentThrottle = 0;
@@ -242,6 +246,7 @@ export class Gearbox {
     if (this.blipLeft > 0) load = Math.max(load, 0.65);
     this.load = load;
     this.shifting = this.cutLeft > 0;
+    this.cut = this.shifting || limiterCut;
 
     // ── Lift-off (pops / blow-off) ──
     this.recentThrottle = Math.max(this.recentThrottle * Math.exp(-3 * dt), throttle);

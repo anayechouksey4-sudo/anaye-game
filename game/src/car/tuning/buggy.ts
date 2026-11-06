@@ -19,4 +19,10 @@ export const BUGGY_TUNING: Partial<CarTuning> = {
   airPitchDamping: 90,
   airPitchDampingBase: 520,
   airRollDamping: 900,
+  // ── Handling v2 (plan §2 starting points; inert until handlingV2 is switched on for this class) ──
+  loadSensitivity: 0.22,
+  peakSlipRad: 0.2,
+  antiRollFrontN_m: 6000,
+  antiRollRearN_m: 5000,
+  diffLock: 0.2,
 };

@@ -20,4 +20,10 @@ export const RALLY_TUNING: Partial<CarTuning> = {
   airPitchDamping: 45,
   airPitchDampingBase: 240,
   airRollDamping: 380,
+  // ── Handling v2 (plan §2 starting points; inert until handlingV2 is switched on for this class) ──
+  loadSensitivity: 0.18,
+  peakSlipRad: 0.17,
+  antiRollFrontN_m: 20000,
+  antiRollRearN_m: 16000,
+  diffLock: 0.2,
 };

@@ -21,7 +21,7 @@ import { KART_TUNING } from './tuning/kart';
 export { CAR_TUNING };
 
 /** One car class's handling constants (CAR_TUNING with that class's overrides). */
-export type CarTuning = { readonly [K in keyof typeof CAR_TUNING]: number };
+export type CarTuning = { readonly [K in keyof typeof CAR_TUNING]: (typeof CAR_TUNING)[K] extends boolean ? boolean : number };
 
 /** Per-class overrides, merged over CAR_TUNING by vehicleSpec.ts. */
 export const CLASS_TUNING: { readonly [K in CarClassId]: Partial<CarTuning> } = {

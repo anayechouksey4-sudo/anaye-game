@@ -19,6 +19,15 @@ export interface EngineReadout {
   shifting: boolean;
   /** Increments on every gear change (flash the indicator when it changes). */
   shifts: number;
+  /**
+   * Handling v2: the car's physics steps the gearbox and writes this readout every step; the sound
+   * then follows it instead of simulating its own (which it still does while no live car exists).
+   */
+  live: boolean;
+  /** Engine load 0…1 (smoothed throttle with the shift / limiter cuts), for the engine voice. */
+  load: number;
+  /** GEAR_EVENT_* bits raised since the sound last read them (the reader clears them). */
+  events: number;
 }
 
 export const engineReadout: EngineReadout = {
@@ -30,6 +39,9 @@ export const engineReadout: EngineReadout = {
   limiter: false,
   shifting: false,
   shifts: 0,
+  live: false,
+  load: 0,
+  events: 0,
 };
 
 /** HUD helper: 'R', 'N' (no car / before the first frame) or the gear number. */

@@ -16,4 +16,10 @@ export const DRIFT_TUNING: Partial<CarTuning> = {
   brakeForceG: 1.2,
   handbrakeRearFriction: 0.3,
   handbrakeRearSideStiffness: 0.35,
+  // ── Handling v2 (plan §2 starting points; inert until handlingV2 is switched on for this class) ──
+  loadSensitivity: 0.18,
+  peakSlipRad: 0.2,
+  antiRollFrontN_m: 18000,
+  antiRollRearN_m: 12000,
+  diffLock: 0.8,
 };

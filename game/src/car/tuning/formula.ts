@@ -18,4 +18,10 @@ export const FORMULA_TUNING: Partial<CarTuning> = {
   airPitchDamping: 30,
   airPitchDampingBase: 150,
   airRollDamping: 250,
+  // ── Handling v2 (plan §2 starting points; inert until handlingV2 is switched on for this class) ──
+  loadSensitivity: 0.18,
+  peakSlipRad: 0.12,
+  antiRollFrontN_m: 60000,
+  antiRollRearN_m: 45000,
+  diffLock: 0.2,
 };

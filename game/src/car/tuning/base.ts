@@ -104,4 +104,40 @@ export const CAR_TUNING = {
    * at ≥ 57 % (full-throttle load transfer covers the rest); bounces at low speed never get there.
    */
   noseLiftMinLiftRatio: 0.5,
+
+  // ── Handling v2 (carController.ts; every term below is inert while handlingV2 is false) ─────
+  /** Switches the class to the v2 tyre / engine / brake / steering / anti-roll model. */
+  handlingV2: false,
+  /** Tyre load sensitivity: grip × (N / N_static)^−this, clamped to 0.6…1.25 (0 = linear μ·N). */
+  loadSensitivity: 0.18,
+  /** Friction ellipse: lateral patch speed (m/s, floor; grows with speed × peakSlipRad × slipLatPeakRatio) and longitudinal slip speed (m/s) where the demand reaches 1. */
+  slipLatRef: 4,
+  slipLatPeakRatio: 1.6,
+  slipLongRef: 6,
+  /** Share of the longitudinal (drive) budget a tyre loses at slipLatRef of lateral slip. */
+  slipLatBudget: 0.5,
+  /** ABS (assists on): per-wheel brake impulse cap = this × μ × N × dt, pulsed every 4th step to absPulseLow. */
+  absSlipFactor: 0.98,
+  absPulseLow: 0.7,
+  /** Brake bias: 0 = the static brakeFrontShare, 1 = the live axle-load split (clamped 0.4…0.8). */
+  brakeBiasLive: 0.6,
+  /** Steering: Ackermann share (0 = parallel, 1 = full), fading to 0 at ackermannFadeSpeed m/s, and the front slip angle (rad) the steer stops adding beyond. */
+  ackermann: 1,
+  ackermannFadeSpeed: 25,
+  peakSlipRad: 0.16,
+  /** Counter-steer assist (assists on): steer added per rad of rear slip angle. */
+  counterSteerGain: 0.35,
+  /** Traction control (assists on): drive torque eases above this slip ratio, this fast, and recovers at tcRecover per second. */
+  tcSlip: 0.15,
+  tcGain: 4,
+  tcRecover: 1.5,
+  /** Slip ratio denominator floor (m/s) and the share of the tyre's grip budget the assisted torque may ask. */
+  tcSpeedFloor: 10,
+  tcGripShare: 0.98,
+  /** Anti-roll bars, N per metre of left/right travel difference, per axle. */
+  antiRollFrontN_m: 24000,
+  antiRollRearN_m: 18000,
+  /** Rear differential lock 0…1 (share of the axle torque moved to the slower wheel at diffSlipRef m/s of speed difference). */
+  diffLock: 0.35,
+  diffSlipRef: 2,
 } as const;

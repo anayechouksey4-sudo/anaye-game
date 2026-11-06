@@ -15,4 +15,10 @@ export const ELECTRIC_TUNING: Partial<CarTuning> = {
   airPitchDamping: 80,
   airPitchDampingBase: 450,
   airRollDamping: 700,
+  // ── Handling v2 (plan §2 starting points; inert until handlingV2 is switched on for this class) ──
+  loadSensitivity: 0.18,
+  peakSlipRad: 0.15,
+  antiRollFrontN_m: 30000,
+  antiRollRearN_m: 26000,
+  diffLock: 0.2,
 };

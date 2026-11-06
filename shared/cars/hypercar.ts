@@ -31,5 +31,24 @@ export const HYPERCAR: Readonly<CarClass> = {
   suspensionBalanceSplit: SUSPENSION_BALANCE_SPLIT,
   jumpSpeedScale: 1,
   noseLiftMarginKmh: 1000,
-  noseLiftReserveKmh: 12,
+  // Handling v2 (chaos jump, tier 5, sim): 15 % wing / balance −20 lifted the nose at 190.7 km/h with an
+  // estimated lift-off 14.3 km/h above top speed, 17 % / −20 cleared (23.8 above), 27/4/50 lifted at 166
+  // (13.4 above): the stronger mid-range of the geared engine unloads the nose a little earlier than the
+  // flat-torque car did (reserve 12 then).
+  noseLiftReserveKmh: 15,
+  /**
+   * Handling v2 engine (game tuning `handlingV2` on): the 7-speed gearing of its engine sound and a
+   * boosted curve — a torque plateau from 30 % to 70 % of the redline that falls to 80 % of it by the
+   * top-gear fit point (93 %) and 74 % at the limiter — fitted so top gear at 93 % of the redline is
+   * exactly the estimated top speed (the legacy flat-torque number). The dashboard's engineTorque is
+   * that top-end figure; the mid-range therefore pulls ~25 % harder, which is what gets a 1.2 t car
+   * to 100 km/h in about three seconds at tier 3 while its top speed stays put. 50 ms shift cuts.
+   */
+  engine: {
+    gears: 7,
+    firstGearFrac: 0.27,
+    torqueCurve: [0.45, 0.72, 0.92, 1.0, 1.0, 1.0, 1.0, 0.97, 0.9, 0.82, 0.74],
+    shiftUpFrac: 0.96,
+    shiftCutS: 0.05,
+  },
 };

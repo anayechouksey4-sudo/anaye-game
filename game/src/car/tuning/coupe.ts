@@ -16,4 +16,10 @@ export const COUPE_TUNING: Partial<CarTuning> = {
   airPitchDamping: 50,
   airPitchDampingBase: 280,
   airRollDamping: 450,
+  // ── Handling v2 (plan §2 starting points; inert until handlingV2 is switched on for this class) ──
+  loadSensitivity: 0.18,
+  peakSlipRad: 0.16,
+  antiRollFrontN_m: 22000,
+  antiRollRearN_m: 20000,
+  diffLock: 0.2,
 };

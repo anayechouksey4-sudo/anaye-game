@@ -18,4 +18,10 @@ export const KART_TUNING: Partial<CarTuning> = {
   airPitchDamping: 20,
   airPitchDampingBase: 90,
   airRollDamping: 150,
+  // ── Handling v2 (plan §2 starting points; inert until handlingV2 is switched on for this class) ──
+  loadSensitivity: 0.1,
+  peakSlipRad: 0.12,
+  antiRollFrontN_m: 40000,
+  antiRollRearN_m: 40000,
+  diffLock: 0.2,
 };

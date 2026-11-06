@@ -13,6 +13,12 @@
  *   traction   friction slip / side stiffness on every tyre (friction × the track's surfaceGrip)
  *
  * Every parameter is read from the store each step, so changes apply on the next step.
+ *
+ * Handling v2 (per class, `tuning.handlingV2`; the legacy path above runs bit-identically when it is
+ * off): load-sensitive tyres, a friction ellipse, an engine with real gears (the audio gearbox stepped
+ * here, torque from the class's curve — the protocol's estimates use the same functions), ABS with a
+ * live brake bias, Ackermann and slip-aware steering, anti-roll bars, a rear differential lock, and
+ * the player's assists (ABS pulse, wheelspin cap, counter-steer) from GameSettings.
  */
 import type { Collider, DynamicRayCastVehicleController, Ray, RigidBody, World } from '@dimforge/rapier3d-compat';
 import type { RapierContext } from '@react-three/rapier';
@@ -21,10 +27,19 @@ import {
   GRAVITY,
   balanceToFrontWeightFraction,
   balanceToSuspensionStiffness,
+  estimateTopSpeedKmh,
+  gearRatioToTop,
+  torqueShape,
   type CarClass,
   type CarPhysicsParams,
+  type EngineModel,
 } from '@shared/protocol';
+import { engineReadout } from '../audio/engineReadout';
+import { Gearbox, type GearboxInput } from '../audio/gearbox';
+import { getEnginePreset, type EnginePreset } from '../audio/presets';
+import { selectionState } from '../state/selection';
 import type { CarTuning } from './tuning';
+import { absBrakeCap, ackermannAngles, brakeFrontShare, diffLockTransfer, frictionEllipseScale, lateralBudgetScale, loadSensitivityScale, type SteerAngles } from './handling';
 import { chassisInertia, wheelGrip } from './surfaceGrip';
 import { carRuntime } from './runtime';
 import {
@@ -85,6 +100,29 @@ export class CarController {
   private readonly prevRapierRotation: number[];
   private readonly rawInput: DriverInput = { throttle: 0, brake: 0, steer: 0, handbrake: 0 };
 
+  // ── Handling v2 state (unused, and never touched, while T.handlingV2 is false) ──
+  private readonly v2: boolean;
+  /** The physics gearbox (v2 classes with an engine model); null = legacy flat torque. */
+  private readonly gearbox: Gearbox | null;
+  private readonly engine: Readonly<EngineModel> | null;
+  private readonly enginePreset: EnginePreset | null;
+  private readonly gearIn: GearboxInput = { dt: 0, carSpeed: 0, driveSpeed: 0, throttle: 0, brake: 0, grounded: true, reversing: false };
+  /** The physics the gearing was last fitted to (estimateTopSpeedKmh reads mass, drag, torque). */
+  private gearMass = NaN;
+  private gearDrag = NaN;
+  private gearTorque = NaN;
+  private gearTopSpeedMs = 0;
+  /** Anti-roll-bar load share per wheel from the last step, N (+ = more load on that tyre). */
+  private readonly arbLoad: number[];
+  /** Brake slide per undriven wheel: applied impulse ÷ grip cap − 1, ≥ 0 only when the tyre slides. */
+  private readonly brakeSlide: number[];
+  /** Per-wheel values computed before updateVehicle this step (along / lateral patch speed, N). */
+  private readonly along: number[];
+  private readonly lateral: number[];
+  private readonly steerAngles: SteerAngles = { left: 0, right: 0 };
+  /** Traction-control torque factor per driven wheel (drops at once on slip, recovers at tcRecover per second). */
+  private readonly tcFactor: number[];
+
   // Scratch objects — the step runs 60×/s, so nothing below allocates.
   private readonly q = new Quaternion();
   private readonly fwd = new Vector3();
@@ -114,6 +152,23 @@ export class CarController {
     this.wheels = spec.wheels;
     this.driven = spec.wheels.map(() => createDrivenWheelState());
     this.prevRapierRotation = spec.wheels.map(() => 0);
+    this.arbLoad = spec.wheels.map(() => 0);
+    this.brakeSlide = spec.wheels.map(() => 0);
+    this.along = spec.wheels.map(() => 0);
+    this.lateral = spec.wheels.map(() => 0);
+    this.tcFactor = spec.wheels.map(() => 1);
+    this.v2 = spec.tuning.handlingV2;
+    this.engine = this.v2 && spec.car.engine ? spec.car.engine : null;
+    if (this.engine) {
+      // The audio preset's character with the class's physics gearing, so sound and physics agree.
+      const base = getEnginePreset(spec.id);
+      this.enginePreset = { ...base, gears: this.engine.gears, firstGearFrac: this.engine.firstGearFrac, shiftUpFull: this.engine.shiftUpFrac, shiftTime: this.engine.shiftCutS };
+      this.gearbox = new Gearbox(this.enginePreset);
+    } else {
+      this.enginePreset = null;
+      this.gearbox = null;
+    }
+    engineReadout.live = this.gearbox !== null;
     const vehicle = world.createVehicleController(body);
     vehicle.indexUpAxis = UP_AXIS_INDEX;
     // In rapier3d-compat 0.19 the forward-axis setter is a property literally named `setIndexForwardAxis`.
@@ -135,6 +190,7 @@ export class CarController {
   }
 
   dispose(): void {
+    if (this.gearbox) engineReadout.live = false;
     try {
       this.world.removeVehicleController(this.vehicle);
     } catch {
@@ -205,24 +261,66 @@ export class CarController {
     }
     const handbrake = input.handbrake;
 
+    const h2 = this.v2;
+    const assists = h2 && selectionState().settings.assists !== 'off';
+
     // ── Speed-sensitive steering with slew-rate limiting ──
     const maxSteer = Math.max(T.steerMin, T.steerMax / (1 + Math.abs(vFwd) / T.steerSpeedFalloff));
     // Positive Rapier steering turns the nose toward +X (driver's left), so right input is negative.
-    const target = -input.steer * maxSteer;
+    let target = -input.steer * maxSteer;
+    if (h2) {
+      // Patch speeds of the last step (contact data is from the previous updateVehicle).
+      for (const wheel of this.wheels) {
+        const i = wheel.index;
+        if (vehicle.wheelIsInContact(i)) {
+          const sp = this.contactSpeeds(i);
+          this.along[i] = sp.along;
+          this.lateral[i] = sp.lateral;
+        } else {
+          this.along[i] = 0;
+          this.lateral[i] = 0;
+        }
+      }
+      // Counter-steer assist: a sliding rear adds steer into the slide (a light hand, never with the handbrake).
+      if (assists && handbrake === 0 && vFwd > 5 && (vehicle.wheelIsInContact(2) || vehicle.wheelIsInContact(3))) {
+        const rearLat = 0.5 * (this.lateral[2]! + this.lateral[3]!);
+        target += clamp(T.counterSteerGain * Math.atan2(rearLat, vFwd), -0.5 * maxSteer, 0.5 * maxSteer);
+      }
+      // Slip-aware cap: past the tyres' peak slip angle more lock only scrubs, so the angle holds there.
+      if (vehicle.wheelIsInContact(0) || vehicle.wheelIsInContact(1)) {
+        const alpha = Math.atan2(Math.abs(this.lateral[0]! + this.lateral[1]!) * 0.5, Math.max(1, Math.abs(vFwd)));
+        if (alpha > T.peakSlipRad && Math.abs(target) > Math.abs(this.steerAngle) && Math.sign(target) === Math.sign(this.steerAngle)) target = this.steerAngle;
+      }
+    }
     const returning =
       Math.abs(target) < Math.abs(this.steerAngle) || (this.steerAngle !== 0 && Math.sign(target) !== Math.sign(this.steerAngle));
     const rate = (returning ? T.steerReturnRate : T.steerRate) * dt;
     this.steerAngle += clamp(target - this.steerAngle, -rate, rate);
-    vehicle.setWheelSteering(0, this.steerAngle);
-    vehicle.setWheelSteering(1, this.steerAngle);
+    if (h2) {
+      // Ackermann: the inner wheel turns more than the outer so both roll about one centre. The share
+      // fades out with speed (the kinematic centre is far inside the real, sliding radius at speed, where
+      // the loaded outer tyre wants the larger angle), so it shapes parking and hairpins, not fast sweepers.
+      const share = T.ackermann * Math.max(0, 1 - Math.abs(vFwd) / T.ackermannFadeSpeed);
+      const a = ackermannAngles(this.steerAngle, this.spec.wheelbase, Math.abs(this.wheels[0]!.connection[0]), share, this.steerAngles);
+      vehicle.setWheelSteering(0, a.left);
+      vehicle.setWheelSteering(1, a.right);
+    } else {
+      vehicle.setWheelSteering(0, this.steerAngle);
+      vehicle.setWheelSteering(1, this.steerAngle);
+    }
 
     // ── Brakes (Rapier brake = max impulse per step) ──
     // Rapier never caps brake force by tyre grip, so a slippery surface (ice: surfaceGrip 0.55) scales
     // the pedal brake itself; on tarmac (1) this is exact, so nothing changes there.
-    const brakeForce = T.brakeForceG * mass * GRAVITY * brake * Math.min(1, surfaceGrip);
+    // Handling v2: the surface scaling moves into the per-wheel grip cap (ABS), and the bias follows
+    // the live axle loads (nose-heavy under braking) blended with the static share.
+    const frontShare = h2 ? brakeFrontShare(T.brakeFrontShare, carRuntime.frontAxleLoadN, carRuntime.rearAxleLoadN, T.brakeBiasLive) : T.brakeFrontShare;
+    const brakeForce = h2 ? T.brakeForceG * mass * GRAVITY * brake : T.brakeForceG * mass * GRAVITY * brake * Math.min(1, surfaceGrip);
     const idleHold = throttle === 0 && brake === 0 && Math.abs(vFwd) < T.idleHoldSpeed ? 0.25 * mass * GRAVITY : 0;
-    const frontBrake = (brakeForce * T.brakeFrontShare + idleHold * 0.5 + frontOnlyBrake * 1.2 * mass * GRAVITY) / 2;
-    const rearBrake = (brakeForce * (1 - T.brakeFrontShare) + idleHold * 0.5) / 2 + handbrake * T.handbrakeForceN * 0.5;
+    const frontBrake = (brakeForce * frontShare + idleHold * 0.5 + frontOnlyBrake * 1.2 * mass * GRAVITY) / 2;
+    const rearPedalBrake = (brakeForce * (1 - frontShare) + idleHold * 0.5) / 2;
+    const rearHandbrake = handbrake * T.handbrakeForceN * 0.5;
+    const rearBrake = rearPedalBrake + rearHandbrake;
 
     // ── Drive + friction per wheel ──
     // Low-speed "grunt" (launch boost) multiplies forward drive only; flat-torque classes skip it.
@@ -237,13 +335,60 @@ export class CarController {
     const burnout = frontOnlyBrake > 0 && Math.abs(vFwd) < T.burnoutMaxSpeed;
     const longMu = traction * T.longitudinalGripRatio * (burnout ? T.burnoutRearGrip : 1);
 
+    // Handling v2 engine: the gearbox steps on the last step's wheel speeds; wheel torque comes from
+    // the gear and the torque curve (shift and limiter cuts really cut it). The launch boost is gone:
+    // 1st gear multiplies torque instead. `driveTorque` is the whole car's wheel torque this step.
+    let driveTorque = p.engineTorque * throttle * drive;
+    const gearbox = this.gearbox;
+    if (gearbox && this.engine) {
+      if (p.mass !== this.gearMass || p.drag !== this.gearDrag || p.engineTorque !== this.gearTorque) {
+        this.gearMass = p.mass;
+        this.gearDrag = p.drag;
+        this.gearTorque = p.engineTorque;
+        const top = estimateTopSpeedKmh(p, car) / 3.6;
+        this.gearTopSpeedMs = Number.isFinite(top) ? top : 250 / 3.6;
+        gearbox.configure(this.enginePreset!, this.gearTopSpeedMs);
+      }
+      let driveSpeed = 0;
+      let drivenGrounded = false;
+      for (const wheel of this.wheels) {
+        if (!wheel.driven) continue;
+        const s = Math.abs(this.driven[wheel.index]!.omega) * wheel.radius;
+        if (s > driveSpeed) driveSpeed = s;
+        if (vehicle.wheelIsInContact(wheel.index)) drivenGrounded = true;
+      }
+      const gin = this.gearIn;
+      gin.dt = dt;
+      gin.carSpeed = Math.abs(vFwd);
+      gin.driveSpeed = driveSpeed;
+      gin.throttle = throttle;
+      gin.brake = brake;
+      gin.grounded = drivenGrounded;
+      gin.reversing = reversing;
+      gearbox.update(gin);
+      const gear = gearbox.gear < 1 ? 1 : gearbox.gear;
+      const shape = gearbox.cut ? 0 : torqueShape(this.engine, gearbox.rpmFrac);
+      driveTorque = p.engineTorque * throttle * shape * gearRatioToTop(this.engine, gear) * (reversing ? -T.reverseTorqueRatio : 1);
+      const r = engineReadout;
+      r.gear = gearbox.gear;
+      r.gears = gearbox.gearCount;
+      r.rpm = gearbox.rpm;
+      r.rpmFrac = gearbox.rpmFrac;
+      r.redline = this.enginePreset!.redlineRpm;
+      r.limiter = gearbox.limiter;
+      r.shifting = gearbox.shifting;
+      r.shifts = gearbox.shifts;
+      r.load = gearbox.load;
+      r.events |= gearbox.events;
+    }
+
     // All-wheel drive: a torque-sensing centre diff. Nominally frontDriveShare goes to the front, but
     // an axle never gets more drive than its tyres' grip budget (from the last step's loads) while
     // the other axle has budget to spare, so a nose lightened by body lift or a rear-biased balance
     // doesn't just spin its tyres. RWD classes (the hypercar) skip this entirely.
     let frontAxleShare = car.frontDriveShare;
     if (frontAxleShare > 0 && throttle > 0 && !reversing) {
-      const requested = (p.engineTorque * throttle * drive) / car.driveWheelRadius;
+      const requested = h2 ? driveTorque / car.driveWheelRadius : (p.engineTorque * throttle * drive) / car.driveWheelRadius;
       const load = (a: number, b: number) =>
         (vehicle.wheelIsInContact(a) ? (vehicle.wheelSuspensionForce(a) ?? 0) : 0) + (vehicle.wheelIsInContact(b) ? (vehicle.wheelSuspensionForce(b) ?? 0) : 0);
       // The steered front tyres keep part of their grip for cornering (the diff never asks them for more).
@@ -267,11 +412,20 @@ export class CarController {
     let driveForceN = 0;
     let driveGripN = 0;
     if (throttle > 0 && !reversing && !noDrive) {
-      driveForceN = (p.engineTorque * throttle * drive) / car.driveWheelRadius;
+      driveForceN = h2 ? driveTorque / car.driveWheelRadius : (p.engineTorque * throttle * drive) / car.driveWheelRadius;
       for (const wheel of this.wheels) {
         if (wheel.driven && vehicle.wheelIsInContact(wheel.index)) driveGripN += longMu * wheelGrip(wheel.index) * (vehicle.wheelSuspensionForce(wheel.index) ?? 0);
       }
     }
+
+    // Handling v2: rear differential lock, moving torque from the faster rear wheel to the slower one
+    // (last step's wheel speeds), up to diffLock of the axle's torque.
+    let lsd = 0;
+    if (h2 && T.diffLock > 0 && !reversing && throttle > 0 && !noDrive) {
+      const dOmega = (this.driven[2]!.omega - this.driven[3]!.omega) * this.wheels[2]!.radius;
+      lsd = diffLockTransfer(T.diffLock, driveTorque * (1 - frontAxleShare), dOmega, T.diffSlipRef);
+    }
+    const frontFrac = h2 ? balanceToFrontWeightFraction(p.balance, car) : 0;
 
     for (const wheel of this.wheels) {
       const i = wheel.index;
@@ -280,13 +434,53 @@ export class CarController {
       const g = wheelGrip(i);
       let friction = traction * g;
       let side = baseSide;
+      // v2 tyre: load sensitivity on the last step's load (+ the anti-roll bar's share), then the
+      // friction ellipse from the patch's lateral speed and the longitudinal slip (or brake demand).
+      let loadScale = 1;
+      let muLat = 1;
+      let brakeCap = Infinity;
+      if (h2) {
+        const inContactNow = vehicle.wheelIsInContact(i);
+        const N = inContactNow ? Math.min(vehicle.wheelSuspensionForce(i) ?? 0, MAX_SUSPENSION_FORCE) + this.arbLoad[i]! : 0;
+        const N0 = (mass * GRAVITY * (front ? frontFrac : 1 - frontFrac)) / 2;
+        loadScale = loadSensitivityScale(N, N0, T.loadSensitivity);
+        const lat = Math.abs(this.lateral[i]!);
+        const long = wheel.driven && inContactNow ? Math.abs(this.driven[i]!.omega * wheel.radius - this.along[i]!) : 0;
+        // The lateral reference grows with speed: a tyre at its peak slip angle slides faster at speed.
+        const latRef = Math.max(T.slipLatRef, Math.abs(vFwd) * T.peakSlipRad * T.slipLatPeakRatio);
+        const ellipse = frictionEllipseScale(long, lat, T.slipLongRef, latRef);
+        friction *= loadScale * ellipse;
+        side *= ellipse;
+        muLat = lateralBudgetScale(lat, latRef, T.slipLatBudget);
+        // ABS cap on the pedal brake (the handbrake is exempt: it is meant to lock the rears).
+        brakeCap = assists ? absBrakeCap(friction, N, dt, T.absSlipFactor) : Infinity;
+        this.brakeSlide[i] = 0;
+      }
       if (wheel.driven) {
         const inContact = vehicle.wheelIsInContact(i);
         const groundSpeed = inContact ? this.contactSpeeds(i).along : vFwd;
         const state = this.driven[i]!;
         // Both pedals: a driven front axle is held by its brakes (line lock) while the rears spin.
         const share = frontAxleShare === car.frontDriveShare ? wheel.driveShare : front ? frontAxleShare / 2 : (1 - frontAxleShare) / 2;
-        const torque = noDrive || (front && frontOnlyBrake > 0) ? 0 : p.engineTorque * share * throttle * drive;
+        let torque = noDrive || (front && frontOnlyBrake > 0) ? 0 : h2 ? driveTorque * share : p.engineTorque * share * throttle * drive;
+        if (h2 && !front && lsd !== 0) torque += i === 2 ? -lsd : lsd;
+        if (assists && inContact && frontOnlyBrake === 0) {
+          // Traction control (never during a deliberate burnout): the torque factor drops at once when
+          // the slip ratio (last step's wheel speed, against a speed floor so a crawl is not all slip)
+          // passes tcSlip and climbs back at tcRecover per second; and the torque never asks more than
+          // tcGripShare of the tyre's last-step budget, so a 1st gear worth four times the grip launches
+          // at the limit instead of flipping between spin and grip every step.
+          const slipRatio = (state.omega * wheel.radius - groundSpeed) / Math.max(T.tcSpeedFloor, Math.abs(groundSpeed));
+          let f = this.tcFactor[i]!;
+          if (slipRatio > T.tcSlip) f = Math.min(f, clamp(1 - (slipRatio - T.tcSlip) * T.tcGain, 0.15, 1));
+          else f = Math.min(1, f + T.tcRecover * dt);
+          this.tcFactor[i] = f;
+          torque *= f;
+          const budget = T.tcGripShare * longMu * g * loadScale * muLat * Math.min(vehicle.wheelSuspensionForce(i) ?? 0, MAX_SUSPENSION_FORCE) * wheel.radius;
+          if (torque > budget) torque = budget;
+        } else {
+          this.tcFactor[i] = 1;
+        }
         let force = 0;
         if (handbrake > 0.5 && inContact && !front) {
           state.omega = 0;
@@ -299,7 +493,7 @@ export class CarController {
             torque,
             groundSpeed,
             normalLoad: Math.min(vehicle.wheelSuspensionForce(i) ?? 0, MAX_SUSPENSION_FORCE),
-            mu: longMu * g,
+            mu: h2 ? longMu * g * loadScale * muLat : longMu * g,
             radius: wheel.radius,
             inContact,
             dt,
@@ -307,12 +501,26 @@ export class CarController {
           force = out.force;
         }
         vehicle.setWheelEngineForce(i, force);
-        vehicle.setWheelBrake(i, (front ? frontBrake : rearBrake) * dt * Math.min(1, g));
+        if (h2) {
+          const pedal = Math.min((front ? frontBrake : rearPedalBrake) * dt, brakeCap);
+          vehicle.setWheelBrake(i, front ? pedal : pedal + rearHandbrake * dt);
+        } else {
+          vehicle.setWheelBrake(i, (front ? frontBrake : rearBrake) * dt * Math.min(1, g));
+        }
         const spin = Math.abs(state.omega * wheel.radius - groundSpeed);
         friction *= 1 - T.spinGripLoss * smoothstep(0, T.spinGripLossFullSlip, inContact ? spin : 0);
       } else {
         vehicle.setWheelEngineForce(i, 0);
-        vehicle.setWheelBrake(i, (front ? frontBrake : rearBrake) * dt * Math.min(1, g));
+        if (h2) {
+          const demand = (front ? frontBrake : rearPedalBrake) * dt;
+          const pedal = Math.min(demand, brakeCap);
+          vehicle.setWheelBrake(i, front ? pedal : pedal + rearHandbrake * dt);
+          // Lock-up report: how far the applied pedal impulse exceeds what the tyre can transmit.
+          const grip = absBrakeCap(friction, vehicle.wheelIsInContact(i) ? (vehicle.wheelSuspensionForce(i) ?? 0) + this.arbLoad[i]! : 0, dt, T.absSlipFactor);
+          this.brakeSlide[i] = grip > 1e-9 ? Math.max(0, pedal / grip - 1) : 0;
+        } else {
+          vehicle.setWheelBrake(i, (front ? frontBrake : rearBrake) * dt * Math.min(1, g));
+        }
       }
       if (handbrake > 0 && !front) {
         friction *= 1 - (1 - T.handbrakeRearFriction) * handbrake;
@@ -325,6 +533,7 @@ export class CarController {
     vehicle.updateVehicle(dt, this.rapier.QueryFilterFlags.EXCLUDE_SENSORS);
     let grounded = 0;
     for (const wheel of this.wheels) if (vehicle.wheelIsInContact(wheel.index)) grounded++;
+    if (h2) this.applyAntiRoll(dt);
 
     // ── Aero + drag as per-step impulses (addForce would persist across steps) ──
     const t = body.translation();
@@ -410,7 +619,11 @@ export class CarController {
       resetDrivenWheel(this.driven[wheel.index]!);
       this.vehicle.setWheelSteering(wheel.index, 0);
       this.vehicle.setWheelEngineForce(wheel.index, 0);
+      this.arbLoad[wheel.index] = 0;
+      this.brakeSlide[wheel.index] = 0;
+      this.tcFactor[wheel.index] = 1;
     }
+    if (this.gearbox) this.gearbox.reset();
     const rt = carRuntime;
     rt.position.set(groundPosition[0], groundPosition[1] + rideHeight + 0.12, groundPosition[2]);
     rt.quaternion.set(0, Math.sin(yaw / 2), 0, Math.cos(yaw / 2));
@@ -420,6 +633,49 @@ export class CarController {
     rt.speedKmh = 0;
     rt.noseLift = false;
     rt.airborneTime = 0;
+  }
+
+  /**
+   * Handling v2 anti-roll bars: each axle's bar pushes the body up on the compressed side and pulls
+   * it down on the extended side by antiRoll × (travel difference), a pure couple at the two contact
+   * points, and the same force is added to / taken from those tyres' loads for the next step's
+   * load-sensitive grip (so the bar moves load, not just the roll angle).
+   */
+  private applyAntiRoll(dt: number): void {
+    const { vehicle, up, T } = this;
+    for (let axle = 0; axle < 2; axle++) {
+      const l = axle * 2;
+      const r = l + 1;
+      const k = axle === 0 ? T.antiRollFrontN_m : T.antiRollRearN_m;
+      if (k <= 0 || !vehicle.wheelIsInContact(l) || !vehicle.wheelIsInContact(r)) {
+        this.arbLoad[l] = 0;
+        this.arbLoad[r] = 0;
+        continue;
+      }
+      const delta = (vehicle.wheelSuspensionLength(l) ?? 0) - (vehicle.wheelSuspensionLength(r) ?? 0);
+      // Left shorter (more compressed) ⇒ delta < 0 ⇒ the bar lifts the body at the left wheel (+ load there).
+      const forceL = -k * delta;
+      this.arbLoad[l] = forceL;
+      this.arbLoad[r] = -forceL;
+      if (forceL === 0) continue;
+      const cl = vehicle.wheelContactPoint(l);
+      const cr = vehicle.wheelContactPoint(r);
+      if (!cl || !cr) continue;
+      this.impulse.x = up.x * forceL * dt;
+      this.impulse.y = up.y * forceL * dt;
+      this.impulse.z = up.z * forceL * dt;
+      this.point.x = cl.x;
+      this.point.y = cl.y;
+      this.point.z = cl.z;
+      this.body.applyImpulseAtPoint(this.impulse, this.point, true);
+      this.impulse.x = -this.impulse.x;
+      this.impulse.y = -this.impulse.y;
+      this.impulse.z = -this.impulse.z;
+      this.point.x = cr.x;
+      this.point.y = cr.y;
+      this.point.z = cr.z;
+      this.body.applyImpulseAtPoint(this.impulse, this.point, true);
+    }
   }
 
   /**
@@ -581,6 +837,8 @@ export class CarController {
         const speeds = this.contactSpeeds(i);
         w.lateralSlip = Math.abs(speeds.lateral);
         w.longitudinalSlip = Math.abs(w.spinRate * wheel.radius - speeds.along);
+        // v2: an undriven tyre whose brake exceeds its grip slides along the road (Rapier keeps it rolling visually).
+        if (this.v2 && !wheel.driven && this.brakeSlide[i]! > 0) w.longitudinalSlip = Math.max(w.longitudinalSlip, Math.abs(speeds.along) * Math.min(1, this.brakeSlide[i]!));
         w.slip01 = smoothstep(T.slipStart, T.slipFull, Math.hypot(w.lateralSlip, w.longitudinalSlip));
         grounded++;
       } else {

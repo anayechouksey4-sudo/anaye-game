@@ -23,9 +23,14 @@ export interface GameSettings {
   volume: number;
   /** navigator.vibrate feedback on phones (checkpoints, hits, landings, falls). */
   haptics: boolean;
+  /**
+   * Driving assists (Handling v2 cars only): ABS pulse, a wheelspin cap and a light counter-steer
+   * hand. 'off' is the raw model. Default on everywhere.
+   */
+  assists: 'on' | 'off';
 }
 
-export const DEFAULT_SETTINGS: Readonly<GameSettings> = Object.freeze({ sound: true, volume: 0.7, haptics: true });
+export const DEFAULT_SETTINGS: Readonly<GameSettings> = Object.freeze({ sound: true, volume: 0.7, haptics: true, assists: 'on' as const });
 
 export interface SelectionState {
   carId: string;
@@ -99,6 +104,7 @@ function initialSettings(saved: Saved): GameSettings {
     sound: typeof s.sound === 'boolean' ? s.sound : DEFAULT_SETTINGS.sound,
     volume: typeof s.volume === 'number' && Number.isFinite(s.volume) ? Math.min(1, Math.max(0, s.volume)) : DEFAULT_SETTINGS.volume,
     haptics: typeof s.haptics === 'boolean' ? s.haptics : DEFAULT_SETTINGS.haptics,
+    assists: s.assists === 'off' ? 'off' : 'on',
   };
 }
 

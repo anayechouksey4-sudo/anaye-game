@@ -19,4 +19,10 @@ export const MUSCLE_TUNING: Partial<CarTuning> = {
   airPitchDamping: 70,
   airPitchDampingBase: 400,
   airRollDamping: 650,
+  // ── Handling v2 (plan §2 starting points; inert until handlingV2 is switched on for this class) ──
+  loadSensitivity: 0.22,
+  peakSlipRad: 0.15,
+  antiRollFrontN_m: 22000,
+  antiRollRearN_m: 14000,
+  diffLock: 0.5,
 };

@@ -18,6 +18,7 @@ import { PHYSICS_DT } from '../config';
 import { carDebug, type CarDebugInfo } from '../car/carDebug';
 import { setInputOverride, type DriverInput } from '../car/input';
 import { carRuntime } from '../car/runtime';
+import { engineReadout } from '../audio/engineReadout';
 import { runClock } from '../game/runClock';
 import { plateFor } from '../car/plates/platePick';
 import { gameSessionInfo, getActiveLink } from '../net/squadLink';
@@ -82,6 +83,10 @@ export interface RacerState {
   stepCount: number;
   simTime: number;
   car: CarDebugInfo | null;
+  /** Driving assists setting (GameSettings.assists; Handling v2 cars only). */
+  assists: 'on' | 'off';
+  /** The engine readout (gear, rpm): physics-driven (`live`) on Handling v2 cars, the sound's own gearbox otherwise. */
+  engine: { live: boolean; gear: number; gears: number; rpm: number; rpmFrac: number; shifting: boolean; limiter: boolean };
 }
 
 export interface RacerHandle {
@@ -110,6 +115,8 @@ export interface RacerHandle {
   session(): ReturnType<typeof gameSessionInfo>;
   /** Number plate of the car in play (same path as the garage editor; '' resets to the default). Returns the plate it now wears. */
   setPlate(text: string): string;
+  /** Driving assists on / off (same path as the SETTINGS toggle). Returns the stored value. */
+  setAssists(mode: 'on' | 'off'): 'on' | 'off';
 }
 
 declare global {
@@ -171,6 +178,8 @@ function snapshot(): RacerState {
     stepCount: rt.stepCount,
     simTime: rt.simTime,
     car: carDebug.info ? carDebug.info() : null,
+    assists: useSelection.getState().settings.assists,
+    engine: { live: engineReadout.live, gear: engineReadout.gear, gears: engineReadout.gears, rpm: engineReadout.rpm, rpmFrac: engineReadout.rpmFrac, shifting: engineReadout.shifting, limiter: engineReadout.limiter },
   };
 }
 
@@ -224,6 +233,10 @@ export function useRacerHandle(): void {
         const carId = gameState().carId;
         useSelection.getState().setPlate(carId, text);
         return plateFor(carId);
+      },
+      setAssists: (mode) => {
+        useSelection.getState().setSettings({ assists: mode === 'off' ? 'off' : 'on' });
+        return useSelection.getState().settings.assists;
       },
     };
     window.__RACER__ = handle;

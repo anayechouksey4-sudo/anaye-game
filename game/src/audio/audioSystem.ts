@@ -466,33 +466,70 @@ export class AudioSystem {
     }
     const throttle = paused || !rt.ready ? 0 : rt.throttle;
     const gb = this.gearbox;
-    const gin = this.gearIn;
-    gin.dt = dt;
-    gin.carSpeed = rt.ready && !paused ? Math.abs(rt.forwardSpeed) : 0;
-    gin.driveSpeed = driveSpeed;
-    gin.throttle = throttle;
-    gin.brake = paused ? 0 : rt.brake;
-    gin.grounded = drivenGrounded || !rt.ready;
-    gin.reversing = !paused && rt.reversing;
-    const gearEvents = gb.update(gin);
+    const r = engineReadout;
+    // Handling v2: the car's physics steps the gearbox and writes the readout every step; the sound
+    // follows it while the car is live and running. Paused, or before a car exists, the engine idles
+    // on this system's own gearbox as it always did (the readout is then written from it).
+    const live = r.live && rt.ready && !paused;
+    let gearEvents: number;
+    let rpm: number;
+    let gear: number;
+    let load: number;
+    let rpmFrac: number;
+    let limiter: boolean;
+    let shifting: boolean;
+    let shifts: number;
+    let firingHz: number;
+    if (live) {
+      gearEvents = r.events;
+      r.events = 0;
+      rpm = r.rpm;
+      gear = r.gear;
+      load = r.load;
+      rpmFrac = r.rpmFrac;
+      limiter = r.limiter;
+      shifting = r.shifting;
+      shifts = r.shifts;
+      firingHz = (rpm / 60) * (this.preset.cylinders / 2);
+    } else {
+      const gin = this.gearIn;
+      gin.dt = dt;
+      gin.carSpeed = rt.ready && !paused ? Math.abs(rt.forwardSpeed) : 0;
+      gin.driveSpeed = driveSpeed;
+      gin.throttle = throttle;
+      gin.brake = paused ? 0 : rt.brake;
+      gin.grounded = drivenGrounded || !rt.ready;
+      gin.reversing = !paused && rt.reversing;
+      gearEvents = gb.update(gin);
+      rpm = gb.rpm;
+      gear = gb.gear;
+      load = gb.load;
+      rpmFrac = gb.rpmFrac;
+      limiter = gb.limiter;
+      shifting = gb.shifting;
+      shifts = gb.shifts;
+      firingHz = gb.firingHz;
+      if (!r.live) {
+        r.gear = gb.gear;
+        r.gears = gb.gearCount;
+        r.rpm = gb.rpm;
+        r.rpmFrac = gb.rpmFrac;
+        r.redline = this.preset.redlineRpm;
+        r.limiter = gb.limiter;
+        r.shifting = gb.shifting;
+        r.shifts = gb.shifts;
+        r.load = gb.load;
+      }
+    }
 
     const e = d.engine;
-    e.rpm = Math.round(gb.rpm);
-    e.gear = gb.gear;
-    e.freq = Math.round(gb.firingHz * 10) / 10;
-    e.load = Math.round(gb.load * 1000) / 1000;
-    e.limiter = gb.limiter;
-    e.shifting = gb.shifting;
-    e.shifts = gb.shifts;
-    const r = engineReadout;
-    r.gear = gb.gear;
-    r.gears = gb.gearCount;
-    r.rpm = gb.rpm;
-    r.rpmFrac = gb.rpmFrac;
-    r.redline = this.preset.redlineRpm;
-    r.limiter = gb.limiter;
-    r.shifting = gb.shifting;
-    r.shifts = gb.shifts;
+    e.rpm = Math.round(rpm);
+    e.gear = gear;
+    e.freq = Math.round(firingHz * 10) / 10;
+    e.load = Math.round(load * 1000) / 1000;
+    e.limiter = limiter;
+    e.shifting = shifting;
+    e.shifts = shifts;
 
     // Tyres, wind, road.
     let slip = 0;
@@ -534,9 +571,9 @@ export class AudioSystem {
     if (!g || g.ctx.state !== 'running') return;
     const t = g.ctx.currentTime;
     const ef = this.engineFrame;
-    ef.firingHz = gb.firingHz;
-    ef.load = gb.load;
-    ef.rpmFrac = gb.rpmFrac;
+    ef.firingHz = firingHz;
+    ef.load = load;
+    ef.rpmFrac = rpmFrac;
     ef.level = paused ? PAUSED_ENGINE_LEVEL : 1;
     g.engine.update(ef, t);
     const loops = this.loops;
@@ -554,7 +591,7 @@ export class AudioSystem {
     ds.loopSqueal = loops.squeal;
     this.updateCrunch(g, sm.crunch, speed, t);
 
-    if (gearEvents !== 0 && this.audible()) this.onGearEvents(gearEvents, g.sfx);
+    if (gearEvents !== 0 && this.audible()) this.onGearEvents(gearEvents, g.sfx, rpmFrac);
   }
 
   // ───────────────────────── open-world surface ─────────────────────────
@@ -660,7 +697,7 @@ export class AudioSystem {
     return !!this.graph && this.graph.ctx.state === 'running' && this.settings.sound && this.settings.volume > 0;
   }
 
-  private onGearEvents(events: number, out: SfxOut): void {
+  private onGearEvents(events: number, out: SfxOut, rpmFrac: number): void {
     const p = this.preset;
     const now = performance.now();
     if (events & GEAR_EVENT_LIFTOFF) {
@@ -676,7 +713,7 @@ export class AudioSystem {
         this.debug.sfx.blowoff += 1;
       }
     }
-    if (events & GEAR_EVENT_UPSHIFT && this.gearbox.rpmFrac > 0.75) {
+    if (events & GEAR_EVENT_UPSHIFT && rpmFrac > 0.75) {
       if (p.blowOff > 0 && now - this.lastBlowOffAt > 400) {
         this.lastBlowOffAt = now;
         blowOff(out, 0.6 * p.blowOff);

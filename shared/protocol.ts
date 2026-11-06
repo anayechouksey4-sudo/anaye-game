@@ -18,7 +18,8 @@
  * Transport: JSON text frames over a plain WebSocket, default `ws://<host>:8787`.
  * Every frame is one object with a string `type` and `v: 1`.
  */
-import type { CarClass, CarClassId } from './cars/types';
+import type { CarClass, CarClassId, EngineModel } from './cars/types';
+import { engineDriveForceN } from './cars/engine';
 import { HYPERCAR } from './cars/hypercar';
 import { RALLY } from './cars/rally';
 import { MUSCLE } from './cars/muscle';
@@ -261,7 +262,21 @@ export const GRAVITY = 9.81;
 // Car classes — the garage. Every class maps the same three sliders onto its own car.
 // ─────────────────────────────────────────────────────────────────────────────
 
-export type { CarClass } from './cars/types';
+export type { CarClass, EngineModel } from './cars/types';
+// Handling v2 engine math (gears + torque curve), the same functions the game's controller steps.
+export {
+  LAUNCH_RPM_FRAC,
+  TOP_GEAR_RPM_FRAC,
+  engineDriveForceN,
+  engineRpmFrac,
+  engineWheelTorqueNm,
+  gearCount,
+  gearForSpeed,
+  gearRatioToTop,
+  redlineSpeedMs,
+  torqueCurveAt,
+  torqueShape,
+} from './cars/engine';
 
 export type { CarClassId } from './cars/types';
 
@@ -372,6 +387,8 @@ export function driveForceN(p: CarPhysicsParams, car?: CarClassRef): number {
 /** Drive force in N at a forward speed (m/s), including the class's low-speed launch boost. */
 export function driveForceAtSpeedN(p: CarPhysicsParams, forwardSpeedMs: number, car?: CarClassRef): number {
   const k = getCarClass(car);
+  // Handling v2: the gear a full-throttle automatic holds at this speed, its rpm on the torque curve.
+  if (k.engine) return engineDriveForceN(k.engine, p.engineTorque, k.driveWheelRadius, forwardSpeedMs, estimateTopSpeedKmh(p, k) / 3.6);
   const force = driveForceN(p, k);
   if (k.launchBoost <= 1 || k.launchFadeKmh <= 0) return force;
   const fade = Math.max(0, 1 - (Math.abs(forwardSpeedMs) * 3.6) / k.launchFadeKmh);
@@ -398,7 +415,8 @@ export function estimateTopSpeedKmh(p: CarPhysicsParams, car?: CarClassRef): num
   const net = Math.max(0, driveForceN(p, k) - resist);
   if (p.drag <= 1e-6) return Infinity;
   const v = Math.sqrt(net / p.drag);
-  if (k.launchBoost <= 1 || k.launchFadeKmh <= 0 || v * 3.6 >= k.launchFadeKmh) return v * 3.6;
+  // Handling v2 engines are fitted so top gear at top speed delivers exactly driveForceN: no boost band.
+  if (k.engine || k.launchBoost <= 1 || k.launchFadeKmh <= 0 || v * 3.6 >= k.launchFadeKmh) return v * 3.6;
   // Tops out inside the boosted band: drag·v² = F·(1 + (B − 1)(1 − v/vf)) − R, a quadratic in v.
   const force = driveForceN(p, k);
   const vf = k.launchFadeKmh / 3.6;
@@ -418,6 +436,7 @@ export function estimateFrontLiftOffKmh(p: CarPhysicsParams, car?: CarClassRef):
   const netLift = k.frontBodyLift - p.frontDownforce;
   if (netLift <= 1e-6) return null;
   const staticFrontLoad = p.mass * GRAVITY * balanceToFrontWeightFraction(p.balance, k);
+  if (k.engine) return liftOffWithEngine(p, k, k.engine, netLift, staticFrontLoad);
   const frontLoad = staticFrontLoad - (driveForceN(p, k) * k.cgHeight) / k.wheelbase;
   if (frontLoad <= 0) return 0;
   const v = Math.sqrt(frontLoad / netLift);
@@ -430,6 +449,37 @@ export function estimateFrontLiftOffKmh(p: CarPhysicsParams, car?: CarClassRef):
   if (c >= 0) return 0;
   const beta = (lever * force * (k.launchBoost - 1)) / (k.launchFadeKmh / 3.6);
   return ((beta + Math.sqrt(beta * beta - 4 * netLift * c)) / (2 * netLift)) * 3.6;
+}
+
+/**
+ * Handling v2 lift-off: the drive force depends on the gear held at each speed, so the balance
+ * netLift·v² = staticFrontLoad − F(v)·h/L is found by bisection on v (F steps down at every upshift,
+ * so the left side of the first crossing is what the run-up meets). km/h, 0 when the drive alone
+ * unloads the nose at a standstill.
+ */
+function liftOffWithEngine(p: CarPhysicsParams, k: Readonly<CarClass>, engine: Readonly<EngineModel>, netLift: number, staticFrontLoad: number): number {
+  const lever = k.cgHeight / k.wheelbase;
+  const topMs = estimateTopSpeedKmh(p, k) / 3.6;
+  // The tyres, not the gearbox, decide what reaches the road in the low gears: the rear axle can
+  // transmit at most traction × its load (static share + rear downforce + what the drive itself
+  // shifts onto it), the same budget the game's wheelspin model applies.
+  const rearStatic = p.mass * GRAVITY - staticFrontLoad;
+  const driveForce = (v: number) => {
+    const engineF = engineDriveForceN(engine, p.engineTorque, k.driveWheelRadius, v, topMs);
+    const gripF = (p.traction * (rearStatic + rearAeroForceN(v, k))) / Math.max(0.2, 1 - p.traction * lever);
+    return Math.min(engineF, gripF);
+  };
+  const margin = (v: number) => staticFrontLoad - driveForce(v) * lever - netLift * v * v;
+  if (margin(0) <= 0) return 0;
+  let lo = 0;
+  let hi = 200;
+  if (margin(hi) > 0) return hi * 3.6;
+  for (let i = 0; i < 48; i++) {
+    const mid = 0.5 * (lo + hi);
+    if (margin(mid) > 0) lo = mid;
+    else hi = mid;
+  }
+  return hi * 3.6;
 }
 
 /**

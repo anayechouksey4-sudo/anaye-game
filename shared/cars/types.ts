@@ -116,6 +116,35 @@ export interface CarClass {
    */
   noseLiftMarginKmh: number;
   noseLiftReserveKmh: number;
+  // ── Handling v2 ──
+  /**
+   * Engine with real gears and a torque curve (shared/cars/engine.ts). Present only on classes whose
+   * game tuning has `handlingV2` on: the game steps a gearbox with it and the estimates here mirror
+   * the same functions. Absent = the legacy flat torque with the launch boost above.
+   */
+  engine?: Readonly<EngineModel>;
+}
+
+/**
+ * A Handling v2 engine: `gears` forward ratios spaced geometrically from `firstGearFrac` (speed at
+ * the redline in 1st as a fraction of the speed at the redline in top), fitted so that top gear at
+ * TOP_GEAR_RPM_FRAC of the redline is the class's estimated top speed, and a normalised torque curve
+ * over the rpm fraction. Wheel torque = engineTorque × torqueCurve(rpm) / torqueCurve(top-gear rpm at
+ * top speed) × (ratio of the gear to top gear), so the steady-state top speed is exactly what
+ * estimateTopSpeedKmh says and the lower gears multiply torque the way a real gearbox does (the
+ * launch boost of the legacy model becomes 1st gear).
+ */
+export interface EngineModel {
+  /** Forward gears (1 = single speed, e.g. an electric motor). */
+  gears: number;
+  /** Speed at the redline in 1st ÷ speed at the redline in top gear (geometric spacing between). */
+  firstGearFrac: number;
+  /** Torque shape sampled at equal steps of the rpm fraction from 0 to 1 (linear in between, ≥ 2 samples). */
+  torqueCurve: readonly number[];
+  /** Full-throttle upshift point as a fraction of the redline (the estimates change gear there too). */
+  shiftUpFrac: number;
+  /** Ignition cut of an upshift, s (torque is zero for this long; the engine sound follows it). */
+  shiftCutS: number;
 }
 
 export type CarClassId = 'hypercar' | 'rally' | 'muscle' | 'formula' | 'buggy' | 'coupe' | 'drift' | 'electric' | 'kart';

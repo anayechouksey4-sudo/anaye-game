@@ -97,12 +97,15 @@ describe('big-jump hints match their verdict', () => {
   it('TOO SLOW with lift-off close to top speed says keep the wing (the sim lifts the nose there)', () => {
     // Sim (chaos jump, standstill at the checkpoint, full throttle): each of these is TOO SLOW and lifted
     // its nose or ran off the track before the lip. Trimming the wing would lower lift-off further.
+    // Hypercar gaps re-pinned for its Handling v2 engine (shared/cars/hypercar.ts): past the top-gear fit
+    // point the torque curve falls, so above top speed the drive unloads the nose less (3.3 → 3.8, 10.0 → 13.4);
+    // its reserve is 15 km/h now, so 27/4/50 still counts as "lift-off close to top speed".
     const lifted: [CarClassId, string, number][] = [
-      ['hypercar', '12/4/0', 3.3], // nose up at 171.5 km/h, off the track
+      ['hypercar', '12/4/0', 3.79], // nose up at 171.5 km/h, off the track
       ['rally', '5/4/30', 2.1], // nose up at 163.4
       ['muscle', '18/4/36', 6.5], // nose up at 163.9
       ['formula', '1/4/-40', 2.0], // nose up at 183.6
-      ['hypercar', '27/4/50', 10.0], // nose up at 166.6: the largest gap that lifted
+      ['hypercar', '27/4/50', 13.44], // nose up at 166.6: the largest gap that lifted
       ['muscle', '20/4/40', 8.7], // nose up at 163.9
       ['rally', '17/5/50', 8.5], // ran off at the kink
       ['formula', '6/4/20', 4.6], // fell before the lip
