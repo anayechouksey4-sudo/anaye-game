@@ -1,0 +1,31 @@
+/** Light short-wheelbase all-wheel-drive hatch: grippy and nimble, short-geared (lower top speed). */
+import { type CarClass } from './types';
+
+export const RALLY: Readonly<CarClass> = {
+  id: 'rally',
+  name: 'Glitch Rally',
+  frontDriveShare: 0.45,
+  massBase: 860,
+  massPerTier: 40,
+  torqueBase: 520,
+  torquePerTier: 530,
+  dragBase: 2.9,
+  dragPerAero: 1.4,
+  frontWingMax: 5,
+  traction: 1.7,
+  frontBodyLift: 1.6,
+  rearDownforce: 1.8,
+  driveWheelRadius: 0.32,
+  launchBoost: 1,
+  launchFadeKmh: 0,
+  rollingResistance: 0.016,
+  wheelbase: 2.45,
+  cgHeight: 0.5,
+  frontWeightNeutral: 0.56,
+  frontWeightRange: 0.18,
+  suspensionStiffnessBase: 60,
+  suspensionBalanceSplit: 0.36,
+  jumpSpeedScale: 1.027,
+  noseLiftMarginKmh: 1000,
+  noseLiftReserveKmh: 10,
+};

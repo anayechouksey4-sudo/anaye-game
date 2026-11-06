@@ -1,0 +1,31 @@
+/** Heavy front-engined coupe: huge low-end torque (wheelspin and smoke at any tier), brick-like drag and nose lift. */
+import { type CarClass } from './types';
+
+export const MUSCLE: Readonly<CarClass> = {
+  id: 'muscle',
+  name: 'Bruiser V8',
+  frontDriveShare: 0,
+  massBase: 1400,
+  massPerTier: 70,
+  torqueBase: 1100,
+  torquePerTier: 850,
+  dragBase: 4.3,
+  dragPerAero: 1.4,
+  frontWingMax: 6,
+  traction: 1.35,
+  frontBodyLift: 3.2,
+  rearDownforce: 1.8,
+  driveWheelRadius: 0.36,
+  launchBoost: 1.8,
+  launchFadeKmh: 90,
+  rollingResistance: 0.015,
+  wheelbase: 2.85,
+  cgHeight: 0.52,
+  frontWeightNeutral: 0.54,
+  frontWeightRange: 0.15,
+  suspensionStiffnessBase: 42,
+  suspensionBalanceSplit: 0.3,
+  jumpSpeedScale: 1.014,
+  noseLiftMarginKmh: 1000,
+  noseLiftReserveKmh: 12,
+};

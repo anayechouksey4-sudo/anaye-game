@@ -1,0 +1,31 @@
+/** Featherweight open-wheeler: huge wings, low ride, very stable at speed, twitchy everywhere else. */
+import { type CarClass } from './types';
+
+export const FORMULA: Readonly<CarClass> = {
+  id: 'formula',
+  name: 'Razorwing',
+  frontDriveShare: 0,
+  massBase: 600,
+  massPerTier: 35,
+  torqueBase: 420,
+  torquePerTier: 420,
+  dragBase: 1.75,
+  dragPerAero: 2.4,
+  frontWingMax: 11,
+  traction: 1.75,
+  frontBodyLift: 1.4,
+  rearDownforce: 4.2,
+  driveWheelRadius: 0.33,
+  launchBoost: 1,
+  launchFadeKmh: 0,
+  rollingResistance: 0.014,
+  wheelbase: 3.0,
+  cgHeight: 0.3,
+  frontWeightNeutral: 0.45,
+  frontWeightRange: 0.2,
+  suspensionStiffnessBase: 120,
+  suspensionBalanceSplit: 0.4,
+  jumpSpeedScale: 1.048,
+  noseLiftMarginKmh: 1000,
+  noseLiftReserveKmh: 8,
+};

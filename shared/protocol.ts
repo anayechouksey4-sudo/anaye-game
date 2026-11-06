@@ -18,6 +18,16 @@
  * Transport: JSON text frames over a plain WebSocket, default `ws://<host>:8787`.
  * Every frame is one object with a string `type` and `v: 1`.
  */
+import type { CarClass, CarClassId } from './cars/types';
+import { HYPERCAR } from './cars/hypercar';
+import { RALLY } from './cars/rally';
+import { MUSCLE } from './cars/muscle';
+import { FORMULA } from './cars/formula';
+import { BUGGY } from './cars/buggy';
+import { COUPE } from './cars/coupe';
+import { DRIFT } from './cars/drift';
+import { ELECTRIC } from './cars/electric';
+import { KART } from './cars/kart';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Constants
@@ -181,24 +191,11 @@ export const CAR_PHYSICS_KEYS: readonly CarPhysicsKey[] = [
 // The game calibrates these against its simulation; the dashboard uses them for previews.
 // Values may be re-tuned, names and meanings may not.
 
-/** Rear (driven) wheel radius in metres. */
-export const DRIVE_WHEEL_RADIUS = 0.36;
-/** Body/underfloor lift at the front axle, N per (m/s)². The front wing must beat this to keep the nose down. */
-export const FRONT_BODY_LIFT = 2.7;
-/** Fixed rear-wing downforce at the rear axle, N per (m/s)². */
-export const REAR_DOWNFORCE = 2.5;
-/** Neutral per-wheel suspension stiffness (Rapier raycast-vehicle units, mass-normalised). */
-export const SUSPENSION_STIFFNESS_BASE = 50;
-/** How far balance re-splits stiffness: ±1 balance moves each axle by ±this fraction. */
-export const SUSPENSION_BALANCE_SPLIT = 0.4;
+// The hypercar's constants live with its class module (shared/cars/types.ts) and are re-exported here.
+export { DRIVE_WHEEL_RADIUS, FRONT_BODY_LIFT, REAR_DOWNFORCE, SUSPENSION_STIFFNESS_BASE, SUSPENSION_BALANCE_SPLIT, FRONT_WING_DOWNFORCE_MAX, CG_HEIGHT, WHEELBASE, ROLLING_RESISTANCE, BASE_TRACTION } from './cars/types';
+
 /** Speed (km/h) the car must carry off the lip of the big jump to clear its gap. */
 export const BIG_JUMP_LIP_KMH = 183;
-/** Front-wing downforce factor at 100 % Front Wing Aero (the mapping is linear from 0). */
-export const FRONT_WING_DOWNFORCE_MAX = 6.5;
-/** Centre-of-mass height above the ground, metres. */
-export const CG_HEIGHT = 0.45;
-/** Distance between front and rear axles, metres. */
-export const WHEELBASE = 2.7;
 
 export const CAR_PHYSICS_SPECS: { readonly [K in CarPhysicsKey]: RangeSpec } = {
   mass: {
@@ -260,108 +257,13 @@ export const CAR_PHYSICS_SPECS: { readonly [K in CarPhysicsKey]: RangeSpec } = {
 /** Gravity used by the game world (m/s², positive magnitude). */
 export const GRAVITY = 9.81;
 
-/** Rolling-resistance coefficient used only by `estimateTopSpeedKmh`. */
-export const ROLLING_RESISTANCE = 0.015;
-
-/** Base tyre grip — no slider changes it; aero adds grip physically via axle load. */
-export const BASE_TRACTION = 1.45;
-
 // ─────────────────────────────────────────────────────────────────────────────
 // Car classes — the garage. Every class maps the same three sliders onto its own car.
 // ─────────────────────────────────────────────────────────────────────────────
 
-/**
- * A car class: how the dashboard's three sliders map onto this car's physics params, plus the
- * fixed aero / drivetrain / geometry constants the estimates below need. The game builds each
- * class's chassis, wheels and suspension from these same numbers (game/src/car/vehicleSpec.ts),
- * so the dashboard's previews and the simulation agree for every car.
- *
- * `hypercar` is the original car: its numbers ARE the legacy constants above (DRIVE_WHEEL_RADIUS,
- * FRONT_BODY_LIFT, CG_HEIGHT, …). Every helper called without a car, or with an unknown id, uses
- * it, so pre-garage callers get exactly the results they always did.
- *
- * Physics per class (same model as above, with the class's constants):
- *   drive       engineTorque / driveWheelRadius at the contact patches, split front/rear by
- *               frontDriveShare (0 = RWD), × a low-speed "grunt" multiplier (launchBoost, fading out
- *               by launchFadeKmh) that lights the tyres up off the line but does not change top speed
- *   front aero  (frontDownforce − frontBodyLift) · v²  at the front axle
- *   rear aero   rearDownforce · v²  at the rear axle
- *   balance     static front-axle load = frontWeightNeutral − frontWeightRange · balance; springs split
- *               in proportion (suspensionBalanceSplit = 2 · frontWeightRange keeps the ride height
- *               the same at every balance)
- */
-export interface CarClass {
-  id: string;
-  /** Short display name (the game's garage card adds a tagline and stat bars). */
-  name: string;
-  /** Share of the drive torque sent to the front axle: 0 = rear-wheel drive, 0.4 = 40/60 all-wheel drive. */
-  frontDriveShare: number;
-  // ── Slider mapping (a = Front Wing Aero / 100, t = Engine Tier − 1, b = Chassis Balance / 50) ──
-  /** mass = massBase + massPerTier · t, kg. */
-  massBase: number;
-  massPerTier: number;
-  /** engineTorque = torqueBase + torquePerTier · t, N·m (whole car). */
-  torqueBase: number;
-  torquePerTier: number;
-  /** drag = dragBase + dragPerAero · a. */
-  dragBase: number;
-  dragPerAero: number;
-  /** frontDownforce = frontWingMax · a. */
-  frontWingMax: number;
-  /** Tyre grip μ (no slider changes it). */
-  traction: number;
-  // ── Fixed aero ──
-  /** Body lift at the front axle, N per (m/s)²: the front wing has to beat it to keep the nose down. */
-  frontBodyLift: number;
-  /** Fixed rear downforce at the rear axle, N per (m/s)². */
-  rearDownforce: number;
-  // ── Drivetrain ──
-  /** Driven-wheel radius, m: drive force = engineTorque / driveWheelRadius (every driven wheel has it). */
-  driveWheelRadius: number;
-  /** Drive force × (1 + (launchBoost − 1) · max(0, 1 − v / launchFadeKmh)); 1 = flat torque. */
-  launchBoost: number;
-  launchFadeKmh: number;
-  /** Rolling-resistance coefficient (top-speed estimate and the game's rolling drag). */
-  rollingResistance: number;
-  // ── Geometry ──
-  /** Axle-to-axle distance, m. */
-  wheelbase: number;
-  /** Centre-of-mass height above the ground at rest, m. */
-  cgHeight: number;
-  /** Static front-axle load fraction at balance 0, and how far balance ±1 moves it. */
-  frontWeightNeutral: number;
-  frontWeightRange: number;
-  /** Mean per-wheel spring stiffness (Rapier raycast-vehicle units, mass-normalised). */
-  suspensionStiffnessBase: number;
-  /** Balance ±1 moves each axle's springs by ±this fraction of the base. */
-  suspensionBalanceSplit: number;
-  // ── Big jumps (assessBigJump) ──
-  /**
-   * A map's jump speed (TrackBigJump.requiredKmh, BIG_JUMP_LIP_KMH) is calibrated on the hypercar.
-   * This class needs requiredKmh × jumpSpeedScale of ESTIMATED top speed to clear the same jump:
-   * it folds in how the class flies (drag-to-mass ratio, downforce pinning it through the lip) and
-   * how far below its top speed it reaches the lip from a standing start (wheelspin, front scrub).
-   * Measured on the chaos track's 95 m jump. 1 = the hypercar.
-   */
-  jumpSpeedScale: number;
-  /**
-   * For a car that is fast enough (estimated top speed ≥ the required speed), the jump verdict is
-   * NOSE LIFT when the estimated lift-off speed is below
-   * min(top speed + noseLiftReserveKmh, required + noseLiftMarginKmh). Every class uses a large
-   * margin (a long run-up brings a car to within a few km/h of its top speed, so any lift-off below
-   * it happens) plus a reserve: with lift-off only a little above top speed the nose is so light
-   * that the car can't steer through the run-up's kink either. A car that is too slow gets no
-   * reserve: NOSE LIFT only when lift-off is below its top speed, otherwise TOO SLOW (same rule as
-   * before the garage). The hypercar's physics and estimates are unchanged from before the garage;
-   * only its fast-enough verdict changed: it used to call NOSE LIFT only for a lift-off below the
-   * required speed, until the integration pass measured its nose lifting at 14–18 % wing / balance 0
-   * and 4–9 % / −40, all then estimated READY (see game/README.md "Big jump honesty").
-   */
-  noseLiftMarginKmh: number;
-  noseLiftReserveKmh: number;
-}
+export type { CarClass } from './cars/types';
 
-export type CarClassId = 'hypercar' | 'rally' | 'muscle' | 'formula' | 'buggy' | 'coupe' | 'drift' | 'electric' | 'kart';
+export type { CarClassId } from './cars/types';
 
 /** Garage order. Ids are stable: they are persisted and sent in `game:state.carId`. */
 export const CAR_CLASS_IDS: readonly CarClassId[] = ['hypercar', 'rally', 'muscle', 'formula', 'buggy', 'coupe', 'drift', 'electric', 'kart'];
@@ -369,300 +271,15 @@ export const CAR_CLASS_IDS: readonly CarClassId[] = ['hypercar', 'rally', 'muscl
 export const DEFAULT_CAR_CLASS_ID: CarClassId = 'hypercar';
 
 export const CAR_CLASSES: { readonly [K in CarClassId]: Readonly<CarClass> } = {
-  /**
-   * The original wedge-nosed hypercar. Its physics are calibrated against the chaos track's big jump —
-   * do not retune them. Its nose-lift rule (12 km/h reserve) was measured on the chaos jump: every
-   * setting whose lift-off was less than 10.4 km/h above top speed lifted its nose and ran off.
-   */
-  hypercar: {
-    id: 'hypercar',
-    name: 'Neon Hypercar',
-    frontDriveShare: 0,
-    massBase: 1050,
-    massPerTier: 60,
-    torqueBase: 700,
-    torquePerTier: 700,
-    dragBase: 2.98,
-    dragPerAero: 1.8,
-    frontWingMax: FRONT_WING_DOWNFORCE_MAX,
-    traction: BASE_TRACTION,
-    frontBodyLift: FRONT_BODY_LIFT,
-    rearDownforce: REAR_DOWNFORCE,
-    driveWheelRadius: DRIVE_WHEEL_RADIUS,
-    launchBoost: 1,
-    launchFadeKmh: 0,
-    rollingResistance: ROLLING_RESISTANCE,
-    wheelbase: WHEELBASE,
-    cgHeight: CG_HEIGHT,
-    frontWeightNeutral: 0.5,
-    frontWeightRange: 0.2,
-    suspensionStiffnessBase: SUSPENSION_STIFFNESS_BASE,
-    suspensionBalanceSplit: SUSPENSION_BALANCE_SPLIT,
-    jumpSpeedScale: 1,
-    noseLiftMarginKmh: 1000,
-    noseLiftReserveKmh: 12,
-  },
-  /** Light short-wheelbase all-wheel-drive hatch: grippy and nimble, short-geared (lower top speed). */
-  rally: {
-    id: 'rally',
-    name: 'Glitch Rally',
-    frontDriveShare: 0.45,
-    massBase: 860,
-    massPerTier: 40,
-    torqueBase: 520,
-    torquePerTier: 530,
-    dragBase: 2.9,
-    dragPerAero: 1.4,
-    frontWingMax: 5,
-    traction: 1.7,
-    frontBodyLift: 1.6,
-    rearDownforce: 1.8,
-    driveWheelRadius: 0.32,
-    launchBoost: 1,
-    launchFadeKmh: 0,
-    rollingResistance: 0.016,
-    wheelbase: 2.45,
-    cgHeight: 0.5,
-    frontWeightNeutral: 0.56,
-    frontWeightRange: 0.18,
-    suspensionStiffnessBase: 60,
-    suspensionBalanceSplit: 0.36,
-    jumpSpeedScale: 1.027,
-    noseLiftMarginKmh: 1000,
-    noseLiftReserveKmh: 10,
-  },
-  /** Heavy front-engined coupe: huge low-end torque (wheelspin and smoke at any tier), brick-like drag and nose lift. */
-  muscle: {
-    id: 'muscle',
-    name: 'Bruiser V8',
-    frontDriveShare: 0,
-    massBase: 1400,
-    massPerTier: 70,
-    torqueBase: 1100,
-    torquePerTier: 850,
-    dragBase: 4.3,
-    dragPerAero: 1.4,
-    frontWingMax: 6,
-    traction: 1.35,
-    frontBodyLift: 3.2,
-    rearDownforce: 1.8,
-    driveWheelRadius: 0.36,
-    launchBoost: 1.8,
-    launchFadeKmh: 90,
-    rollingResistance: 0.015,
-    wheelbase: 2.85,
-    cgHeight: 0.52,
-    frontWeightNeutral: 0.54,
-    frontWeightRange: 0.15,
-    suspensionStiffnessBase: 42,
-    suspensionBalanceSplit: 0.3,
-    jumpSpeedScale: 1.014,
-    noseLiftMarginKmh: 1000,
-    noseLiftReserveKmh: 12,
-  },
-  /** Featherweight open-wheeler: huge wings, low ride, very stable at speed, twitchy everywhere else. */
-  formula: {
-    id: 'formula',
-    name: 'Razorwing',
-    frontDriveShare: 0,
-    massBase: 600,
-    massPerTier: 35,
-    torqueBase: 420,
-    torquePerTier: 420,
-    dragBase: 1.75,
-    dragPerAero: 2.4,
-    frontWingMax: 11,
-    traction: 1.75,
-    frontBodyLift: 1.4,
-    rearDownforce: 4.2,
-    driveWheelRadius: 0.33,
-    launchBoost: 1,
-    launchFadeKmh: 0,
-    rollingResistance: 0.014,
-    wheelbase: 3.0,
-    cgHeight: 0.3,
-    frontWeightNeutral: 0.45,
-    frontWeightRange: 0.2,
-    suspensionStiffnessBase: 120,
-    suspensionBalanceSplit: 0.4,
-    jumpSpeedScale: 1.048,
-    noseLiftMarginKmh: 1000,
-    noseLiftReserveKmh: 8,
-  },
-  /** Big-wheeled all-wheel-drive desert buggy: long soft suspension, high centre of mass, lands anything, slow. */
-  buggy: {
-    id: 'buggy',
-    name: 'Dune Goblin',
-    frontDriveShare: 0.4,
-    massBase: 1150,
-    massPerTier: 50,
-    torqueBase: 800,
-    torquePerTier: 420,
-    dragBase: 3.6,
-    dragPerAero: 1.2,
-    frontWingMax: 3,
-    traction: 1.3,
-    frontBodyLift: 1.2,
-    rearDownforce: 1,
-    driveWheelRadius: 0.48,
-    launchBoost: 1.3,
-    launchFadeKmh: 70,
-    rollingResistance: 0.02,
-    wheelbase: 2.75,
-    cgHeight: 0.78,
-    frontWeightNeutral: 0.48,
-    frontWeightRange: 0.2,
-    suspensionStiffnessBase: 26,
-    suspensionBalanceSplit: 0.4,
-    jumpSpeedScale: 1,
-    noseLiftMarginKmh: 1000,
-    noseLiftReserveKmh: 10,
-  },
-  /**
-   * Red rear-engined road coupe: 60 % of its weight on the back axle, so it hooks up off the line
-   * where the hypercar lights its tyres, its nose goes light early at speed (body lift 2.2 against a
-   * 5.5 wing: below 40 % wing the front is net-lifting) and its rear slides more than the hypercar's
-   * for the same steering (2.4× the rear slip near the limit). Same mass band as the hypercar with a
-   * little less torque and drag.
-   */
-  coupe: {
-    id: 'coupe',
-    name: 'Ember Swallowtail',
-    frontDriveShare: 0,
-    massBase: 1160,
-    massPerTier: 50,
-    torqueBase: 760,
-    torquePerTier: 620,
-    dragBase: 2.8,
-    dragPerAero: 1.5,
-    frontWingMax: 5.5,
-    traction: 1.5,
-    frontBodyLift: 2.2,
-    rearDownforce: 2.3,
-    driveWheelRadius: 0.35,
-    launchBoost: 1,
-    launchFadeKmh: 0,
-    rollingResistance: 0.015,
-    wheelbase: 2.5,
-    cgHeight: 0.47,
-    frontWeightNeutral: 0.4,
-    frontWeightRange: 0.15,
-    suspensionStiffnessBase: 55,
-    suspensionBalanceSplit: 0.3,
-    // Chaos jump, tier 5 (sim): 40 % wing fell at 182.0 at the lip, 36 % cleared at 183.4 → scale 1.02;
-    // 20 % / balance 0 (lift-off 11.2 km/h above top speed) ran off before the lip, 24 % cleared → reserve 12.
-    jumpSpeedScale: 1.02,
-    noseLiftMarginKmh: 1000,
-    noseLiftReserveKmh: 12,
-  },
-  /**
-   * Long-nosed front-engined drift coupe: low grip (traction 1.28) under a torquey turbo lump with a
-   * launch boost, so the rears light up at every tier and keep sliding; a big steering lock and the
-   * handbrake (game tuning) hold the slide. Built for the DRIFT button.
-   */
-  drift: {
-    id: 'drift',
-    name: 'Smoke Lantern',
-    frontDriveShare: 0,
-    massBase: 1250,
-    massPerTier: 55,
-    torqueBase: 900,
-    torquePerTier: 650,
-    dragBase: 3.1,
-    dragPerAero: 1.5,
-    frontWingMax: 5,
-    traction: 1.28,
-    frontBodyLift: 2.6,
-    rearDownforce: 1.6,
-    driveWheelRadius: 0.34,
-    launchBoost: 1.25,
-    launchFadeKmh: 60,
-    rollingResistance: 0.015,
-    wheelbase: 2.65,
-    cgHeight: 0.46,
-    frontWeightNeutral: 0.53,
-    frontWeightRange: 0.18,
-    suspensionStiffnessBase: 48,
-    suspensionBalanceSplit: 0.36,
-    // Chaos jump, tier 5 (sim): 42 % wing (estimated top 187.1) still cleared at 183.0 at the lip → 1.02.
-    // Balance −40 is the exception the estimate can't see: with a third of the weight on the rears the
-    // drift car spins its tyres all the way up the run-up and reaches the lip at ~165 km/h (short).
-    jumpSpeedScale: 1.02,
-    noseLiftMarginKmh: 1000,
-    noseLiftReserveKmh: 12,
-  },
-  /**
-   * Heavy, low, dual-motor all-wheel-drive electric saloon: instant shove from a standstill (launch
-   * boost 1.8 fading by 100 km/h, inside the all-wheel grip budget), a flat battery floor (lowest
-   * centre of mass of the road cars), slippery, 1.9 t. The easiest car to get to the big jump at
-   * tier 5 (tier 4 stays just below the chaos lip speed) and the hardest to stop.
-   */
-  electric: {
-    id: 'electric',
-    name: 'Ion Dragonfly',
-    frontDriveShare: 0.5,
-    massBase: 1900,
-    massPerTier: 40,
-    torqueBase: 1000,
-    torquePerTier: 600,
-    dragBase: 2.95,
-    dragPerAero: 1.6,
-    frontWingMax: 5,
-    traction: 1.5,
-    frontBodyLift: 1.8,
-    rearDownforce: 2.0,
-    driveWheelRadius: 0.36,
-    launchBoost: 1.8,
-    launchFadeKmh: 100,
-    rollingResistance: 0.013,
-    wheelbase: 2.95,
-    cgHeight: 0.36,
-    frontWeightNeutral: 0.5,
-    frontWeightRange: 0.15,
-    suspensionStiffnessBase: 60,
-    suspensionBalanceSplit: 0.3,
-    // 1.9 t lands the chaos jump from 175 km/h (flies flatter), but on the Isles' short run-up it is
-    // the car furthest below its estimated top speed: 95 % wing (estimated 163.2) fell at 152.3 at the
-    // lip, 60 % cleared at 160.5 → 1.03 keeps READY inside what the sim lands on both maps.
-    jumpSpeedScale: 1.03,
-    noseLiftMarginKmh: 1000,
-    noseLiftReserveKmh: 10,
-  },
-  /**
-   * Tiny single-speed kart: 430 kg, stiff springs (no suspension to speak of), sticky, darts anywhere
-   * and tops out around 175 km/h at tier 5 — it can make the Isles leap and never the chaos jump
-   * (the garage shows JUMP OUT OF REACH there, like the buggy).
-   */
-  kart: {
-    id: 'kart',
-    name: 'Pixel Gnat',
-    frontDriveShare: 0,
-    massBase: 430,
-    massPerTier: 15,
-    torqueBase: 260,
-    torquePerTier: 250,
-    dragBase: 2.0,
-    dragPerAero: 1.0,
-    frontWingMax: 2.5,
-    traction: 1.6,
-    frontBodyLift: 0.6,
-    rearDownforce: 0.6,
-    driveWheelRadius: 0.26,
-    launchBoost: 1,
-    launchFadeKmh: 0,
-    rollingResistance: 0.018,
-    wheelbase: 1.5,
-    cgHeight: 0.3,
-    frontWeightNeutral: 0.42,
-    frontWeightRange: 0.15,
-    suspensionStiffnessBase: 90,
-    suspensionBalanceSplit: 0.3,
-    // Isles leap, tier 5 (sim): 18 % wing (estimated top 168.2) fell at 162.5 at the lip, 12 % cleared at
-    // 166.2 (a light car slows more in the air) → 1.04. Chaos stays out of reach (max 175.6 vs 190.3).
-    jumpSpeedScale: 1.04,
-    noseLiftMarginKmh: 1000,
-    noseLiftReserveKmh: 8,
-  },
+  hypercar: HYPERCAR,
+  rally: RALLY,
+  muscle: MUSCLE,
+  formula: FORMULA,
+  buggy: BUGGY,
+  coupe: COUPE,
+  drift: DRIFT,
+  electric: ELECTRIC,
+  kart: KART,
 };
 
 /** A car for the helpers below: a class id (unknown ids → hypercar), a class object, or nothing (→ hypercar). */

@@ -1,0 +1,31 @@
+/** Big-wheeled all-wheel-drive desert buggy: long soft suspension, high centre of mass, lands anything, slow. */
+import { type CarClass } from './types';
+
+export const BUGGY: Readonly<CarClass> = {
+  id: 'buggy',
+  name: 'Dune Goblin',
+  frontDriveShare: 0.4,
+  massBase: 1150,
+  massPerTier: 50,
+  torqueBase: 800,
+  torquePerTier: 420,
+  dragBase: 3.6,
+  dragPerAero: 1.2,
+  frontWingMax: 3,
+  traction: 1.3,
+  frontBodyLift: 1.2,
+  rearDownforce: 1,
+  driveWheelRadius: 0.48,
+  launchBoost: 1.3,
+  launchFadeKmh: 70,
+  rollingResistance: 0.02,
+  wheelbase: 2.75,
+  cgHeight: 0.78,
+  frontWeightNeutral: 0.48,
+  frontWeightRange: 0.2,
+  suspensionStiffnessBase: 26,
+  suspensionBalanceSplit: 0.4,
+  jumpSpeedScale: 1,
+  noseLiftMarginKmh: 1000,
+  noseLiftReserveKmh: 10,
+};

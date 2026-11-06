@@ -23,7 +23,7 @@ import {
   type CarClass,
   type CarClassId,
 } from '@shared/protocol';
-import { CAR_TUNING, type CarTuning } from './tuning';
+import { CAR_TUNING, CLASS_TUNING, type CarTuning } from './tuning';
 
 export type Tuple3 = [number, number, number];
 
@@ -120,7 +120,6 @@ interface ClassGeometry {
   colliderFriction?: number;
   colliderRestitution?: number;
   inertiaBox: Tuple3;
-  tuning?: Partial<CarTuning>;
   camera: { distanceScale: number; heightScale: number; onboardZ: number; onboardAboveRoof?: number };
 }
 
@@ -149,23 +148,6 @@ const GEOMETRY: Record<CarClassId, ClassGeometry> = {
     maxSuspensionTravel: 0.28,
     colliderBox: { bottom: 0.3, top: 1.05, halfWidth: 0.86, rear: -1.86, front: 1.9 },
     inertiaBox: [1.75, 1.0, 3.6],
-    tuning: {
-      aeroNormalToFlow: 1,
-      longitudinalGripRatio: 0.82,
-      sideStiffnessBase: 0.45,
-      steerMax: 0.62,
-      steerSpeedFalloff: 17,
-      steerRate: 3.6,
-      steerReturnRate: 5.5,
-      brakeForceG: 1.35,
-      handbrakeForceN: 7000,
-      handbrakeRearFriction: 0.3,
-      handbrakeRearSideStiffness: 0.45,
-      airPitchStiffness: 45,
-      airPitchDamping: 45,
-      airPitchDampingBase: 240,
-      airRollDamping: 380,
-    },
     camera: { distanceScale: 0.92, heightScale: 1.06, onboardZ: -0.45 },
   },
   muscle: {
@@ -179,22 +161,6 @@ const GEOMETRY: Record<CarClassId, ClassGeometry> = {
     maxSuspensionTravel: 0.3,
     colliderBox: { bottom: 0.3, top: 0.95, halfWidth: 0.93, rear: -2.32, front: 2.36 },
     inertiaBox: [1.9, 0.95, 4.7],
-    tuning: {
-      aeroNormalToFlow: 1,
-      longitudinalGripRatio: 0.95,
-      spinGripLoss: 0.6,
-      steerMax: 0.52,
-      steerSpeedFalloff: 12,
-      steerRate: 2.3,
-      steerReturnRate: 4,
-      brakeForceG: 1.05,
-      burnoutRearGrip: 0.3,
-      handbrakeForceN: 11000,
-      airPitchStiffness: 80,
-      airPitchDamping: 70,
-      airPitchDampingBase: 400,
-      airRollDamping: 650,
-    },
     camera: { distanceScale: 1.05, heightScale: 1.03, onboardZ: -0.6 },
   },
   formula: {
@@ -208,21 +174,6 @@ const GEOMETRY: Record<CarClassId, ClassGeometry> = {
     maxSuspensionTravel: 0.16,
     colliderBox: { bottom: 0.16, top: 0.72, halfWidth: 0.56, rear: -2.0, front: 2.3 },
     inertiaBox: [1.3, 0.55, 4.2],
-    tuning: {
-      aeroNormalToFlow: 1,
-      longitudinalGripRatio: 0.75,
-      sideStiffnessBase: 0.5,
-      steerMax: 0.5,
-      steerSpeedFalloff: 10,
-      steerMin: 0.06,
-      steerRate: 3.8,
-      steerReturnRate: 7,
-      brakeForceG: 2,
-      airPitchStiffness: 32,
-      airPitchDamping: 30,
-      airPitchDampingBase: 150,
-      airRollDamping: 250,
-    },
     camera: { distanceScale: 1, heightScale: 0.9, onboardZ: -0.55, onboardAboveRoof: 0.3 },
   },
   buggy: {
@@ -236,22 +187,6 @@ const GEOMETRY: Record<CarClassId, ClassGeometry> = {
     maxSuspensionTravel: 0.45,
     colliderBox: { bottom: 0.55, top: 1.4, halfWidth: 0.85, rear: -1.8, front: 1.95 },
     inertiaBox: [1.9, 1.3, 3.8],
-    tuning: {
-      aeroNormalToFlow: 1,
-      longitudinalGripRatio: 0.8,
-      sideStiffnessBase: 0.3,
-      sideStiffnessPerTraction: 0.35,
-      steerMax: 0.6,
-      steerSpeedFalloff: 14,
-      steerRate: 2.8,
-      brakeForceG: 1.0,
-      dampingCompressionRatio: 0.45,
-      dampingRelaxationRatio: 0.6,
-      airPitchStiffness: 140,
-      airPitchDamping: 90,
-      airPitchDampingBase: 520,
-      airRollDamping: 900,
-    },
     camera: { distanceScale: 1.05, heightScale: 1.2, onboardZ: -0.4 },
   },
   coupe: {
@@ -265,19 +200,6 @@ const GEOMETRY: Record<CarClassId, ClassGeometry> = {
     maxSuspensionTravel: 0.26,
     colliderBox: { bottom: 0.3, top: 0.92, halfWidth: 0.88, rear: -2.2, front: 2.05 },
     inertiaBox: [1.8, 0.9, 4.1],
-    tuning: {
-      aeroNormalToFlow: 1,
-      longitudinalGripRatio: 0.78,
-      steerMax: 0.6,
-      steerSpeedFalloff: 14,
-      steerRate: 3.0,
-      steerReturnRate: 5,
-      brakeForceG: 1.4,
-      airPitchStiffness: 55,
-      airPitchDamping: 50,
-      airPitchDampingBase: 280,
-      airRollDamping: 450,
-    },
     camera: { distanceScale: 0.96, heightScale: 1, onboardZ: -0.3 },
   },
   drift: {
@@ -291,19 +213,6 @@ const GEOMETRY: Record<CarClassId, ClassGeometry> = {
     maxSuspensionTravel: 0.28,
     colliderBox: { bottom: 0.3, top: 0.92, halfWidth: 0.88, rear: -2.25, front: 2.3 },
     inertiaBox: [1.8, 0.9, 4.5],
-    tuning: {
-      aeroNormalToFlow: 1,
-      longitudinalGripRatio: 0.8,
-      // Spinning rears shed most of their side grip: power oversteer is the drift car's character.
-      spinGripLoss: 0.7,
-      steerMax: 0.78,
-      steerSpeedFalloff: 16,
-      steerRate: 3.4,
-      steerReturnRate: 6,
-      brakeForceG: 1.2,
-      handbrakeRearFriction: 0.3,
-      handbrakeRearSideStiffness: 0.35,
-    },
     camera: { distanceScale: 1, heightScale: 1, onboardZ: -0.55 },
   },
   electric: {
@@ -317,18 +226,6 @@ const GEOMETRY: Record<CarClassId, ClassGeometry> = {
     maxSuspensionTravel: 0.24,
     colliderBox: { bottom: 0.3, top: 1.0, halfWidth: 0.9, rear: -2.4, front: 2.45 },
     inertiaBox: [1.9, 0.95, 4.8],
-    tuning: {
-      aeroNormalToFlow: 1,
-      longitudinalGripRatio: 0.85,
-      steerMax: 0.54,
-      steerSpeedFalloff: 13,
-      steerRate: 2.6,
-      brakeForceG: 1.3,
-      airPitchStiffness: 90,
-      airPitchDamping: 80,
-      airPitchDampingBase: 450,
-      airRollDamping: 700,
-    },
     camera: { distanceScale: 1.05, heightScale: 1.02, onboardZ: -0.5 },
   },
   kart: {
@@ -342,21 +239,6 @@ const GEOMETRY: Record<CarClassId, ClassGeometry> = {
     maxSuspensionTravel: 0.1,
     colliderBox: { bottom: 0.1, top: 0.5, halfWidth: 0.6, rear: -1.0, front: 1.0 },
     inertiaBox: [1.2, 0.5, 1.9],
-    tuning: {
-      aeroNormalToFlow: 1,
-      longitudinalGripRatio: 0.72,
-      steerMax: 0.5,
-      steerSpeedFalloff: 12,
-      steerRate: 4,
-      steerReturnRate: 7,
-      brakeForceG: 1.5,
-      dampingCompressionRatio: 0.7,
-      dampingRelaxationRatio: 0.9,
-      airPitchStiffness: 20,
-      airPitchDamping: 20,
-      airPitchDampingBase: 90,
-      airRollDamping: 150,
-    },
     camera: { distanceScale: 0.8, heightScale: 0.9, onboardZ: -0.2, onboardAboveRoof: 0.35 },
   },
 };
@@ -411,7 +293,7 @@ function buildSpec(id: CarClassId): VehicleSpec {
     chassisCollider,
     comHeight: car.cgHeight - rideHeight,
     inertiaBox: g.inertiaBox,
-    tuning: { ...CAR_TUNING, ...g.tuning },
+    tuning: { ...CAR_TUNING, ...CLASS_TUNING[id] },
     camera: {
       distanceScale: g.camera.distanceScale,
       heightScale: g.camera.heightScale,
