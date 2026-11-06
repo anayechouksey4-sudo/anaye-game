@@ -1,0 +1,198 @@
+/* DRIVERS and MY RIDE tabs (DriversTab.tsx, RideTab.tsx). Inherit the HUD tokens from .hud / .gm;
+   fall back to the same colours when mounted on their own (the dev lab pages). */
+.pf {
+  --pf-text: var(--text, #d8f7ff);
+  --pf-dim: var(--dim, rgba(216, 247, 255, 0.5));
+  --pf-line: var(--line, rgba(0, 240, 255, 0.35));
+  --pf-cyan: var(--cyan, #00f0ff);
+  --pf-yellow: var(--yellow, #f5e663);
+  --pf-green: var(--green, #39ff14);
+  --pf-panel: rgba(8, 10, 18, 0.82);
+  display: grid;
+  gap: 10px;
+  color: var(--pf-text);
+  font-size: 12px;
+  letter-spacing: 0.04em;
+  min-width: 0;
+}
+.pf * { box-sizing: border-box; min-width: 0; }
+.pf button { -webkit-tap-highlight-color: transparent; font: inherit; }
+.pf-lead { margin: 0; color: var(--pf-dim); font-size: 11px; line-height: 1.5; }
+.pf-lead b { color: var(--pf-yellow); letter-spacing: 0.14em; }
+.pf-note { margin: 0; font-size: 10px; line-height: 1.45; color: var(--pf-dim); }
+
+/* Section with a title line. */
+.pf-section { display: grid; gap: 6px; }
+.pf-section__title { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin: 4px 0 0; font-size: 10px; letter-spacing: 0.22em; color: var(--pf-cyan); text-shadow: 0 0 8px rgba(0, 240, 255, 0.5); }
+.pf-section__title small { color: var(--pf-dim); letter-spacing: 0.08em; font-size: 10px; text-align: right; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* 56 px rows (drivers). */
+.pf-row {
+  --accent: var(--pf-cyan);
+  display: grid;
+  grid-template-columns: 48px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  min-height: 56px;
+  padding: 6px 8px 6px 10px;
+  background: linear-gradient(90deg, color-mix(in srgb, var(--accent) 16%, transparent), var(--pf-panel) 60%);
+  border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent);
+  border-left: 4px solid var(--accent);
+  border-radius: 12px;
+}
+.pf-row.is-active { box-shadow: 0 0 0 2px var(--accent), 0 0 18px color-mix(in srgb, var(--accent) 35%, transparent); }
+.pf-portrait { display: block; width: 44px; height: 44px; border-radius: 8px; image-rendering: pixelated; background: #0a0c14; border: 1px solid rgba(255, 255, 255, 0.08); }
+.pf-portrait--big { width: 96px; height: 96px; border-radius: 12px; }
+.pf-row__main { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.pf-row__name { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.pf-name {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 44px;
+  padding: 0 6px 0 0;
+  color: #fff;
+  font-size: 14px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  background: none;
+  border: none;
+  border-bottom: 1px dashed color-mix(in srgb, var(--accent) 60%, transparent);
+  cursor: text;
+  text-align: left;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pf-name small { font-size: 9px; color: var(--pf-dim); letter-spacing: 0.1em; font-weight: 400; }
+.pf-tag { flex: none; display: inline-block; margin-right: 6px; padding: 1px 6px; font-size: 8px; font-weight: 800; letter-spacing: 0.16em; color: #05060a; background: var(--accent); border-radius: 20px; vertical-align: middle; }
+.pf-tag--on { background: var(--pf-green); }
+.pf-bio { font-size: 10px; line-height: 1.35; color: var(--pf-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pf-row__actions { display: flex; gap: 6px; }
+.pf-btn--icon { min-width: 44px; padding: 0; font-size: 15px; }
+
+/* Buttons. */
+.pf-btn {
+  --accent: var(--pf-cyan);
+  min-height: 44px;
+  min-width: 44px;
+  padding: 0 12px;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  color: var(--pf-text);
+  background: var(--pf-panel);
+  border: 1px solid var(--pf-line);
+  border-radius: 10px;
+  cursor: pointer;
+  touch-action: manipulation;
+  white-space: nowrap;
+}
+.pf-btn:active { transform: scale(0.97); }
+.pf-btn:focus-visible { outline: none; border-color: var(--pf-cyan); }
+.pf-btn.is-on { color: #04161a; background: var(--accent); border-color: var(--accent); box-shadow: 0 0 12px color-mix(in srgb, var(--accent) 50%, transparent); }
+.pf-btn--primary { color: #04130a; background: var(--pf-green); border-color: var(--pf-green); box-shadow: 0 0 16px rgba(57, 255, 20, 0.35); }
+.pf-btn--wide { width: 100%; min-height: 52px; font-size: 13px; }
+.pf-btn:disabled { opacity: 0.5; }
+.pf-actions { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 120px), 1fr)); gap: 8px; }
+
+/* Segmented choice rows: chips that wrap; every chip is a thumb target. */
+.pf-seg { display: flex; flex-wrap: wrap; gap: 6px; }
+.pf-seg button {
+  --accent: var(--pf-cyan);
+  flex: 1 1 auto;
+  min-height: 44px;
+  min-width: 56px;
+  padding: 0 10px;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  color: var(--pf-text);
+  background: var(--pf-panel);
+  border: 1px solid var(--pf-line);
+  border-radius: 10px;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+.pf-seg button.is-on { color: #04161a; background: var(--accent); border-color: var(--accent); }
+.pf-seg button:focus-visible { outline: none; border-color: #fff; }
+
+/* Colour swatches (44 px discs). */
+.pf-swatches { display: flex; flex-wrap: wrap; gap: 8px; }
+.pf-swatches button {
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, 0.18);
+  background: var(--swatch);
+  cursor: pointer;
+  touch-action: manipulation;
+  position: relative;
+}
+.pf-swatches button.is-on { border-color: #fff; box-shadow: 0 0 0 2px #05060a, 0 0 0 4px var(--swatch), 0 0 14px var(--swatch); }
+.pf-swatches button:focus-visible { outline: none; border-color: var(--pf-cyan); }
+
+/* Text inputs (names, plate, paste): 56 px tall, 14 characters. */
+.pf-input {
+  width: 100%;
+  min-height: 56px;
+  padding: 0 14px;
+  font: inherit;
+  font-size: 16px; /* ≥ 16 px: mobile browsers don't zoom the page on focus */
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  color: #fff;
+  background: var(--pf-panel);
+  border: 1px solid var(--pf-line);
+  border-radius: 12px;
+  outline: none;
+}
+.pf-input:focus { border-color: var(--pf-cyan); box-shadow: 0 0 0 2px rgba(0, 240, 255, 0.25); }
+.pf-input--plate { font-family: ui-monospace, Menlo, Consolas, monospace; letter-spacing: 0.2em; text-transform: uppercase; }
+.pf-field { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; align-items: center; }
+.pf-field .pf-btn { min-height: 56px; }
+.pf-count { font-size: 10px; color: var(--pf-dim); text-align: right; }
+
+/* Share codes. */
+.pf-code { display: grid; gap: 6px; padding: 10px 12px; background: var(--pf-panel); border: 1px dashed var(--pf-line); border-radius: 12px; }
+.pf-code code { display: block; font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 11px; line-height: 1.5; color: var(--pf-yellow); word-break: break-all; user-select: all; -webkit-user-select: all; }
+.pf-code__title { font-size: 9px; letter-spacing: 0.2em; color: var(--pf-cyan); }
+.pf-code--attached { margin-top: -4px; border-radius: 0 0 12px 12px; border-top: none; }
+.pf-code__status { font-size: 10px; letter-spacing: 0.12em; color: var(--pf-green); min-height: 14px; }
+.pf-code__status.is-bad { color: #ff9a1f; }
+
+/* Live 3D preview (RidePreview.tsx). */
+.pf-preview { position: relative; height: 230px; overflow: hidden; border-radius: 14px; border: 1px solid var(--pf-line); background: #070912; touch-action: none; }
+.pf-preview canvas { display: block; touch-action: none; }
+.pf-preview__hint { position: absolute; left: 10px; bottom: 8px; font-size: 9px; letter-spacing: 0.16em; color: var(--pf-dim); pointer-events: none; }
+.pf-preview__name { position: absolute; left: 10px; top: 8px; display: flex; flex-direction: column; gap: 2px; pointer-events: none; }
+.pf-preview__name b { font-size: 14px; letter-spacing: 0.1em; color: #fff; text-shadow: 0 0 10px rgba(0, 0, 0, 0.8); }
+.pf-preview__name small { font-size: 9px; letter-spacing: 0.14em; color: var(--pf-dim); }
+.pf-preview__stats { position: absolute; right: 10px; bottom: 8px; font-size: 9px; letter-spacing: 0.1em; color: var(--pf-dim); pointer-events: none; font-variant-numeric: tabular-nums; }
+.pf-stance { display: grid; grid-template-columns: 56px minmax(0, 1fr) 56px; gap: 8px; align-items: center; }
+.pf-stance__bar { position: relative; height: 10px; background: rgba(255, 255, 255, 0.1); border-radius: 5px; overflow: hidden; }
+.pf-stance__bar i { position: absolute; top: 0; bottom: 0; width: 4px; margin-left: -2px; background: var(--pf-cyan); box-shadow: 0 0 8px var(--pf-cyan); left: var(--pos); }
+.pf-stance__bar::after { content: ''; position: absolute; top: 0; bottom: 0; left: 33.3%; width: 1px; background: rgba(255, 255, 255, 0.3); }
+
+/* Avatar builder under a driver row. */
+.pf-builder { display: grid; gap: 8px; padding: 10px 12px 12px; margin-top: -4px; background: rgba(8, 10, 18, 0.7); border: 1px solid var(--pf-line); border-top: none; border-radius: 0; }
+.pf-builder__head { display: grid; grid-template-columns: 96px minmax(0, 1fr); gap: 12px; align-items: center; }
+.pf-builder__head .pf-note { font-size: 10px; }
+
+@media (orientation: landscape) and (max-height: 420px) {
+  .pf-preview { height: 180px; }
+  .pf-row { min-height: 56px; }
+}
+@media (min-width: 700px) {
+  .pf-two { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 12px; align-items: start; }
+}
+
+/* ── Preview slot (RideTab PreviewSlot): SHOW 3D button, then the canvas behind a short veil ── */
+.pf-preview--off { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; padding: 16px; height: auto; min-height: 120px; }
+.pf-preview__show { max-width: 320px; }
+.pf-preview--off .pf-preview__hint { position: static; }
+.pf-preview__veil { position: absolute; inset: 0; display: grid; place-items: center; background: rgba(7, 9, 18, 0.72); border-radius: 14px; pointer-events: none; }
+.pf-preview__veil span { font-size: 11px; font-weight: 800; letter-spacing: 0.22em; color: var(--pf-cyan); text-shadow: 0 0 10px rgba(0, 240, 255, 0.5); animation: pf-veil-pulse 1.1s ease-in-out infinite; }
+@keyframes pf-veil-pulse { 50% { opacity: 0.45; } }

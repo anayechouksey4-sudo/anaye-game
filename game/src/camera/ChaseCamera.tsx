@@ -7,6 +7,7 @@
  */
 import { useEffect, useRef, type ComponentRef } from 'react';
 import { useFrame, useThree } from '@react-three/fiber';
+import { cameraFloor } from './cameraFloor';
 import { OrbitControls } from '@react-three/drei';
 import { PerspectiveCamera, Quaternion, Vector3 } from 'three';
 import { carRuntime } from '../car/runtime';
@@ -138,6 +139,9 @@ function FollowRig({ mode }: { mode: Exclude<CameraMode, 'orbit'> }) {
         smoothY.current += (_carPos.y - smoothY.current) * (1 - Math.exp(-dt * 8));
       }
       camera.position.set(_carPos.x + offset.current.x, smoothY.current + offset.current.y, _carPos.z + offset.current.z);
+      // Open worlds: never below the terrain (cameraFloor is -Infinity on every other map).
+      const floor = cameraFloor(camera.position.x, camera.position.z);
+      if (camera.position.y < floor) camera.position.y = floor;
       _look.set(_carPos.x + heading.current.x * 4, smoothY.current + 0.7 * framing.heightScale, _carPos.z + heading.current.z * 4);
       camera.lookAt(_look);
     }

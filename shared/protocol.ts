@@ -361,10 +361,10 @@ export interface CarClass {
   noseLiftReserveKmh: number;
 }
 
-export type CarClassId = 'hypercar' | 'rally' | 'muscle' | 'formula' | 'buggy';
+export type CarClassId = 'hypercar' | 'rally' | 'muscle' | 'formula' | 'buggy' | 'coupe' | 'drift' | 'electric' | 'kart';
 
 /** Garage order. Ids are stable: they are persisted and sent in `game:state.carId`. */
-export const CAR_CLASS_IDS: readonly CarClassId[] = ['hypercar', 'rally', 'muscle', 'formula', 'buggy'];
+export const CAR_CLASS_IDS: readonly CarClassId[] = ['hypercar', 'rally', 'muscle', 'formula', 'buggy', 'coupe', 'drift', 'electric', 'kart'];
 
 export const DEFAULT_CAR_CLASS_ID: CarClassId = 'hypercar';
 
@@ -517,6 +517,151 @@ export const CAR_CLASSES: { readonly [K in CarClassId]: Readonly<CarClass> } = {
     jumpSpeedScale: 1,
     noseLiftMarginKmh: 1000,
     noseLiftReserveKmh: 10,
+  },
+  /**
+   * Red rear-engined road coupe: 60 % of its weight on the back axle, so it hooks up off the line
+   * where the hypercar lights its tyres, its nose goes light early at speed (body lift 2.2 against a
+   * 5.5 wing: below 40 % wing the front is net-lifting) and its rear slides more than the hypercar's
+   * for the same steering (2.4× the rear slip near the limit). Same mass band as the hypercar with a
+   * little less torque and drag.
+   */
+  coupe: {
+    id: 'coupe',
+    name: 'Ember Swallowtail',
+    frontDriveShare: 0,
+    massBase: 1160,
+    massPerTier: 50,
+    torqueBase: 760,
+    torquePerTier: 620,
+    dragBase: 2.8,
+    dragPerAero: 1.5,
+    frontWingMax: 5.5,
+    traction: 1.5,
+    frontBodyLift: 2.2,
+    rearDownforce: 2.3,
+    driveWheelRadius: 0.35,
+    launchBoost: 1,
+    launchFadeKmh: 0,
+    rollingResistance: 0.015,
+    wheelbase: 2.5,
+    cgHeight: 0.47,
+    frontWeightNeutral: 0.4,
+    frontWeightRange: 0.15,
+    suspensionStiffnessBase: 55,
+    suspensionBalanceSplit: 0.3,
+    // Chaos jump, tier 5 (sim): 40 % wing fell at 182.0 at the lip, 36 % cleared at 183.4 → scale 1.02;
+    // 20 % / balance 0 (lift-off 11.2 km/h above top speed) ran off before the lip, 24 % cleared → reserve 12.
+    jumpSpeedScale: 1.02,
+    noseLiftMarginKmh: 1000,
+    noseLiftReserveKmh: 12,
+  },
+  /**
+   * Long-nosed front-engined drift coupe: low grip (traction 1.28) under a torquey turbo lump with a
+   * launch boost, so the rears light up at every tier and keep sliding; a big steering lock and the
+   * handbrake (game tuning) hold the slide. Built for the DRIFT button.
+   */
+  drift: {
+    id: 'drift',
+    name: 'Smoke Lantern',
+    frontDriveShare: 0,
+    massBase: 1250,
+    massPerTier: 55,
+    torqueBase: 900,
+    torquePerTier: 650,
+    dragBase: 3.1,
+    dragPerAero: 1.5,
+    frontWingMax: 5,
+    traction: 1.28,
+    frontBodyLift: 2.6,
+    rearDownforce: 1.6,
+    driveWheelRadius: 0.34,
+    launchBoost: 1.25,
+    launchFadeKmh: 60,
+    rollingResistance: 0.015,
+    wheelbase: 2.65,
+    cgHeight: 0.46,
+    frontWeightNeutral: 0.53,
+    frontWeightRange: 0.18,
+    suspensionStiffnessBase: 48,
+    suspensionBalanceSplit: 0.36,
+    // Chaos jump, tier 5 (sim): 42 % wing (estimated top 187.1) still cleared at 183.0 at the lip → 1.02.
+    // Balance −40 is the exception the estimate can't see: with a third of the weight on the rears the
+    // drift car spins its tyres all the way up the run-up and reaches the lip at ~165 km/h (short).
+    jumpSpeedScale: 1.02,
+    noseLiftMarginKmh: 1000,
+    noseLiftReserveKmh: 12,
+  },
+  /**
+   * Heavy, low, dual-motor all-wheel-drive electric saloon: instant shove from a standstill (launch
+   * boost 1.8 fading by 100 km/h, inside the all-wheel grip budget), a flat battery floor (lowest
+   * centre of mass of the road cars), slippery, 1.9 t. The easiest car to get to the big jump at
+   * tier 5 (tier 4 stays just below the chaos lip speed) and the hardest to stop.
+   */
+  electric: {
+    id: 'electric',
+    name: 'Ion Dragonfly',
+    frontDriveShare: 0.5,
+    massBase: 1900,
+    massPerTier: 40,
+    torqueBase: 1000,
+    torquePerTier: 600,
+    dragBase: 2.95,
+    dragPerAero: 1.6,
+    frontWingMax: 5,
+    traction: 1.5,
+    frontBodyLift: 1.8,
+    rearDownforce: 2.0,
+    driveWheelRadius: 0.36,
+    launchBoost: 1.8,
+    launchFadeKmh: 100,
+    rollingResistance: 0.013,
+    wheelbase: 2.95,
+    cgHeight: 0.36,
+    frontWeightNeutral: 0.5,
+    frontWeightRange: 0.15,
+    suspensionStiffnessBase: 60,
+    suspensionBalanceSplit: 0.3,
+    // 1.9 t lands the chaos jump from 175 km/h (flies flatter), but on the Isles' short run-up it is
+    // the car furthest below its estimated top speed: 95 % wing (estimated 163.2) fell at 152.3 at the
+    // lip, 60 % cleared at 160.5 → 1.03 keeps READY inside what the sim lands on both maps.
+    jumpSpeedScale: 1.03,
+    noseLiftMarginKmh: 1000,
+    noseLiftReserveKmh: 10,
+  },
+  /**
+   * Tiny single-speed kart: 430 kg, stiff springs (no suspension to speak of), sticky, darts anywhere
+   * and tops out around 175 km/h at tier 5 — it can make the Isles leap and never the chaos jump
+   * (the garage shows JUMP OUT OF REACH there, like the buggy).
+   */
+  kart: {
+    id: 'kart',
+    name: 'Pixel Gnat',
+    frontDriveShare: 0,
+    massBase: 430,
+    massPerTier: 15,
+    torqueBase: 260,
+    torquePerTier: 250,
+    dragBase: 2.0,
+    dragPerAero: 1.0,
+    frontWingMax: 2.5,
+    traction: 1.6,
+    frontBodyLift: 0.6,
+    rearDownforce: 0.6,
+    driveWheelRadius: 0.26,
+    launchBoost: 1,
+    launchFadeKmh: 0,
+    rollingResistance: 0.018,
+    wheelbase: 1.5,
+    cgHeight: 0.3,
+    frontWeightNeutral: 0.42,
+    frontWeightRange: 0.15,
+    suspensionStiffnessBase: 90,
+    suspensionBalanceSplit: 0.3,
+    // Isles leap, tier 5 (sim): 18 % wing (estimated top 168.2) fell at 162.5 at the lip, 12 % cleared at
+    // 166.2 (a light car slows more in the air) → 1.04. Chaos stays out of reach (max 175.6 vs 190.3).
+    jumpSpeedScale: 1.04,
+    noseLiftMarginKmh: 1000,
+    noseLiftReserveKmh: 8,
   },
 };
 
@@ -807,6 +952,10 @@ export interface GameSessionInfo {
   trackId?: string;
   /** Lip speed the current map's big jump needs, km/h; null = this map has no big jump. */
   bigJumpKmh?: number | null;
+  /** Name of the driver at the wheel (the game's DRIVERS tab), ≤ MAX_DISPLAY_TEXT code points; absent = not reported. */
+  driverName?: string;
+  /** Name of the mounted custom car (MY RIDE), ≤ MAX_DISPLAY_TEXT; absent = the stock car of `carId`. */
+  rideName?: string;
 }
 
 /** Game → dashboards: the physics params the car is actually running right now (+ which car, on which map). */
@@ -1078,7 +1227,35 @@ export function sanitizeGameSession(input: unknown): GameSessionInfo | null {
     else if (isFiniteNumber(input.bigJumpKmh) && input.bigJumpKmh > 0) out.bigJumpKmh = clamp(input.bigJumpKmh, 1, 2000);
     else return null;
   }
+  // Driver / ride names: a non-string invalidates (like a bad id); a string is cleaned, and an
+  // empty result is simply left out.
+  if (input.driverName !== undefined) {
+    const driverName = sanitizeDisplayText(input.driverName);
+    if (driverName === null) return null;
+    if (driverName) out.driverName = driverName;
+  }
+  if (input.rideName !== undefined) {
+    const rideName = sanitizeDisplayText(input.rideName);
+    if (rideName === null) return null;
+    if (rideName) out.rideName = rideName;
+  }
   return out;
+}
+
+/** Longest driver / ride name on the wire (code points, not UTF-16 units). */
+export const MAX_DISPLAY_TEXT = 14;
+// Controls, format (bidi overrides, zero-width), surrogates, private-use and unassigned code points, markup characters.
+const DISPLAY_TEXT_BAD = /[\p{Cc}\p{Cf}\p{Cs}\p{Co}\p{Cn}<>&"'`\\]/gu;
+
+/**
+ * A driver / ride name for display: any script, no control / format / markup characters, runs of
+ * spaces collapsed, cut to MAX_DISPLAY_TEXT code points. '' when nothing survives; null for a
+ * non-string (the caller treats that as a malformed message).
+ */
+export function sanitizeDisplayText(input: unknown): string | null {
+  if (typeof input !== 'string') return null;
+  const s = input.normalize('NFKC').replace(DISPLAY_TEXT_BAD, '').replace(/\s+/g, ' ').trim();
+  return [...s].slice(0, MAX_DISPLAY_TEXT).join('').trim();
 }
 
 function sanitizePeers(input: unknown): PeerCounts | null {

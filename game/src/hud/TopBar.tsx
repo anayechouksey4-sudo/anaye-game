@@ -4,18 +4,24 @@ import { engineReadout, gearLabel } from '../audio/engineReadout';
 import { carRuntime } from '../car/runtime';
 import { runClock } from '../game/runClock';
 import { gameState, useGameStore } from '../state/store';
+import { useWorldHud } from '../state/worldRuntime';
 import { formatRaceTime, setFill, setText, toggleClass, useRafLoop } from './hudUtils';
 
 /**
  * Phone HUD (compact): speed, gear, run timer and checkpoints in one slim bar at the top edge, so
  * nothing sits over the car, the road ahead or the thumbs. Numbers are written from rAF into DOM
  * refs (no 60 Hz React renders). The desktop layout keeps the big speedometer at the bottom.
+ *
+ * Free roam (open worlds): the timer slot reads FREE ROAM over the region name and the CP count is
+ * hidden; both stay in the layout (invisible), so the bar keeps its race width.
  */
 export function TopBar() {
   const checkpoint = useGameStore((s) => s.run.checkpoint);
   const total = useGameStore((s) => s.run.totalCheckpoints);
   const finished = useGameStore((s) => s.run.finished);
   const started = useGameStore((s) => s.run.started);
+  const roam = useGameStore((s) => s.trackLayout?.mode === 'roam');
+  const region = useWorldHud((s) => s.regionLabel);
   const topRef = useRef({ physics: null as CarPhysicsParams | null, carId: '', kmh: Infinity });
   const rootRef = useRef<HTMLDivElement>(null);
   const speedRef = useRef<HTMLSpanElement>(null);
@@ -56,7 +62,7 @@ export function TopBar() {
         </span>
         <div className="hud-bar hud-bar--speed hud-topbar__bar" ref={barRef} />
       </div>
-      <div className="hud-topbar__run" data-testid="run-panel">
+      <div className={`hud-topbar__run${roam ? ' is-roam' : ''}`} data-testid="run-panel">
         <span className={timerClass} ref={timerRef}>
           0:00.000
         </span>
@@ -66,6 +72,15 @@ export function TopBar() {
             {checkpoint}/{total}
           </b>
         </span>
+        {roam && (
+          <span className="hud-topbar__roam" data-testid="hud-roam">
+            <label>FREE ROAM</label>
+            {/* Names longer than the slot (e.g. PATCHWORK DOWNS) wrap onto two 12 px lines instead of being cut. */}
+            <b data-testid="hud-region" className={region.length > 10 ? 'is-long' : undefined}>
+              {region}
+            </b>
+          </span>
+        )}
       </div>
     </div>
   );

@@ -43,7 +43,7 @@ describe("garage copy matches the game's catalogs", () => {
   const carPath = gameFile('car/catalog.ts');
 
   it('maps: same ids in the same order, names, accents, big-jump lips, landing speeds and surface grip', { skip: !existsSync(trackPath) }, () => {
-    const game = entries(readFileSync(trackPath, 'utf8'), 'TRACK_CATALOG');
+    const game = entries(readFileSync(trackPath, 'utf8'), 'TRACK_CATALOG_ALL');
     assert.deepEqual(MAPS.map((m) => m.id), [...game.keys()]);
     for (const map of MAPS) {
       const chunk = game.get(map.id)!;

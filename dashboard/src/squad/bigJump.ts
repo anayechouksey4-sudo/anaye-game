@@ -75,6 +75,11 @@ export function liftOffNearTopSpeed(jump: BigJumpAssessment, car: Readonly<CarCl
  */
 const TOP_TIER_FIX = 'move Chassis Balance forward first, then trim the front wing, or tap the JUMP ATTEMPT preset.';
 
+/** The hint for a car whose best estimated top speed is below the jump's requirement (buggy anywhere, kart on chaos). */
+function noSetupHint(car: Readonly<CarClass>, requiredKmh: number, best: BestTopSpeed): string {
+  return `No setup gets the ${car.name} to ${formatKmh(requiredKmh)} km/h: its best estimate is ${formatKmh(best.kmh)} km/h (Engine Tier ${best.tier}, ${best.wing} % wing). Pick another car for this jump.`;
+}
+
 /**
  * What to change, for the verdict on screen. Every hint points the same way as its verdict and only
  * suggests moves the sliders still allow: `engineTier` is the setting being judged, so at the top tier
@@ -86,18 +91,21 @@ export function bigJumpHint(jump: BigJumpAssessment, car: Readonly<CarClass>, en
   switch (jump.verdict) {
     case 'READY':
       return 'Carries lip speed with the nose planted. Send it.';
-    case 'NOSE LIFT':
+    case 'NOSE LIFT': {
       // Fast enough: the nose lifts (or goes too light to steer) on the run-up. Too slow as well: the
       // car does reach its lift-off speed, so the nose comes up first, and it needs more speed after.
       if (!tooSlow) return 'Front lifts (or goes too light to steer) on the run-up: add front wing or shift Chassis Balance forward.';
+      // …unless no setup is ever fast enough (the kart on chaos lifts its nose at 0 % wing and still
+      // tops out below the lip speed): then no preset can help, say so.
+      const best = bestTopSpeedKmh(car);
+      if (best.kmh < jump.requiredKmh) return noSetupHint(car, jump.requiredKmh, best);
       return topTier
         ? `Front lifts on the run-up, and the car is too slow for the lip even at Engine Tier ${TIER.max}: ${TOP_TIER_FIX}`
         : 'Front lifts on the run-up, and the car is too slow for the lip anyway: shift Chassis Balance forward or add front wing to keep the nose down, then raise Engine Tier.';
+    }
     case 'TOO SLOW': {
       const best = bestTopSpeedKmh(car);
-      if (best.kmh < jump.requiredKmh) {
-        return `No setup gets the ${car.name} to ${formatKmh(jump.requiredKmh)} km/h: its best estimate is ${formatKmh(best.kmh)} km/h (Engine Tier ${best.tier}, ${best.wing} % wing). Pick another car for this jump.`;
-      }
+      if (best.kmh < jump.requiredKmh) return noSetupHint(car, jump.requiredKmh, best);
       if (jump.liftOffKmh !== null && liftOffNearTopSpeed(jump, car)) {
         const near = `lift-off ${formatKmh(jump.liftOffKmh)} km/h is close to top speed ${formatKmh(jump.topSpeedKmh)}`;
         if (topTier) return `Not enough top speed, and less wing lifts the nose at this balance (${near}): ${TOP_TIER_FIX}`;

@@ -8,7 +8,7 @@
  */
 import { selectionState } from '../state/selection';
 
-export type HapticKind = 'tick' | 'checkpoint' | 'finish' | 'best' | 'fall' | 'land' | 'hit' | 'go';
+export type HapticKind = 'tick' | 'checkpoint' | 'finish' | 'best' | 'fall' | 'land' | 'hit' | 'go' | 'splash' | 'region' | 'prompt';
 
 /** Patterns, ms (on, off, on…). Landings / hits are scaled by intensity in `buzz`. */
 export const HAPTIC_PATTERNS: Readonly<Record<HapticKind, readonly number[]>> = {
@@ -24,6 +24,12 @@ export const HAPTIC_PATTERNS: Readonly<Record<HapticKind, readonly number[]>> = 
   fall: [220],
   land: [30],
   hit: [40],
+  /** Open worlds: driving into deep water (a water respawn uses `fall`). */
+  splash: [60],
+  /** Open worlds: first entry into a region (region card). */
+  region: [15],
+  /** Open worlds: an event start prompt appeared. */
+  prompt: [10],
 };
 
 const COOLDOWN_MS: Readonly<Record<HapticKind, number>> = {
@@ -35,6 +41,9 @@ const COOLDOWN_MS: Readonly<Record<HapticKind, number>> = {
   fall: 800,
   land: 450,
   hit: 300,
+  splash: 800,
+  region: 1500,
+  prompt: 1500,
 };
 
 const MIN_GAP_MS = 90;
@@ -134,4 +143,24 @@ export class Haptics {
       // ignore
     }
   }
+}
+
+type HapticCueListener = (kind: HapticKind) => void;
+const cueListeners = new Set<HapticCueListener>();
+
+/**
+ * One-shot buzz requested from outside the audio system (HUD: region card, event prompt). Goes
+ * through the AudioSystem's Haptics instance, so the same settings switch, cooldowns and vibration
+ * budget apply. No listener (audio not mounted) = nothing happens.
+ */
+export function emitHapticCue(kind: HapticKind): void {
+  for (const listener of cueListeners) listener(kind);
+}
+
+/** Subscribe to HUD haptic cues (AudioSystem); returns the unsubscribe function. */
+export function onHapticCue(listener: HapticCueListener): () => void {
+  cueListeners.add(listener);
+  return () => {
+    cueListeners.delete(listener);
+  };
 }

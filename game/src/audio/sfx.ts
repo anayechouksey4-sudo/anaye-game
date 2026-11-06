@@ -1,6 +1,6 @@
 /**
  * One-shot synthesized effects: start lights, checkpoint chime, finish fanfare, fall whoosh,
- * respawn blip, impact thuds, backfire pops and turbo blow-off. Each call builds a couple of
+ * respawn blip, impact thuds, backfire pops, turbo blow-off and (open worlds) the water splash. Each call builds a couple of
  * short-lived nodes that disconnect themselves when they finish (events are rare, so these small
  * allocations never touch the per-frame path).
  */
@@ -177,4 +177,20 @@ export function blowOff(out: SfxOut, intensity: number): void {
   const t = out.ctx.currentTime + 0.004;
   playNoise(out, { t, dur: 0.28 + 0.15 * k, gain: 0.08 + 0.12 * k, filter: 'highpass', f0: 3500, f1: 1800, q: 0.9, attack: 0.01 });
   playNoise(out, { t, dur: 0.18, gain: 0.04 + 0.05 * k, filter: 'bandpass', f0: 5200, f1: 2600, q: 3, attack: 0.005 });
+}
+
+/**
+ * Driving into deep water (open worlds), and a water respawn: a bright slap, a falling wash, a low
+ * plunge and a few droplets. `intensity` 0…1 (entry speed).
+ */
+export function splash(out: SfxOut, intensity: number): void {
+  const k = Math.max(0, Math.min(1, intensity));
+  const t = out.ctx.currentTime + 0.003;
+  playNoise(out, { t, dur: 0.18 + 0.12 * k, gain: 0.22 + 0.3 * k, filter: 'bandpass', f0: 3200, f1: 900, q: 0.9, attack: 0.004 });
+  playNoise(out, { t: t + 0.05, dur: 0.6 + 0.4 * k, gain: 0.16 + 0.22 * k, filter: 'lowpass', f0: 1800, f1: 300, q: 0.7, attack: 0.08 });
+  playTone(out, { type: 'sine', f0: 320, f1: 90, t, dur: 0.16, gain: 0.12 + 0.12 * k });
+  for (let i = 0; i < 3; i++) {
+    const f0 = 900 + 500 * i + Math.random() * 300;
+    playTone(out, { type: 'sine', f0, f1: f0 * 1.6, t: t + 0.12 + i * 0.07 + Math.random() * 0.04, dur: 0.05, gain: 0.03 + 0.03 * k });
+  }
 }

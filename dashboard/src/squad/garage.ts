@@ -23,6 +23,10 @@ export const CAR_ACCENTS: { readonly [K in CarClassId]: string } = {
   muscle: '#9b5cff',
   formula: '#00f0ff',
   buggy: '#ff9a1f',
+  coupe: '#ff2a2a',
+  drift: '#ffd23f',
+  electric: '#4d7cff',
+  kart: '#f2f2f2',
 };
 
 export interface MapInfo {
@@ -53,7 +57,7 @@ export const MAPS: readonly MapInfo[] = [
     accent: '#ff3d9a',
     bigJumpKmh: 183,
     landKmh: 183.5,
-    landKmhByCar: { rally: 184, muscle: 182, formula: 188.5 },
+    landKmhByCar: { rally: 184, muscle: 182, formula: 188.5, coupe: 182.5, electric: 175 },
   },
   { id: 'ribbon', name: 'Neon Ribbon', accent: '#ff9e3d', bigJumpKmh: null },
   {
@@ -62,11 +66,16 @@ export const MAPS: readonly MapInfo[] = [
     accent: '#2ef2c8',
     bigJumpKmh: 163,
     landKmh: 160.5,
-    landKmhByCar: { rally: 160.5, muscle: 156.5, formula: 164.5 },
+    landKmhByCar: { rally: 160.5, muscle: 156.5, formula: 164.5, kart: 164.5 },
   },
   { id: 'cryo', name: 'Cryo Drift', accent: '#9df2ff', bigJumpKmh: null, surfaceGrip: 0.55 },
   { id: 'strip', name: 'Midnight Strip', accent: '#8f7dff', bigJumpKmh: null },
   { id: 'test', name: 'Proving Ground', accent: '#25e7f2', bigJumpKmh: null },
+  { id: 'tessera', name: 'Tessera Isle', accent: '#7bd389', bigJumpKmh: null },
+  { id: 'tessera-rim', name: 'Rimway Loop', accent: '#ffd23f', bigJumpKmh: null },
+  { id: 'tessera-crown', name: 'Crown Climb', accent: '#b8f25c', bigJumpKmh: null },
+  { id: 'tessera-neon', name: 'Neon Sprint', accent: '#5c7cff', bigJumpKmh: null },
+  { id: 'tessera-rally', name: 'Cinnabar Rally', accent: '#ff6a3d', bigJumpKmh: null },
 ];
 
 /** The map the dashboard previews until a game says otherwise (the game's default map). */

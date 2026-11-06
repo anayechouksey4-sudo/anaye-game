@@ -19,8 +19,10 @@ import { carDebug, type CarDebugInfo } from '../car/carDebug';
 import { setInputOverride, type DriverInput } from '../car/input';
 import { carRuntime } from '../car/runtime';
 import { runClock } from '../game/runClock';
+import { plateFor } from '../car/plates/platePick';
 import { gameSessionInfo, getActiveLink } from '../net/squadLink';
 import { buildTelemetry } from '../net/telemetry';
+import { installProfileDebug } from '../ride/profileDebug';
 import { bigJumpKmhOf } from '../track/catalog';
 import { useSelection } from '../state/selection';
 import { gameState, type LinkStatus } from '../state/store';
@@ -104,8 +106,10 @@ export interface RacerHandle {
   setCar(carId: string): string;
   /** The protocol's estimates for the current physics and car (+ the map's jump, if any). */
   estimates(): { carId: string; topSpeedKmh: number; liftOffKmh: number | null; bigJump: BigJumpAssessment | null };
-  /** carId / trackId / bigJumpKmh as sent in game:state. */
+  /** carId / trackId / bigJumpKmh (+ driverName / rideName) as sent in game:state. */
   session(): ReturnType<typeof gameSessionInfo>;
+  /** Number plate of the car in play (same path as the garage editor; '' resets to the default). Returns the plate it now wears. */
+  setPlate(text: string): string;
 }
 
 declare global {
@@ -216,9 +220,17 @@ export function useRacerHandle(): void {
         };
       },
       session: gameSessionInfo,
+      setPlate: (text) => {
+        const carId = gameState().carId;
+        useSelection.getState().setPlate(carId, text);
+        return plateFor(carId);
+      },
     };
     window.__RACER__ = handle;
+    // window.__PROFILE__ (drivers + MY RIDE: state, codes, preview build log) lives next to it.
+    const uninstallProfile = installProfileDebug();
     return () => {
+      uninstallProfile();
       if (window.__RACER__ === handle) delete window.__RACER__;
     };
   }, [step]);

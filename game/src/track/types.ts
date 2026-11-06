@@ -58,6 +58,16 @@ export interface TrackLayout {
   surfaceGrip?: number;
   /** Sky, fog and lights for this map (scene/Environment.tsx); omitted = the default neon night. */
   atmosphere?: TrackAtmosphere;
+  /**
+   * 'roam' = free drive (open worlds): no start lights, timer, checkpoints, finish or results; the
+   * kill plane and flip recovery still apply. Omitted = 'race' (every existing map).
+   */
+  mode?: 'race' | 'roam';
+  /**
+   * Checkpoints count only in order (the next one), and the finish only after the last one: courses
+   * that cross themselves or finish where they start. Omitted = any later checkpoint counts.
+   */
+  strictOrder?: boolean;
 }
 
 /**

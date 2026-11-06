@@ -1,16 +1,20 @@
 /**
- * The ☰ menu: pause screen + garage + maps + physics + settings + squad link, thumb-sized and
- * scrollable in both orientations. Open = `useSelection().menuOpen` (App pauses <Physics> from it,
- * so the run clock, hazards and pendulums freeze). Opened by ☰, Esc / M, or GARAGE on the results
- * screen; closed by RESUME, ✕/☰, Esc / M, the Android back button (useMenuBackButton) or picking a
- * car or map (which starts a new run with the start lights).
+ * The ☰ menu: pause screen + garage (+ number plates) + drivers + MY RIDE + maps + physics +
+ * settings + squad link, thumb-sized and scrollable in both orientations. Open =
+ * `useSelection().menuOpen` (App pauses <Physics> from it, so the run clock, hazards and pendulums
+ * freeze). Opened by ☰, Esc / M, or GARAGE on the results screen; closed by RESUME, ✕/☰, Esc / M,
+ * the Android back button (useMenuBackButton) or picking a car or map (which starts a new run with
+ * the start lights).
  */
-import { useEffect, useRef, type ReactNode } from 'react';
+import { Fragment, lazy, Suspense, useEffect, useRef, type ReactNode } from 'react';
 import { CAR_CATALOG, getCarEntry, resolveCarId, type CarCatalogEntry } from '../car/catalog';
+import { useWornPlate } from '../car/plates/platePick';
+import type { RideConfig } from '../ride/config';
+import { profileState, useProfile } from '../state/profile';
 import { MEDALS, jumpOutOfReachNote, jumpReach, loadBestTime, medalFor, medalsFor, type JumpReach } from '../state/records';
 import { selectionState, useSelection } from '../state/selection';
 import { CAMERA_MODES, gameState, useGameStore, type CameraMode } from '../state/store';
-import { TRACK_CATALOG, getTrackEntry, type TrackMedals } from '../track/catalog';
+import { TRACK_CATALOG, getTrackEntry, type TrackCatalogEntry, type TrackMedals } from '../track/catalog';
 import { resolveTrackId } from '../track/registry';
 import { EventFeed } from './EventFeed';
 import { canFullscreen, toggleFullscreen, useFullscreen } from './fullscreen';
@@ -18,6 +22,7 @@ import { TOUCH_CONTROLS } from './hudLayout';
 import { formatRaceTime } from './hudUtils';
 import { LinkStatusBadge, SquadDetails } from './LinkPanel';
 import { PhysicsSliders } from './PhysicsPanel';
+import { PlateEditor } from './PlateEditor';
 import { MedalBadge } from './Results';
 import { SwipeSlider } from './SwipeSlider';
 import { JumpVerdict } from './TelemetryPanel';
@@ -39,8 +44,16 @@ function useCurrent() {
 }
 
 function pickCar(id: string): void {
+  // A stock car from the garage: MY RIDE's look comes off (the profile keeps the ride for later).
+  profileState().setRideActive(false);
   // A different car restarts the run at the spawn (store.carChanged); the lights count on resume.
   selectionState().setCar(id);
+  closeMenu();
+}
+
+/** MY RIDE's DRIVE button: the ride's base class takes the wheel wearing the ride's look (RideTab sets rideActive). */
+function driveRide(ride: RideConfig): void {
+  selectionState().setCar(ride.base);
   closeMenu();
 }
 
@@ -125,9 +138,10 @@ function MedalTargets({ medals, bestMs, testId }: { medals: TrackMedals | null; 
  * JUMP ATTEMPT preset), which would contradict the JUMP OUT OF REACH note for a car no setting gets
  * over it, so that car gets an honest line instead.
  */
-function setupTip(tip: string | undefined, reach: JumpReach | null, carName: string): string | undefined {
-  if (reach && !reach.reachable) return `No setup reaches this jump with the ${carName}.`;
-  return tip;
+function setupTip(track: TrackCatalogEntry, reach: JumpReach | null, car: CarCatalogEntry): string | undefined {
+  if (reach && !reach.reachable) return `No setup reaches this jump with the ${car.name}.`;
+  // A car with a hint of its own on this map (e.g. the kart's Isles leap) gets that one.
+  return track.tipByCar?.[car.id] ?? track.tip;
 }
 
 /** "JUMP OUT OF REACH" badge for a car that can't clear a map's big jump with any setting. */
@@ -158,14 +172,27 @@ const DRIVE_HELP_KEYS: [string, string][] = [
   ['Esc / M', 'This menu (pause)'],
 ];
 
+/** Every catalog entry of an open world, catalog order. */
+function worldEntries(world: string): TrackCatalogEntry[] {
+  return TRACK_CATALOG.filter((t) => t.world === world);
+}
+
+// Open-world menu blocks (MAPS island card, RACE tab island block) live in their own chunk (HUD.tsx prefetches it).
+const IslandCard = lazy(() => import('./IslandCard').then((m) => ({ default: m.IslandCard })));
+const IslandBlock = lazy(() => import('./IslandCard').then((m) => ({ default: m.IslandBlock })));
+
 function RaceTab({ goTo }: { goTo: (tab: MenuTab) => void }) {
   const { trackId, carId, track, car } = useCurrent();
   const run = useGameStore((s) => s.run);
+  const roam = track.mode === 'roam';
   const best = loadBestTime(trackId, carId);
   const medals = medalsFor(trackId, carId);
   const reach = jumpReach(trackId, carId);
   const medal = medalFor(best, medals);
-  const tip = setupTip(track.tip, reach, car.name);
+  const tip = setupTip(track, reach, car);
+  // The plate the car wears (the garage's own text, or MY RIDE's while it is mounted) and the ride's name.
+  const plate = useWornPlate(carId);
+  const rideName = useProfile((s) => (s.rideActive && s.ride.base === carId ? s.ride.name : null));
   return (
     <>
       <div className="gm-now" style={{ ['--accent' as string]: track.accent }}>
@@ -174,12 +201,22 @@ function RaceTab({ goTo }: { goTo: (tab: MenuTab) => void }) {
           <b>{track.name}</b>
           <span className="gm-link">CHANGE ▸</span>
         </button>
-        <button type="button" className="gm-now__item" style={{ ['--accent' as string]: car.accent }} onClick={() => goTo('garage')} data-testid="menu-now-car">
-          <span className="gm-k">CAR</span>
-          <b>{car.name}</b>
+        <button type="button" className="gm-now__item" style={{ ['--accent' as string]: car.accent }} onClick={() => goTo(rideName ? 'ride' : 'garage')} data-testid="menu-now-car">
+          <span className="gm-k">{rideName ? 'MY RIDE' : 'CAR'}</span>
+          <b>{rideName ?? car.name}</b>
+          <span className="gm-now__plate" data-testid="menu-now-plate">
+            {rideName ? `${car.name} · ` : ''}
+            {plate}
+          </span>
           <span className="gm-link">CHANGE ▸</span>
         </button>
       </div>
+      {track.world !== undefined && (
+        <Suspense fallback={null}>
+          <IslandBlock track={track} entries={worldEntries(track.world)} onMaps={() => goTo('maps')} onPick={pickMap} />
+        </Suspense>
+      )}
+      {!roam && (
       <dl className="gm-runstats">
         <div>
           <dt>TIME</dt>
@@ -202,7 +239,8 @@ function RaceTab({ goTo }: { goTo: (tab: MenuTab) => void }) {
           </dd>
         </div>
       </dl>
-      {reach && !reach.reachable ? (
+      )}
+      {roam ? null : reach && !reach.reachable ? (
         <div className="gm-reach" data-testid="menu-reach-note">
           <b>BIG JUMP OUT OF REACH</b>
           <span>
@@ -241,9 +279,15 @@ function RaceTab({ goTo }: { goTo: (tab: MenuTab) => void }) {
 
 function GarageTab() {
   const { trackId, carId, track } = useCurrent();
+  // Free roam has no times: the cards say so instead of a best time.
+  const roam = track.mode === 'roam';
   return (
     <>
-      <p className="gm-lead">Pick a car: it starts a fresh run at the start line. Best times and medals (each car has its own) are for {track.name}.</p>
+      <p className="gm-lead">
+        {roam
+          ? `Pick a car: free roam on ${track.name} carries on with it.`
+          : `Pick a car: it starts a fresh run at the start line. Best times and medals (each car has its own) are for ${track.name}.`}
+      </p>
       <div className="gm-cards">
         {CAR_CATALOG.map((c) => {
           const selected = c.id === carId;
@@ -251,8 +295,8 @@ function GarageTab() {
           const medals = medalsFor(trackId, c.id);
           const reach = jumpReach(trackId, c.id);
           return (
+            <Fragment key={c.id}>
             <button
-              key={c.id}
               type="button"
               className={`gm-card gm-car${selected ? ' is-selected' : ''}`}
               style={{ ['--accent' as string]: c.accent }}
@@ -279,17 +323,58 @@ function GarageTab() {
                   </span>
                 ))}
               </span>
-              <span className="gm-card__foot">
-                <span className="gm-k">BEST</span>
-                <b data-testid={`garage-best-${c.id}`}>{best === null ? 'NO TIME YET' : formatRaceTime(best)}</b>
-                <MedalBadge medal={medalFor(best, medals)} small />
-                <MedalTargets medals={medals} bestMs={best} testId={`garage-medals-${c.id}`} />
-              </span>
+              {roam ? (
+                <span className="gm-card__foot">
+                  <b data-testid={`garage-best-${c.id}`}>FREE ROAM</b>
+                </span>
+              ) : (
+                <span className="gm-card__foot">
+                  <span className="gm-k">BEST</span>
+                  <b data-testid={`garage-best-${c.id}`}>{best === null ? 'NO TIME YET' : formatRaceTime(best)}</b>
+                  <MedalBadge medal={medalFor(best, medals)} small />
+                  <MedalTargets medals={medals} bestMs={best} testId={`garage-medals-${c.id}`} />
+                </span>
+              )}
             </button>
+            {/* The number-plate editor of the car in play sits right under its card (a card is a button, so it can't hold an input). */}
+            {selected && <PlateEditor carId={c.id} />}
+            </Fragment>
           );
         })}
       </div>
     </>
+  );
+}
+
+// DRIVERS and MY RIDE (profile.css, the avatar builder, the ride builder and its 3D preview) are one
+// lazy chunk: opened from the menu only, prefetched once the menu is up (MenuPanel).
+const DriversTabLazy = lazy(() => import('./DriversTab').then((m) => ({ default: m.DriversTab })));
+const RideTabLazy = lazy(() => import('./RideTab').then((m) => ({ default: m.RideTab })));
+const prefetchProfileTabs = () => {
+  void import('./DriversTab');
+  void import('./RideTab');
+};
+
+function DriversTabBody() {
+  return (
+    <Suspense fallback={<p className="gm-lead">Loading the drivers…</p>}>
+      <DriversTabLazy />
+    </Suspense>
+  );
+}
+
+/**
+ * MY RIDE: the 3D preview is a second WebGL context, so it waits for a SHOW 3D PREVIEW tap
+ * (`preview="button"`) and then mounts two frames later behind a short "building preview" veil
+ * (RideTab.tsx): compiling the car shader for a second context is a visible hitch on a phone and a
+ * 5–6 s task under software GL, on every open (measured in the integration report), and the car on
+ * track wears the look anyway.
+ */
+function RideTabBody() {
+  return (
+    <Suspense fallback={<p className="gm-lead">Loading MY RIDE…</p>}>
+      <RideTabLazy preview="button" onDrive={driveRide} />
+    </Suspense>
   );
 }
 
@@ -299,12 +384,22 @@ function MapsTab() {
     <>
       <p className="gm-lead">Pick a map: it loads with a fresh run. Best times and medals are for the {car.name}.</p>
       <div className="gm-cards">
-        {TRACK_CATALOG.map((t) => {
+        {TRACK_CATALOG.map((t, i) => {
+          // Entries of one open world collapse into a single island card at the first one's place.
+          if (t.world !== undefined) {
+            const world = t.world;
+            if (TRACK_CATALOG.findIndex((e) => e.world === world) !== i) return null;
+            return (
+              <Suspense key={`world:${world}`} fallback={<div className="gm-card gm-island gm-island--loading" />}>
+                <IslandCard entries={worldEntries(world)} trackId={trackId} carId={carId} onPick={pickMap} />
+              </Suspense>
+            );
+          }
           const selected = t.id === trackId;
           const best = loadBestTime(t.id, carId);
           const medals = medalsFor(t.id, carId);
           const reach = jumpReach(t.id, carId);
-          const tip = setupTip(t.tip, reach, car.name);
+          const tip = setupTip(t, reach, car);
           return (
             <button
               key={t.id}
@@ -377,6 +472,7 @@ function SettingsTab() {
   const settings = useSelection((s) => s.settings);
   const hudOn = useGameStore((s) => s.ui.helpOpen);
   const telemetry = useHudUi((s) => s.telemetry);
+  const minimap = useHudUi((s) => s.minimap);
   const fullscreen = useFullscreen();
   const canVibrate = typeof navigator !== 'undefined' && typeof navigator.vibrate === 'function';
   const { setSettings } = selectionState();
@@ -391,6 +487,9 @@ function SettingsTab() {
           testId="menu-hud"
         />
         <Toggle label="TELEMETRY" sub="Aero, slip and axle loads" on={telemetry} onChange={(on) => useHudUi.getState().setTelemetry(on)} testId="menu-telemetry" />
+        {TRACK_CATALOG.some((t) => t.world !== undefined) && (
+          <Toggle label="MINIMAP" sub="Map disc on the open-world island (tap it for MAPS)" on={minimap} onChange={(on) => useHudUi.getState().setMinimap(on)} testId="menu-minimap" />
+        )}
         {canFullscreen() && <Toggle label="FULLSCREEN" sub="Hides the browser bars; locks landscape where allowed" on={fullscreen} onChange={() => toggleFullscreen()} testId="menu-fullscreen" />}
       </Section>
       <Section title="CAMERA">
@@ -447,6 +546,8 @@ function SquadTab() {
 const TAB_BODY: Record<MenuTab, (props: { goTo: (tab: MenuTab) => void }) => ReactNode> = {
   race: RaceTab,
   garage: GarageTab,
+  drivers: DriversTabBody,
+  ride: RideTabBody,
   maps: MapsTab,
   physics: PhysicsTab,
   settings: SettingsTab,
@@ -463,6 +564,8 @@ function MenuPanel() {
   const tab = useHudUi((s) => s.menuTab);
   const setTab = useHudUi((s) => s.setMenuTab);
   const { track, car } = useCurrent();
+  // Free roam: RESTART is the same restart() (back to the world's spawn), labelled for what it does.
+  const roam = useGameStore((s) => s.trackLayout?.mode === 'roam');
   const rootRef = useRef<HTMLDivElement>(null);
   const bodyRef = useRef<HTMLDivElement>(null);
   const openedAt = useRef(performance.now());
@@ -476,6 +579,18 @@ function MenuPanel() {
   useEffect(() => {
     bodyRef.current?.scrollTo({ top: 0 });
   }, [tab]);
+  // The DRIVERS / MY RIDE chunk loads while the player reads the first tab, so tapping them is instant.
+  useEffect(() => {
+    const idle = (window as Window & { requestIdleCallback?: (cb: () => void, o?: { timeout: number }) => number }).requestIdleCallback;
+    if (idle) idle(prefetchProfileTabs, { timeout: 1500 });
+    else {
+      const timer = setTimeout(prefetchProfileTabs, 600);
+      return () => clearTimeout(timer);
+    }
+    return undefined;
+  }, []);
+  // MY RIDE mounted on the car in play: the header names it.
+  const rideName = useProfile((s) => (s.rideActive && s.ride.base === car.id ? s.ride.name : null));
 
   const respawn = () => {
     gameState().respawn('manual');
@@ -496,7 +611,7 @@ function MenuPanel() {
           <div className="gm__title">
             <b>PAUSED</b>
             <small>
-              {track.name} · {car.name}
+              {track.name} · {rideName ? `${rideName} (${car.name})` : car.name}
             </small>
           </div>
           <button
@@ -533,7 +648,7 @@ function MenuPanel() {
             ⟲ RESPAWN
           </button>
           <button type="button" className="gm-btn" onClick={restart} data-testid="menu-restart">
-            ⏮ RESTART
+            {roam ? '⏮ TO SPAWN' : '⏮ RESTART'}
           </button>
           <button type="button" className="gm-btn gm-btn--primary gm-btn--resume" onClick={closeMenu} data-testid="menu-resume">
             ▶ RESUME

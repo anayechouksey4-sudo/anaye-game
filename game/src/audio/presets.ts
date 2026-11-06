@@ -239,6 +239,150 @@ const BUGGY: EnginePreset = {
   level: 0.5,
 };
 
+/** Ember Swallowtail: a flat-six behind the seats — boxer burble at idle, air-cooled clatter, a hard-edged top end. */
+const COUPE: EnginePreset = {
+  id: 'coupe',
+  cylinders: 6,
+  idleRpm: 950,
+  redlineRpm: 8400,
+  limiterRpm: 8700,
+  gears: 6,
+  firstGearFrac: 0.3,
+  shiftUpLight: 0.6,
+  shiftUpFull: 0.96,
+  shiftDownFrac: 0.45,
+  shiftTime: 0.09,
+  revUpRate: 15,
+  revDownRate: 8,
+  osc: [
+    { type: 'sawtooth', ratio: 1, detune: 0, gain: 0.5 },
+    { type: 'square', ratio: 1.5, detune: 7, gain: 0.3 },
+    { type: 'triangle', ratio: 0.5, detune: 0, gain: 0.3 },
+  ],
+  drive: 0.6,
+  harmonicsMin: 3,
+  harmonicsMax: 10,
+  filterQ: 2.6,
+  lumpRatio: 0.333,
+  lumpDepth: 0.22,
+  grit: 0.3,
+  gritRatio: 4.5,
+  whistle: 0,
+  whistleRatio: 12,
+  blowOff: 0,
+  crackle: 0.6,
+  level: 0.5,
+};
+
+/** Smoke Lantern: a turbo straight-six — whistle rising with load, a flutter on every lift, crackle on the overrun. */
+const DRIFT: EnginePreset = {
+  id: 'drift',
+  cylinders: 6,
+  idleRpm: 850,
+  redlineRpm: 7800,
+  limiterRpm: 8100,
+  gears: 6,
+  firstGearFrac: 0.32,
+  shiftUpLight: 0.58,
+  shiftUpFull: 0.95,
+  shiftDownFrac: 0.42,
+  shiftTime: 0.1,
+  revUpRate: 16,
+  revDownRate: 9,
+  osc: [
+    { type: 'sawtooth', ratio: 1, detune: 0, gain: 0.5 },
+    { type: 'square', ratio: 2, detune: 10, gain: 0.25 },
+    { type: 'triangle', ratio: 0.5, detune: 0, gain: 0.3 },
+  ],
+  drive: 0.7,
+  harmonicsMin: 3,
+  harmonicsMax: 12,
+  filterQ: 3,
+  lumpRatio: 0.333,
+  lumpDepth: 0.15,
+  grit: 0.3,
+  gritRatio: 5,
+  whistle: 0.6,
+  whistleRatio: 24,
+  blowOff: 0.9,
+  crackle: 0.7,
+  level: 0.5,
+};
+
+/**
+ * Ion Dragonfly: no combustion at all — a near-silent rest, a motor whine (the "whistle" voice)
+ * rising with speed over a faint inverter hash, one gear, no lump, no crackle. "cylinders 2" with
+ * sine partials makes the fundamental a smooth tone rather than a firing pulse.
+ */
+const ELECTRIC: EnginePreset = {
+  id: 'electric',
+  cylinders: 2,
+  idleRpm: 400,
+  redlineRpm: 14000,
+  limiterRpm: 14500,
+  gears: 1,
+  firstGearFrac: 1,
+  shiftUpLight: 1,
+  shiftUpFull: 1,
+  shiftDownFrac: 0,
+  shiftTime: 0,
+  revUpRate: 30,
+  revDownRate: 20,
+  osc: [
+    { type: 'sine', ratio: 4, detune: 0, gain: 0.35 },
+    { type: 'sine', ratio: 6.02, detune: 5, gain: 0.25 },
+    { type: 'triangle', ratio: 2, detune: 0, gain: 0.2 },
+  ],
+  drive: 0.05,
+  harmonicsMin: 6,
+  harmonicsMax: 16,
+  filterQ: 1,
+  lumpRatio: 0.5,
+  lumpDepth: 0,
+  grit: 0.12,
+  gritRatio: 20,
+  whistle: 0.7,
+  whistleRatio: 12,
+  blowOff: 0,
+  crackle: 0,
+  level: 0.4,
+};
+
+/** Pixel Gnat: a screaming single-cylinder two-stroke feel — one pulse per rev, a light flywheel, one gear, lots of rasp. */
+const KART: EnginePreset = {
+  id: 'kart',
+  cylinders: 2,
+  idleRpm: 1800,
+  redlineRpm: 13500,
+  limiterRpm: 14000,
+  gears: 1,
+  firstGearFrac: 1,
+  shiftUpLight: 1,
+  shiftUpFull: 1,
+  shiftDownFrac: 0,
+  shiftTime: 0,
+  revUpRate: 26,
+  revDownRate: 14,
+  osc: [
+    { type: 'square', ratio: 1, detune: 0, gain: 0.45 },
+    { type: 'sawtooth', ratio: 2, detune: 12, gain: 0.3 },
+    { type: 'triangle', ratio: 0.5, detune: 0, gain: 0.15 },
+  ],
+  drive: 0.85,
+  harmonicsMin: 4,
+  harmonicsMax: 16,
+  filterQ: 2,
+  lumpRatio: 1,
+  lumpDepth: 0.3,
+  grit: 0.5,
+  gritRatio: 8,
+  whistle: 0,
+  whistleRatio: 12,
+  blowOff: 0,
+  crackle: 0.3,
+  level: 0.42,
+};
+
 /** Fallback for ids the catalog doesn't know either: a smooth straight six. */
 export const GENERIC_PRESET: EnginePreset = {
   id: 'generic',
@@ -280,6 +424,10 @@ export const ENGINE_PRESETS: Readonly<Record<string, EnginePreset>> = {
   muscle: MUSCLE,
   formula: FORMULA,
   buggy: BUGGY,
+  coupe: COUPE,
+  drift: DRIFT,
+  electric: ELECTRIC,
+  kart: KART,
 };
 
 const lerp = (a: number, b: number, t: number) => a + (b - a) * t;

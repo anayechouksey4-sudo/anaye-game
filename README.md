@@ -21,6 +21,8 @@ GitHub Pages serves the game from the [`docs/`](docs/) folder. One-time setup in
 | [`shared/protocol.ts`](shared/protocol.ts) | Wire protocol and the slider → physics mapping used by all three | TypeScript, no dependencies |
 | [`scripts/dev-all.mjs`](scripts/dev-all.mjs) | One-command launcher (installs, starts everything, prints the URLs) | Node, concurrently |
 
+- **Cars:** nine original voxel classes in the ☰ GARAGE (Neon Hypercar, Glitch Rally, Bruiser V8, Razorwing, Dune Goblin, Ember Swallowtail — the red rear-engined coupe with plate `UK 07 DW 2400` — Smoke Lantern, Ion Dragonfly, Pixel Gnat), each with its own rear number plate you can retype; five **DRIVERS** (Anaye owns the garage) built from blocks who sit in every car; and **MY RIDE**, a build-your-own look over any class (paint, neon trim, wheels, spoiler, exhaust tips, stance, name, plate) that drives exactly like its base car. Details in [`game/README.md`](game/README.md).
+
 ## Run everything with one command
 
 Needs Node 22 or newer.

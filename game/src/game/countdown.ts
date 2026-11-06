@@ -89,7 +89,12 @@ export const getCountdownSnapshot = (): CountdownSnapshot => snapshot;
 
 // Arm on every new run. Module-level (not a React effect) so the very first layout registration,
 // which happens in the track's layout effect before any sibling's effects run, is never missed.
-onGameEvent('restart', armCountdown);
+// Free roam (open worlds) never counts down: a restart or a roam layout drops any lights.
+const isRoam = (): boolean => useGameStore.getState().trackLayout?.mode === 'roam';
+onGameEvent('restart', () => (isRoam() ? cancelCountdown() : armCountdown()));
 useGameStore.subscribe((s, prev) => {
-  if (s.trackLayout && s.trackLayout !== prev.trackLayout) armCountdown();
+  if (s.trackLayout && s.trackLayout !== prev.trackLayout) {
+    if (s.trackLayout.mode === 'roam') cancelCountdown();
+    else armCountdown();
+  }
 });

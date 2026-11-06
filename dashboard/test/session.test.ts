@@ -12,6 +12,7 @@ import {
   mapSquadControlsToPhysics,
   requiredJumpKmh,
 } from '../../shared/protocol';
+import { bestTopSpeedKmh } from '../src/squad/bigJump';
 import { BIG_JUMP_MAPS, describeCar, describeMap, labelFromId } from '../src/squad/garage';
 import { JUMP_PRESETS, PRESETS, presetsFor } from '../src/squad/presets';
 import { DEFAULT_SESSION, mergeSession, previewSetup, sessionEqual, sessionInfoOf, type PlaySession } from '../src/squad/session';
@@ -124,13 +125,21 @@ describe('per-car presets', () => {
   });
 
   it("JUMP ATTEMPT is READY for every car that can make the jump, on both big-jump maps", () => {
+    // A car whose best estimated top speed is below the map's requirement can't get READY with any
+    // setup (the buggy on both maps, the kart on chaos): there its preset must simply not claim READY.
+    const unreachable: string[] = [];
     for (const id of CAR_CLASS_IDS) {
-      if (id === 'buggy') continue;
       for (const map of BIG_JUMP_MAPS) {
         const preview = previewSetup(JUMP_PRESETS[id].controls, { carId: id, bigJumpKmh: map.bigJumpKmh });
-        assert.equal(preview.jump?.verdict, 'READY', `${id} on ${map.id}`);
+        if (bestTopSpeedKmh(CAR_CLASSES[id]).kmh < requiredJumpKmh(map.bigJumpKmh!, id)) {
+          unreachable.push(`${id}/${map.id}`);
+          assert.notEqual(preview.jump?.verdict, 'READY', `${id} on ${map.id}`);
+        } else {
+          assert.equal(preview.jump?.verdict, 'READY', `${id} on ${map.id}`);
+        }
       }
     }
+    assert.deepEqual(unreachable, ['buggy/chaos', 'buggy/isles', 'kart/chaos']);
   });
 
   it("the buggy can't reach lip speed with any setup, so its JUMP ATTEMPT is its fastest one", () => {

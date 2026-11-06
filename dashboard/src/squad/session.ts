@@ -31,7 +31,19 @@ export interface PlaySession {
   trackId: string | null;
   /** Lip speed the map's big jump needs, km/h; null = this map has no big jump. */
   bigJumpKmh: number | null;
+  /** Driver name the game reported (its DRIVERS tab); absent when no game has said. */
+  driverName?: string;
+  /** Name of the mounted custom car (MY RIDE); absent = the stock car of `carId`. */
+  rideName?: string;
   source: SessionSource;
+}
+
+/** "DRIVER ANAYE · MY RIDE "EMBER" (NEON HYPERCAR HANDLING)" for the On track block; null when the game reported neither. */
+export function driverLine(session: Pick<PlaySession, 'driverName' | 'rideName'>, baseCarName: string): string | null {
+  const parts: string[] = [];
+  if (session.driverName) parts.push(`DRIVER ${session.driverName.toUpperCase()}`);
+  if (session.rideName) parts.push(`MY RIDE "${session.rideName.toUpperCase()}" (${baseCarName.toUpperCase()} HANDLING)`);
+  return parts.length ? parts.join(' · ') : null;
 }
 
 export const DEFAULT_SESSION: Readonly<PlaySession> = Object.freeze({
@@ -42,7 +54,7 @@ export const DEFAULT_SESSION: Readonly<PlaySession> = Object.freeze({
 });
 
 function hasSessionFields(info: GameSessionInfo): boolean {
-  return info.carId !== undefined || info.trackId !== undefined || info.bigJumpKmh !== undefined;
+  return info.carId !== undefined || info.trackId !== undefined || info.bigJumpKmh !== undefined || info.driverName !== undefined || info.rideName !== undefined;
 }
 
 /**
@@ -57,12 +69,18 @@ export function mergeSession(prev: Readonly<PlaySession>, info: GameSessionInfo,
   if (!hasSessionFields(info)) {
     return { carId: DEFAULT_CAR_CLASS_ID, trackId: null, bigJumpKmh: BIG_JUMP_LIP_KMH, source };
   }
-  return {
+  const next: PlaySession = {
     carId: info.carId ?? prev.carId,
     trackId: info.trackId ?? prev.trackId,
     bigJumpKmh: info.bigJumpKmh !== undefined ? info.bigJumpKmh : prev.bigJumpKmh,
     source,
   };
+  // The driver name is kept across messages that leave it out (like the map while one loads); the
+  // ride name is sent only while a custom car is mounted, so leaving it out means the stock car.
+  const driverName = info.driverName ?? prev.driverName;
+  if (driverName !== undefined) next.driverName = driverName;
+  if (info.rideName !== undefined) next.rideName = info.rideName;
+  return next;
 }
 
 /** Just the session fields of a message (parseMessage leaves absent ones undefined). */
@@ -71,11 +89,20 @@ export function sessionInfoOf(message: GameSessionInfo): GameSessionInfo {
   if (message.carId !== undefined) info.carId = message.carId;
   if (message.trackId !== undefined) info.trackId = message.trackId;
   if (message.bigJumpKmh !== undefined) info.bigJumpKmh = message.bigJumpKmh;
+  if (message.driverName !== undefined) info.driverName = message.driverName;
+  if (message.rideName !== undefined) info.rideName = message.rideName;
   return info;
 }
 
 export function sessionEqual(a: Readonly<PlaySession>, b: Readonly<PlaySession>): boolean {
-  return a.carId === b.carId && a.trackId === b.trackId && a.bigJumpKmh === b.bigJumpKmh && a.source === b.source;
+  return (
+    a.carId === b.carId &&
+    a.trackId === b.trackId &&
+    a.bigJumpKmh === b.bigJumpKmh &&
+    a.source === b.source &&
+    a.driverName === b.driverName &&
+    a.rideName === b.rideName
+  );
 }
 
 export interface SetupPreview {

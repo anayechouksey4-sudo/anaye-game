@@ -268,6 +268,13 @@
 .hud-topbar__cp { display: flex; align-items: baseline; gap: 5px; line-height: 1; }
 .hud-topbar__cp label { font-size: 9px; }
 .hud-topbar__cp b { font-size: 13px; color: var(--yellow); font-variant-numeric: tabular-nums; }
+/* Free roam: FREE ROAM over the region name in the timer's place; timer + CP stay as invisible spacers (same width). */
+.hud-topbar__run.is-roam { position: relative; }
+.hud-topbar__run.is-roam > .hud-topbar__timer, .hud-topbar__run.is-roam > .hud-topbar__cp { visibility: hidden; }
+.hud-topbar__roam { position: absolute; inset: 0 0 0 11px; display: flex; flex-direction: column; justify-content: center; gap: 3px; min-width: 0; line-height: 1; }
+.hud-topbar__roam label { font-size: 9px; color: var(--cyan); white-space: nowrap; }
+.hud-topbar__roam b { max-width: 13ch; font-size: 13px; color: var(--yellow); letter-spacing: 0.02em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.hud-topbar__roam b.is-long { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; max-width: none; font-size: 12px; line-height: 1.05; white-space: normal; overflow-wrap: normal; word-break: keep-all; }
 
 /* Status chips (squad link, telemetry). */
 .hud-chip { pointer-events: auto; display: inline-flex; align-items: center; gap: 8px; min-height: 34px; padding: 6px 14px 6px 12px; font: inherit; font-size: 10px; color: var(--text); letter-spacing: 0.14em; text-align: left; cursor: pointer; touch-action: manipulation; }
@@ -416,3 +423,58 @@
   .hud--touch { --tc-gas-h: 88px; --tc-drift-h: 48px; --tc-steer-h: 88px; --bar-h: 46px; }
 }
 .hud--bare .hud-corner-tl { display: none; }
+
+/* ── Open worlds: event prompt, island callouts, loading veil ── */
+.hud-sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+/* Event start pill (EventPrompt.tsx): top of the callout column, so callouts queue under it. */
+.hud-prompt {
+  --accent: var(--green);
+  pointer-events: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  height: 48px;
+  max-width: 100%;
+  padding: 0 16px 0 6px;
+  font: inherit;
+  color: #fff;
+  text-align: left;
+  background: linear-gradient(90deg, color-mix(in srgb, var(--accent) 32%, rgba(5, 6, 10, 0.92)), rgba(5, 6, 10, 0.88));
+  border: 1px solid var(--accent);
+  border-radius: 24px;
+  box-shadow: 0 0 16px color-mix(in srgb, var(--accent) 45%, transparent);
+  cursor: pointer;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+  animation: hud-pop 0.25s ease-out;
+}
+.hud-prompt.is-fast { display: none; }
+.hud-prompt:active { transform: scale(0.97); }
+.hud-prompt:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
+.hud-prompt__go { flex: none; display: grid; place-items: center; width: 36px; height: 36px; border-radius: 50%; font-size: 14px; color: #05060a; background: var(--accent); box-shadow: 0 0 10px var(--accent); }
+.hud-prompt__text { display: flex; flex-direction: column; gap: 4px; min-width: 0; line-height: 1; }
+.hud-prompt__text b { font-size: 13px; letter-spacing: 0.12em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-shadow: 0 0 8px color-mix(in srgb, var(--accent) 70%, transparent); }
+.hud-prompt__text small { font-size: 10px; letter-spacing: 0.1em; color: var(--text); opacity: 0.85; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* With the floating physics panel open the callouts share a 46 px band under the top bar. */
+.hud--compact.hud--physics-open .hud-prompt { height: 44px; }
+@media (orientation: portrait) {
+  /* Portrait: that band runs beside ⟲ ☰ and the panel covers the width: the prompt waits for the panel
+     to close (the RACE tab's EVENTS list still starts a race). */
+  .hud--compact.hud--physics-open .hud-prompt { display: none; }
+}
+/* WRONG WAY / MISSED CHECKPOINT / STUCK? stay up while the world raises them; no room taken otherwise. */
+.hud-banner--flag:not(.is-visible) { display: none; }
+.hud-banner--bad.hud-banner--flag.is-visible { animation: hud-alarm 0.7s infinite; }
+/* First entry into a region (free roam). */
+.hud-banner--region { color: #fff; border-color: rgba(123, 211, 137, 0.85); text-shadow: 0 0 12px rgba(123, 211, 137, 0.8); }
+.hud-banner--region small { color: #7bd389; text-shadow: none; }
+/* BUILDING TESSERA ISLE · 62 % (LoadingVeil.tsx): never takes a tap. */
+.hud-veil { position: absolute; inset: 0; display: grid; place-items: center; pointer-events: none; z-index: 5; }
+.hud-veil__card { --accent: var(--cyan); display: grid; gap: 10px; width: min(340px, calc(100vw - 32px)); padding: 14px 18px; text-align: center; background: rgba(5, 6, 10, 0.86); border: 1px solid color-mix(in srgb, var(--accent) 60%, transparent); border-radius: 14px; box-shadow: 0 0 24px color-mix(in srgb, var(--accent) 25%, transparent); }
+.hud-veil__card b { font-size: 12px; letter-spacing: 0.16em; color: #fff; font-variant-numeric: tabular-nums; }
+.hud-veil__bar { height: 6px; overflow: hidden; background: rgba(255, 255, 255, 0.1); border-radius: 3px; }
+.hud-veil__bar i { display: block; height: 100%; background: var(--accent); box-shadow: 0 0 8px var(--accent); transition: width 0.2s; }
+@media (orientation: landscape) {
+  /* Between the thumbs. */
+  .hud--touch .hud-veil__card { width: min(320px, calc(100vw - 2 * (max(var(--tc-steer-w), var(--tc-cluster-w)) + var(--tc-edge-l) + 8px))); }
+}

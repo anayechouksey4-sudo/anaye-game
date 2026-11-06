@@ -91,6 +91,10 @@ JUMP ATTEMPT per car, with the estimate on GamerFleet Chaos (183 km/h lip):
 | Bruiser V8 | 20 % / T5 / 0 | 186 / 186 km/h | READY |
 | Razorwing | 14 % / T5 / 0 | 197 / 192 km/h | READY |
 | Dune Goblin | 0 % / T5 / 0 | 133 / 183 km/h | TOO SLOW: no setup gets it there |
+| Ember Swallowtail | 30 % / T5 / −20 | 190 / 187 km/h | READY (sim: clears at 185.8 at the lip) |
+| Smoke Lantern | 24 % / T5 / 0 | 194 / 187 km/h | READY (sim: 189.8) |
+| Ion Dragonfly | 10 % / T5 / 0 | 196 / 188.5 km/h | READY (sim: 185.9; tier 4 stays below 183) |
+| Pixel Gnat | 10 % / T5 / −30 | 171 / 190 km/h | TOO SLOW: no setup gets it there — its preset is for Cloudbreak Isles (171 / 169.5, READY, sim: clears at 166.3) |
 
 The Glitch Rally, Bruiser V8 and Razorwing setups are settings that cleared the chaos jump in test runs of
 the game itself; the Neon Hypercar keeps its classic preset. The same setups are also READY on Cloudbreak Isles
@@ -163,6 +167,11 @@ above it landed (`landingSpeedFor`):
 | --- | --- | --- | --- | --- | --- |
 | GamerFleet Chaos (183) | 183.5 | 184 | 182 | 188.5 | can't reach it (≈ 129 at the lip) |
 | Cloudbreak Isles (163) | 160.5 | 160.5 | 156.5 | 164.5 | can't reach it (≈ 125 at the lip) |
+
+The four newer cars (Ember Swallowtail, Smoke Lantern, Ion Dragonfly, Pixel Gnat) have no landing speed in
+the catalog yet, so they use the Neon Hypercar's with the "may need a few km/h more or less" line; the first
+sim runs (game/README.md, "The four newer cars") put the coupe at 182.5 and the 1.9 t Ion Dragonfly at 175 on
+GamerFleet Chaos, and the Pixel Gnat at 163 on the Isles.
 
 A car with no measurement (or an unknown car id) uses the Neon Hypercar's number and the card says so; a map
 this build doesn't know, or a game reporting a different lip than the copy here, uses the lip it reports. Just below a landing speed a jump can still land (the edge is a coin flip over 1–2 km/h, and
@@ -281,3 +290,27 @@ dashboard/
   test/                        node:test suites (npm test)
   docs/                        screenshots
 ```
+
+## Driver and ride names
+
+A game that has the DRIVERS / MY RIDE tabs adds `driverName` (who is at the wheel) and, while a custom
+car is mounted, `rideName` to `game:state` (both ≤ 14 code points, cleaned by the protocol's
+`sanitizeDisplayText`; a non-string rejects the message like a bad id). **On track** then shows a line
+under the car: `DRIVER ANAYE · MY RIDE "EMBER GT" (NEON HYPERCAR HANDLING)` — the ride is cosmetic, so every
+estimate still uses the base class in `carId`. The driver name is kept across messages that leave it out
+(like the map while one loads); a missing `rideName` means the stock car. Older games send neither and
+the line stays hidden (`test/driver.test.ts`).
+
+## Garage mirror: nine cars, landing speeds, drift at rearward balance
+
+`src/squad/garage.ts` carries the game's four newer classes (Ember Swallowtail, Smoke Lantern, Ion
+Dragonfly, Pixel Gnat) and the per-car landing lip speeds measured in the game's sim: GamerFleet Chaos
+`coupe 182.5`, `electric 175`; Cloudbreak Isles `kart 164.5` (`test/garage.test.ts` reads the game's
+`track/catalog.ts` and fails if either side drifts). The **On track** driver line (`session-driver`) is
+fed by the live game now: `game:state` carries `driverName` and, while MY RIDE is mounted, `rideName`;
+the relay keeps both in `snapshot.session`, so a dashboard that joins late sees them too.
+
+Known estimate gap, documented rather than modelled: the **Smoke Lantern (drift) at Chassis Balance
+below about −20** reads READY for the Chaos jump while the sim shows wheelspin up the run-up holding it
+near 165 km/h at the lip (the estimator has no wheelspin model; `bigJumpHint` has no balance input, so
+there is no clean place for a hint yet). Keep the balance between −20 and +10 for a real attempt.

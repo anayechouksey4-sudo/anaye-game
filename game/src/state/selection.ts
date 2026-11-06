@@ -10,6 +10,7 @@
  * track/registry.ts `resolveTrackId`) so an unknown id falls back to the default.
  */
 import { create } from 'zustand';
+import { normalizePlate } from '../car/plates/plateText';
 import { getQueryParam } from '../config';
 
 export const DEFAULT_CAR_ID = 'hypercar';
@@ -32,19 +33,29 @@ export interface SelectionState {
   /** The ☰ menu (pause / garage / maps / settings) is open. */
   menuOpen: boolean;
   settings: GameSettings;
+  /**
+   * The player's own number plate per car id (car/plates `normalizePlate` text, never empty); a
+   * car without an entry wears its catalog default. Cosmetic: no physics, no best-time key.
+   */
+  plates: Readonly<Record<string, string>>;
   setCar: (id: string) => void;
   setTrack: (id: string) => void;
   setMenuOpen: (open: boolean) => void;
   toggleMenu: () => void;
   setSettings: (patch: Partial<GameSettings>) => void;
+  /** Normalizes and stores a plate for a car ('' or an all-junk text removes it = back to the default). Returns what was stored. */
+  setPlate: (carId: string, text: string) => string;
 }
 
 const STORAGE_KEY = 'squadhq.selection.v1';
+/** Plates are kept for at most this many car ids (old saves with more keep the first ones). */
+const MAX_PLATE_ENTRIES = 32;
 
 interface Saved {
   carId?: unknown;
   trackId?: unknown;
   settings?: Partial<Record<keyof GameSettings, unknown>>;
+  plates?: unknown;
 }
 
 function loadSaved(): Saved {
@@ -57,15 +68,29 @@ function loadSaved(): Saved {
   }
 }
 
-function save(state: Pick<SelectionState, 'carId' | 'trackId' | 'settings'>): void {
+function save(state: Pick<SelectionState, 'carId' | 'trackId' | 'settings' | 'plates'>): void {
   try {
     window.localStorage.setItem(
       STORAGE_KEY,
-      JSON.stringify({ carId: state.carId, trackId: state.trackId, settings: state.settings }),
+      JSON.stringify({ carId: state.carId, trackId: state.trackId, settings: state.settings, plates: state.plates }),
     );
   } catch {
     // Storage blocked: choices just aren't remembered.
   }
+}
+
+/** Saved plates → clean map: string keys, normalized non-empty texts, at most MAX_PLATE_ENTRIES. */
+function initialPlates(saved: Saved): Record<string, string> {
+  const out: Record<string, string> = {};
+  const raw = saved.plates;
+  if (!raw || typeof raw !== 'object') return out;
+  for (const [carId, value] of Object.entries(raw as Record<string, unknown>)) {
+    if (Object.keys(out).length >= MAX_PLATE_ENTRIES) break;
+    if (typeof carId !== 'string' || carId.length === 0 || carId.length > 32) continue;
+    const text = normalizePlate(value);
+    if (text) out[carId] = text;
+  }
+  return out;
 }
 
 function initialSettings(saved: Saved): GameSettings {
@@ -78,12 +103,27 @@ function initialSettings(saved: Saved): GameSettings {
 }
 
 const saved = loadSaved();
+const initialCarId = getQueryParam('car') ?? (typeof saved.carId === 'string' ? saved.carId : DEFAULT_CAR_ID);
+const plates = initialPlates(saved);
+// `?plate=` is a shareable link: it sets (and keeps) the plate of the car the link opens with.
+const plateParam = normalizePlate(getQueryParam('plate'));
+if (plateParam) plates[initialCarId] = plateParam;
 
 export const useSelection = create<SelectionState>()((set, get) => ({
-  carId: getQueryParam('car') ?? (typeof saved.carId === 'string' ? saved.carId : DEFAULT_CAR_ID),
+  carId: initialCarId,
   trackId: getQueryParam('track') ?? (typeof saved.trackId === 'string' ? saved.trackId : DEFAULT_TRACK_ID),
   menuOpen: false,
   settings: initialSettings(saved),
+  plates,
+  setPlate: (carId, text) => {
+    const clean = normalizePlate(text);
+    const next = { ...get().plates };
+    if (clean) next[carId] = clean;
+    else delete next[carId];
+    set({ plates: next });
+    save(get());
+    return clean;
+  },
   setCar: (carId) => {
     if (carId === get().carId) return;
     set({ carId });
@@ -101,6 +141,8 @@ export const useSelection = create<SelectionState>()((set, get) => ({
     save(get());
   },
 }));
+
+if (plateParam) save(useSelection.getState());
 
 /** Non-React access for physics callbacks, audio and haptics. */
 export const selectionState = () => useSelection.getState();

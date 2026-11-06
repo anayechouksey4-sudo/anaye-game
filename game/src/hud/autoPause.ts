@@ -8,9 +8,9 @@
  * split screen, a system dialog: Chrome stays visible but the player isn't looking). A desktop
  * window losing focus never pauses: a second monitor or a dashboard tab beside the game is normal.
  *
- * Only while there is something to freeze: a run in progress or the start lights counting, the menu
- * closed and no results showing. Never behind the touch start card (no run has really started) or
- * after the finish. Opening the menu while it is open is a no-op, so repeated hides never stack
+ * Only while there is something to freeze: a run in progress or the start lights counting, or free
+ * roam in an open world (always driving, no timer to start), the menu closed and no results
+ * showing. Never behind the touch start card (no run has really started) or after the finish. Opening the menu while it is open is a no-op, so repeated hides never stack
  * history entries (useMenuBackButton pushes one per open, deferred until the page is visible again).
  *
  * Why this freezes exactly: App.tsx pauses <Physics> from a selection subscription INSIDE the R3F
@@ -49,7 +49,8 @@ export const autoPauseLog = (): AutoPauseRecord[] => log.slice();
 /** Is there a run (or start-light countdown) the player would lose ground in if it kept going? */
 export function shouldAutoPause(): boolean {
   if (selectionState().menuOpen || useHudUi.getState().startGateOpen) return false;
-  const { run } = gameState();
+  const { run, trackLayout } = gameState();
+  if (trackLayout?.mode === 'roam') return true;
   if (run.finished) return false;
   if (typeof document !== 'undefined' && document.querySelector('[data-testid=results]')) return false;
   return run.started || isCountdownActive();

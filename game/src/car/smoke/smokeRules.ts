@@ -19,8 +19,8 @@ export const LAUNCH_DUST_FADE_KMH = 15;
 export const LAUNCH_DUST_MAX_KMH = 40;
 export const LAUNCH_DUST_LOAD_START = 0.2;
 export const LAUNCH_DUST_LOAD_FULL = 0.65;
-/** Dust multiplier per car id (rate and puff size); unlisted all-wheel-drive cars get 1. */
-export const LAUNCH_DUST_AMOUNT: { readonly [carId: string]: number } = { buggy: 1.5 };
+/** Dust multiplier per car id (rate and puff size); unlisted all-wheel-drive cars get 1. The electric saloon launches hardest but on tarmac tyres, so it dusts less than the buggy. */
+export const LAUNCH_DUST_AMOUNT: { readonly [carId: string]: number } = { buggy: 1.5, electric: 0.7 };
 
 function smoothstep(e0: number, e1: number, x: number): number {
   const t = Math.min(Math.max((x - e0) / (e1 - e0), 0), 1);

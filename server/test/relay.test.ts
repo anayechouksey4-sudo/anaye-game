@@ -240,6 +240,26 @@ describe('car / map session (game:state carId, trackId, bigJumpKmh)', () => {
     assert.equal(relay.stats().snapshot.session, undefined);
   });
 
+  it('relays the driver and MY RIDE names and keeps them in snapshot.session for late dashboards', async () => {
+    const game = await join('game');
+    const dash = await join('dashboard');
+    game.send({ type: 'game:state', physics, controls, carId: 'coupe', trackId: 'chaos', bigJumpKmh: 183, driverName: 'Anaye', rideName: 'Anaye GT' });
+    const m = await dash.take('game:state');
+    assert.equal(m.driverName, 'Anaye');
+    assert.equal(m.rideName, 'Anaye GT');
+    assert.deepEqual(relay.stats().snapshot.session, { carId: 'coupe', trackId: 'chaos', bigJumpKmh: 183, driverName: 'Anaye', rideName: 'Anaye GT' });
+    const late = await join('dashboard');
+    assert.deepEqual(late.welcome.snapshot.session, { carId: 'coupe', trackId: 'chaos', bigJumpKmh: 183, driverName: 'Anaye', rideName: 'Anaye GT' });
+    // Unmounting the ride sends no rideName: the snapshot then carries only what the latest state had.
+    game.send({ type: 'game:state', physics, controls, carId: 'coupe', trackId: 'chaos', bigJumpKmh: 183, driverName: 'Anaye' });
+    await dash.take('game:state');
+    assert.deepEqual(relay.stats().snapshot.session, { carId: 'coupe', trackId: 'chaos', bigJumpKmh: 183, driverName: 'Anaye' });
+    // Junk names are rejected like the other session fields (the protocol's sanitizeDisplayText).
+    game.sendRaw(JSON.stringify({ type: 'game:state', physics, controls: null, driverName: 42 }));
+    const err = await game.take('server:error');
+    assert.equal(err.code, 'bad_message');
+  });
+
   it('rejects a game:state whose session fields are junk', async () => {
     const game = await join('game');
     const dash = await join('dashboard');

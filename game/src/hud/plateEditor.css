@@ -1,0 +1,85 @@
+/* Number-plate editor (PlateEditor.tsx). Standalone: its own tokens fall back to the HUD palette. */
+.pe {
+  --pe-accent: var(--accent, var(--cyan, #00f0ff));
+  --pe-text: var(--text, #d8f7ff);
+  --pe-dim: var(--dim, rgba(216, 247, 255, 0.5));
+  --pe-line: var(--line, rgba(0, 240, 255, 0.35));
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 10px;
+  margin: 0 0 10px;
+  padding: 8px 10px;
+  color: var(--pe-text);
+  font-family: inherit;
+  background: rgba(8, 10, 18, 0.7);
+  border: 1px solid var(--pe-line);
+  border-radius: 12px;
+  pointer-events: auto;
+}
+.pe__k { flex: none; color: var(--pe-dim); font-size: 9px; letter-spacing: 0.18em; }
+/* The chip is a little plate: navy face, accent frame, white pixel-ish text. */
+.pe__chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 96px;
+  min-height: 30px;
+  padding: 3px 10px;
+  font-size: 13px;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  color: #f4f7fb;
+  background: #0b1020;
+  border: 2px solid var(--pe-accent);
+  border-radius: 5px;
+  box-shadow: 0 0 10px color-mix(in srgb, var(--pe-accent) 45%, transparent);
+  white-space: nowrap;
+}
+.pe__name { flex: 1 1 auto; min-width: 0; font-size: 10px; letter-spacing: 0.08em; color: var(--pe-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pe__btn {
+  flex: none;
+  min-height: 44px;
+  min-width: 44px;
+  padding: 0 12px;
+  font: inherit;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  color: var(--pe-text);
+  background: rgba(8, 10, 18, 0.86);
+  border: 1px solid var(--pe-line);
+  border-radius: 10px;
+  cursor: pointer;
+  touch-action: manipulation;
+  white-space: nowrap;
+  -webkit-tap-highlight-color: transparent;
+}
+.pe__btn:hover,
+.pe__btn:focus-visible { border-color: var(--pe-accent); outline: none; }
+.pe__btn:active { transform: scale(0.97); }
+.pe__btn--done { color: #04130a; background: var(--green, #39ff14); border-color: var(--green, #39ff14); }
+.pe__edit { flex: 1 1 100%; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.pe__input {
+  flex: 1 1 240px;
+  min-width: 0;
+  min-height: 46px;
+  padding: 0 12px;
+  font: inherit;
+  font-size: 18px; /* ≥ 16 px: no page zoom when the keyboard opens */
+  font-weight: 800;
+  letter-spacing: 0.08em; /* 14 characters fit a 360 px phone without scrolling the field */
+  text-transform: uppercase;
+  color: #f4f7fb;
+  background: #0b1020;
+  border: 2px solid var(--pe-accent);
+  border-radius: 8px;
+  caret-color: var(--pe-accent);
+}
+.pe__input:focus { outline: none; box-shadow: 0 0 0 2px color-mix(in srgb, var(--pe-accent) 50%, transparent); }
+.pe__input::placeholder { color: rgba(244, 247, 251, 0.35); letter-spacing: 0.1em; }
+.pe__hint { flex: 1 1 100%; font-size: 10px; line-height: 1.4; letter-spacing: 0.03em; color: var(--pe-dim); }
+.pe__hint b { color: var(--pe-text); font-variant-numeric: tabular-nums; }
+@media (max-width: 400px) {
+  .pe__btn { padding: 0 9px; font-size: 10px; letter-spacing: 0.1em; }
+}

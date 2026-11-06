@@ -199,7 +199,10 @@ describe('big-jump hints match their verdict', () => {
         }
       }
     }
-    assert.equal(topTierFixes, 177 + 291, 'rally + muscle on chaos: the lift-off window, then NOSE LIFT while too slow');
+    // rally 360 + muscle 108 on chaos (the lift-off window, then NOSE LIFT while too slow) + kart 37 on
+    // the Isles (its only reachable jump, where its JUMP ATTEMPT 10/T5/−30 is READY). The four newer
+    // road cars add none: their presets sit inside wide READY windows.
+    assert.equal(topTierFixes, 360 + 108 + 37, 'rally + muscle on chaos, kart on the Isles');
   });
 
   it("tells the Dune Goblin player that no setup reaches either jump, with the car's best", () => {

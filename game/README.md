@@ -33,6 +33,7 @@ retrying in the background.
 | `?ws=<url>` | Relay address: `host`, `host:port` or a full `ws://` / `wss://` URL. `?ws=off` disables networking. |
 | `?track=<id>` | Map: `chaos` (default), `ribbon`, `isles`, `cryo`, `strip` or `test` (see [Maps](#maps)). Wins over the map saved from the menu; unknown ids fall back to `chaos`. |
 | `?car=<id>` | Car: `hypercar` (default), `rally`, `muscle`, `formula` or `buggy` (see [Cars](#cars-garage)). Wins over the saved car; unknown ids fall back to the hypercar. |
+| `?plate=<text>` | Number plate for the car the page opens with (`?car=`, else the saved / default car), normalized like the editor (A–Z 0–9 spaces, ≤ 14) and kept in the save, so `?car=coupe&plate=UK%2007%20DW%202400` is a shareable link (see [Number plates](#number-plates)). The four newer ids `coupe`, `drift`, `electric`, `kart` work in `?car=` too. |
 | `?seed=<n\|text>` | Chaos-track layout seed (integer, or any text — hashed). Omitted = the hand-validated default seed `1337`. |
 | `?touch=1` / `?touch=0` | Force the on-screen touch controls on / off. |
 | `?debug=1` | Rapier collider wireframes. |
@@ -198,6 +199,10 @@ you are driving.
 | Bruiser V8 (`muscle`) | Violet muscle coupe, heavy, big low-end torque: smokes off the line from tier 3 and wants to wheelie | 140 / 192 | 4.5 s | 1.21 g | 18–22 % / tier 5 / 0, or 8–22 % at −40 |
 | Razorwing (`formula`) | Cyan open-wheeler, featherweight, huge wings, very stable at speed | 128 / 215 | 3.75 s | 3.24 g | 7–19 % / tier 5 / 0 (tier 4 can't) |
 | Dune Goblin (`buggy`) | Orange buggy, big wheels, long soft suspension, high centre of mass, AWD 40:60 | 99 / 133 | 9.25 s | 1.25 g | can't: tops out at 133 km/h |
+| Ember Swallowtail (`coupe`) | Red rear-engined road coupe, RWD, 60 % of the weight on the back axle: hooks up where the hypercar spins (rear slip 0.01 at tier 5), nose light at speed (body lift 2.2 of a 5.5 wing), tail-happy in corners (2.4× the hypercar's rear slip for the same steer; the proposal's lift-off envelope needs `carController.ts` and was not built this round) | 141.9 / 204.7 (est.); nose lifts at 145.8 with 0 % wing (est. 145.6) | 4.6 s | 1.5 (traction) | tier 5, 21–37 % wing at balance 0 (13–37 % at −40); 20 % ran off before the lip, 24 % cleared at 188.3 km/h |
+| Smoke Lantern (`drift`) | Teal long-nosed drift coupe, RWD, low grip under a turbo lump: the rears spin at every tier (slip 1.0) and shed 70 % of their side grip while spinning, 45° of lock, loose handbrake. Built for the DRIFT button | 145.2 / 205.3 (est.); nose lifts at 168.5 with 0 % wing (est. 170.9) | 5.7 s | 1.28 (traction) | tier 5, 18–43 % wing at balance 0 (42 % cleared at 183.0); at balance −40 it spins to the lip at ~165 km/h and falls short whatever the wing |
+| Ion Dragonfly (`electric`) | Metallic-blue dual-motor saloon, AWD 50:50, 1.9 t on a flat battery floor, launch boost 1.8 fading by 100 km/h, no exhaust: its tier colour lives in the rear light strip | 141.8 / 199.5 | 5.0 s (AWD, no wheelspin) | 1.5 (traction) | tier 5, 0–24 % wing, any balance (tier 4: 181.8 < 183); lands chaos from 175 km/h (36 % wing cleared at 176.2, so the estimate is conservative above 24 %) |
+| Pixel Gnat (`kart`) | White single-speed kart, 430 kg, open wheels, an open bucket seat that carries the active driver's bust, stiff springs | 121.3 / 175.6 (est.); nose lifts at 149.8 with 0 % wing (est. 150.6) | 4.0 s | 1.6 (traction) | can't: needs 190 km/h of estimated top speed, max 175.6. Makes the Isles leap at tier 5, 8–14 % wing (10 % / −30 cleared at 166.3) |
 
 - Picking a car (garage or `__RACER__.setCar`) re-maps the physics from the squad's last sliders
   (or that car's defaults), loads that car's best time, remounts the car at the start line and
@@ -211,6 +216,68 @@ you are driving.
   and cached; the whole frame stays at 34–35 draw calls at the chaos spawn with any car.
 - `game:state` carries `carId`, `trackId` and `bigJumpKmh` (null on maps without a big jump), and is
   re-sent on any change, so the dashboard previews and verdicts are for this car on this map.
+
+### The four newer cars (coupe, drift, electric, kart)
+
+Added after the five above; the five existing classes' numbers are byte-identical. Measured on
+`?track=test` with `__RACER__.advance` (standing start, full throttle): Ember Swallowtail 50/3/0 →
+141.9 km/h (estimate 142.1), 0–100 in 7.9 s; 20/5/0 → 194.8 (est. 194.6), 0–100 4.65 s, rear slip 0.01
+(the hypercar spins to 1.0); 0/5/0 → nose lifts at 145.8 (est. 145.6). Smoke Lantern 50/3/0 → 145.2
+(est. 145.3), rear slip 1.0 at every setting; 0/5/0 lifts at 168.5 (est. 170.9); 20/5/0 → 195.8 (est. 196.0).
+Ion Dragonfly 50/3/0 → 141.8 (est. 142.3), 0–100 8.45 s; 0/5/0 → 199.5 (est. 200.8), 0–100 5.0 s, never
+lifts (est. 253.9). Pixel Gnat 50/3/0 → 121.3 (est. 121.4); 0/5/0 lifts at 149.8 (est. 150.6);
+20/5/0 → 167.4 (est. 167.4), 0–100 4.1 s. Big-jump calibration (jump checkpoint, tier 5, autopilot flat
+out; 58 runs on chaos + Isles, `scratchpad features/cars-plates/build/jumpscan.jsonl`): the protocol
+verdict matched the outcome in 47; the four optimistic cases set the classes' `jumpSpeedScale` /
+`noseLiftReserveKmh` (coupe reserve 12, drift 1.02, electric 1.03, kart 1.04 — comments in
+`shared/protocol.ts`); the remaining seven are NOSE LIFT / TOO SLOW verdicts on the Isles' short
+run-up for cars that cleared (the safe direction), and the Smoke Lantern at balance −40 (wheelspin
+to the lip, below any wing's reach). Landing lip speeds seen so far (first 0.5 km/h above the fastest
+fall; few runs, not yet in the map catalog): chaos coupe 182.5, electric 175; Isles electric ≈ 152.5–160.5,
+kart 163.
+
+Handling knobs: the drift coupe's character comes from `traction` 1.28, `spinGripLoss` 0.7 (spinning
+rears lose most of their side grip → power oversteer), `steerMax` 0.78 and a loose handbrake; the coupe's
+from its 40 % front weight (`frontWeightNeutral`) and `longitudinalGripRatio` 0.78; the electric's from
+its AWD split, boost and 1.9 t; the kart's from 430 kg, springs at 90 and a 1.5 m wheelbase. No controller
+code changed for them.
+
+### Number plates
+
+Every car wears a rear number plate (`src/car/plates/`): the car's default (`defaultPlate` in
+`src/car/catalog.ts` — `NEON 001`, `GLITCH 45`, `BRUISER 8`, `RZR WING 1`, `DUNE 4X4`, `UK 07 DW 2400`
+on the Ember Swallowtail, `SMOKE 01`, `ION 2060`, `GNAT 1`) or the text the player typed.
+
+- **Rules** (`plateText.ts → normalizePlate`, unit-tested in `test/plates.test.ts`): upper-case; `- _ . /`
+  become spaces; anything but A–Z, 0–9 and spaces is dropped; runs of spaces collapse; trimmed; at most
+  14 characters, cut on the right and never ending in a space; empty = the car's default. No profanity
+  filter: it renders on the player's own phone. `RANDOM` makes `LL DD LLL` plates (no I/O/Q).
+- **Look**: a game plate, not any real-world registration design: navy face, a neon frame and two rivets in
+  the car's accent, white 5×7 pixel glyphs (`plateFont.ts`, 36 glyphs; no web font, so it looks the same
+  offline on every phone and matches the voxel art), drawn once into a 512×128 canvas (`plateDraw.ts`,
+  0.1 ms) and used as colour + emissive map (reads at night).
+- **Cost**: one shared 0.52 × 0.13 × 0.02 m box (12 triangles) per car and one texture + material per
+  distinct text (`plateTexture.ts`, 16-entry LRU, evicted ones disposed): **+1 draw call, +12 triangles,
+  +1 texture, +1 shader program** per car — measured at the chaos spawn on a headless Pixel 7: hypercar
+  36 calls / 111,994 triangles / 12 programs with the plate (35 / 111,982 / 11 before), coupe 35 /
+  105,458, drift 35 / 106,434, electric 35 / 107,266, kart 35 / 88,582 (budget 48 / 160 k).
+- **Mounts** (`CarModelDef.plates.rear`, `[x, h, z]` like the exhausts): hypercar tail fascia under the
+  light bar (h 0.67, z −2.28: anything lower is hidden by the diffuser from the chase cam, anything further
+  forward is inside the voxels), rally hatch, Bruiser V8 rear panel between the exhaust pairs, Razorwing
+  under the rear wing on the centre pylon (scale 0.6), Dune Goblin tub tail between the lamps, coupe /
+  drift / electric Kamm-tail recesses, kart bumper bar (scale 0.85). Each one was read from a Pixel 7
+  landscape chase-camera screenshot.
+- **Editor** (`src/hud/PlateEditor.tsx` + `plateEditor.css`, standalone; mounted in the GARAGE tab next to
+  the selected card): plate chip + `✎ PLATE` → a text field (`autoCapitalize="characters"`,
+  `enterKeyHint="done"`, 18 px so the keyboard doesn't zoom, scrolls itself into view) with live
+  normalization, `RANDOM`, `RESET` (back to the default) and `DONE`; 44 px targets. Game key bindings
+  ignore keys typed into it (`car/input.ts isEditableTarget`).
+- **Saved** per car id in `squadhq.selection.v1` (`plates`, `setPlate`; old saves load with none) and
+  cosmetic only: no physics, no best-time key, no medal effect. `?plate=` sets it from a link.
+- **Dev lab**: `lab-plates.html` (`src/dev/platesLab.tsx`, dev server only, not in the production build)
+  shows the plate drawing and the editor for every car. Checked by real touch on a headless Pixel 7:
+  typing `anaye-07 racer!! x` shows `ANAYE 07 RACER`, RANDOM / RESET / Enter work, the text survives a
+  reload and the game page then wears it; 0 console errors.
 
 ## Maps
 
@@ -282,6 +349,30 @@ and a faster one has to earn its gold (`src/state/records.ts`: `MEASURED_COURSE_
 | isles | 48.83 → **49 / 56 / 66** | 49.20 (×1.008) → 49 / 56 / 66 | 49.08 (×1.005) → 49 / 56 / 66 | 49.21 (×1.008) → 49 / 56 / 66 | jump out of reach: no medals |
 | cryo | 56.67 → **58 / 67 / 80** | 52.67 (×0.929) → **54 / 62.5 / 74.5** | 56.52 (×0.997) → 58 / 67 / 80 | 55.00 (×0.971) → **56.5 / 65 / 77.5** | 61.16 (×1.079) → **62.5 / 72.5 / 86.5** |
 | strip | 24.27 flat out → **24.5 / 27 / 31** | 24.15 (×0.995) → 24.5 / 27 / 31 | 24.23 (×0.998) → 24.5 / 27 / 31 | 23.23 (×0.957) → **23.5 / 26 / 29.5** | 34.07 (×1.404) → **34.5 / 38 / 43.5** |
+
+The four newer cars, measured the same way with the same autopilot and sliders (8 runs per car per
+map at 8 hazard phases; flat out, traction control only where flat out can't finish; the hypercar
+control in the same session gave 54.35 / 41.48 / 48.92 / 56.94 / 24.27 flat out against the stored
+54.15 / 40.96 / 48.83 / 56.67 / 24.27, so the stored bases stand; `src/state/records.ts` has the rows):
+
+| Map | Neon Hypercar (base) | Ember Swallowtail | Smoke Lantern | Ion Dragonfly | Pixel Gnat |
+| --- | --- | --- | --- | --- | --- |
+| chaos | 54.15 → 46 / 53 / 62 | 55.00 (×1.016, in band) → 46 / 53 / 62 | 55.27 (×1.021) → **47 / 54 / 63.5** | 54.52 (×1.007, in band) → 46 / 53 / 62 | jump out of reach: no medals (needs 190 km/h of estimated top speed, max 176) |
+| ribbon | 40.96 → 41 / 47 / 55 | 40.99 (×1.001) → 41 / 47 / 55 | 41.49 TC (×1.013) → 41 / 47 / 55 | 41.59 (×1.015) → 41 / 47 / 55 | 40.20 (×0.981) → 41 / 47 / 55 |
+| isles | 48.83 → 49 / 56 / 66 | 48.50 (×0.993) → 49 / 56 / 66 | 52.30 (×1.071) → **52.5 / 60 / 70.5** | 49.59 (×1.016) → 49 / 56 / 66 | 51.47 (×1.054) → **51.5 / 59 / 69.5** |
+| cryo | 56.67 → 58 / 67 / 80 | 54.67 (×0.965) → **56 / 64.5 / 77** | 58.75 TC 35 % (×1.037) → **60 / 69.5 / 83** | 54.60 (×0.963) → **56 / 64.5 / 77** | 57.40 (×1.013) → 58 / 67 / 80 |
+| strip | 24.27 → 24.5 / 27 / 31 | 24.02 (×0.990) → 24.5 / 27 / 31 | 24.78 (×1.021) → **25 / 27.5 / 31.5** | 25.42 (×1.047) → **25.5 / 28.5 / 32.5** | 25.27 (×1.041) → **25.5 / 28 / 32.5** |
+
+Notes on those rows: the Smoke Lantern can't finish Neon Ribbon flat out (0 of 8: it spins off) and
+finishes 8 of 8 with the usual traction control; on Cryo Drift even that brings only 1 of 8 home, a
+firmer one (easing off from 35 % slip) 3 of 8 — its ice row is the median of those three. With traction
+control the drift car is also quicker on chaos (54.31) and the Isles (49.6), the only car where the two
+modes disagree beyond noise; the rows keep the flat-out numbers because the touch GAS is on/off. The
+Pixel Gnat's Isles row switches to its JUMP ATTEMPT preset (10 / T5 / −30) at the leap's checkpoint, as
+every car does on chaos: with the map's 30 / 5 / 0 it reaches the lip at ~160 km/h and falls every time,
+and even with the switch only 3 of 8 runs cleared (lip 164.8–165.2 cleared, ≤ 162.5 short), so its Isles
+medals are a marginal target and its map tip should say "JUMP ATTEMPT from the leap's checkpoint". The
+electric saloon is quickest of all on ice (AWD, lowest centre of mass) and slowest on the strip (1.9 t).
 
 (Median autopilot time, traction control except the strip's flat-out row → gold / silver / bronze in
 seconds; bold = differs from the hypercar's. Changed by the flat-out strip row: the rally, Razorwing
@@ -433,6 +524,18 @@ need their own meshes.
 
 Geometry is built once per page (`carAssets.ts`, ~60–140 ms in headless Chromium) and reused when the
 car remounts on a track change.
+
+The four newer shapes (same mesher, same material; headless Chromium under load):
+
+| Shape | Grid | Voxels → body triangles | Whole car (body + 4 wheels + wing) | Build |
+| --- | --- | --- | --- | --- |
+| `coupeShape.ts` Ember Swallowtail | 27 × 17 × 56 | 11,128 → 9,344 | 13,296 | 51 ms |
+| `driftShape.ts` Smoke Lantern | 27 × 20 × 62 | 11,290 → 10,144 | 13,808 | 137 ms |
+| `electricShape.ts` Ion Dragonfly | 27 × 18 × 65 | 14,655 → 10,508 | 14,212 | 67 ms |
+| `kartShape.ts` Pixel Gnat | 21 × 11 × 28 | 425 → 1,604 (the painted torso and helmet left when the kart got its open seat anchor; the driver's bust is a separate 300-triangle mesh) | 4,664 | 20 ms |
+
+A car with an empty `exhaust` list (the electric) gets no flame mesh (`carAssets.flame` is null); its
+exhaust colour channel lives in the voxels of its rear light strip instead.
 
 ## Tyre smoke (`src/car/smoke/`)
 
@@ -876,3 +979,115 @@ dashboard (`garage.ts`, `presets.ts`). Measure its full-course time on each map 
 it to `MEASURED_COURSE_S` (`state/records.ts`); until then it gets the hypercar's medal times. Its
 big-jump reach is computed from its class, nothing to add. A new map with medals needs a row there
 too (missing cars keep the hypercar's times).
+
+## Drivers and MY RIDE (`src/drivers/`, `src/ride/`, `src/state/profile.ts`)
+
+Cosmetic layers over the car classes: nothing here changes handling, best times or medals.
+
+**Drivers.** Five original stylised voxel characters (slot 1 is the owner's first name, marked
+OWNER; the other four are invented nicknames), every name editable (14 code points, touch
+keyboard, `sanitizeName` strips controls / bidi marks / markup). A face is an `AvatarConfig`
+(8 skin tones, 9 hair styles × 8 colours, 6 helmets / hats, 5 visors, 5 eyes × 6 colours, 5
+mouths, 4 glasses, 4 beards, 5 marks, a signature colour): built from blocks, never from a photo,
+so no look can resemble a real person; the LOOK builder lets the player make a look-alike of a
+friend. The same config draws the 24×24 portrait (`drivers/portrait.ts`, a cached data URL) and the
+in-car bust (`drivers/bust.ts` → `DriverBust.tsx`): at most 40 boxes merged into one geometry on
+the shared car material (defaults 14–25 boxes = 168–300 triangles, worst combination 32 boxes =
+384; measured +1 draw call / +300 triangles for the owner in the buggy, cast-shadow off). Open
+cockpits (Razorwing, Dune Goblin, Pixel Gnat) show the bust at the seat anchor in `ride/anchors.ts`; closed
+cabins are solid voxel bodies with opaque glass, so the livery paints the driver's helmet and face
+into the side glass and windscreen beside the seat instead (0 draw calls, 0 extra triangles; 4–28
+recoloured cells per class; every class has an authored anchor, the glass-derived guess is only for
+a class added later). Share codes `DRV1-…` (19 / 31 / 51 characters min / median / max over
+3,000 random drivers; CRC-8, version nibble, every field range-checked; fuzzed codes never throw).
+
+**MY RIDE.** A `RideConfig` over any base class: paint (body / second / accent), neon trim, wheel
+preset + rim colour, spoiler (lip, GT wing, fin — stamped voxels on the rear deck, found by scanning
+the body), exhaust tips (none / single / twin / quad chrome tips at the class's outlet height; the
+flame follows `outlets`), stance (a body offset of −4…+8 cm, wheels and physics untouched), name
+and plate text (handed to the plate system). `ride/livery.ts applyLook(grid, spec, def, look)` is a
+pure function: it copies the class's filled grid, stamps and recolours the copy and returns it with
+the material table; the input grid is never written (tested). The ride keeps its base class's
+handling exactly, so records and the dashboard's estimates stay keyed by the base `carId`. Share
+codes `RIDE1-…` (42 / 61 / 84 characters; a code naming a class this build lacks decodes to the
+default base with `known: false`).
+
+**Preview cost** (`ride/previewAssets.ts`, the class grid filled once per page, then applyLook +
+mesh per change): node warm medians 2.4–6.6 ms per class (kart 0.8 ms); headless Chromium on a
+loaded 4-core box: first build 77–83 ms (cold JIT), then 5–8 ms for a paint change and 6–47 ms for
+a geometry change (median 18.7 ms, one outlier at 51 ms); the first fill of a class 28–136 ms
+(one-off). Slider-speed changes are debounced (60 ms trailing): 30 changes 12 ms apart → 1 rebuild.
+The preview is its own small canvas (8–10 draw calls, ~14 k triangles, 3 programs) that unmounts with
+the tab, so the game's frame cost is unchanged while the builder is closed.
+
+**Persistence** `gamerfleet.profile.v1` (drivers, active driver, ride, mounted flag; junk saves fall
+back field by field). `?driver=DRV1-…` puts a shared driver in slot 2 and `?ride=RIDE1-…` mounts a
+shared ride. Dev pages: `lab-drivers.html`, `lab-ride.html` (dev server only), debug handle
+`window.__PROFILE__` (`installProfileDebug()`): `state()`, `builds()` (rebuild log), `render()`,
+`bust()`, `rideCode()`, `driverCode()`. Tests: `game/test/drivers.test.ts`, `game/test/ride.test.ts`
+(`dashboard/node_modules/.bin/tsx --tsconfig game/tsconfig.app.json --test game/test/drivers.test.ts game/test/ride.test.ts`).
+`game:state` carries the optional `driverName` / `rideName` (≤ 14 code points, `sanitizeDisplayText`).
+
+## Garage, DRIVERS and MY RIDE in the game (integration)
+
+Everything above in "Drivers and MY RIDE" and in the car / plate sections is wired into the live game:
+
+- **☰ menu tabs.** Eight tabs — RACE · GARAGE · DRIVERS · MY RIDE / MAPS · PHYSICS · SETTINGS · SQUAD
+  (`hud/uiStore.ts MENU_TABS`): two rows of four in portrait (91 px buttons on a Pixel 7, 79 px at
+  360 px, nothing clipped), a two-column rail of four in phone landscape (≤ 420 px tall), the usual
+  single rail on desktop. DRIVERS and MY RIDE are one lazy chunk (`DriversTab` / `RideTab` +
+  `profile.css`), prefetched while the menu is open, so the first tap is instant and the race page's
+  bundle does not grow.
+- **GARAGE.** Nine cards (catalog order); the number-plate editor (`hud/PlateEditor.tsx`, test ids
+  `plate-*-<car>`) sits directly under the selected car's card, spanning the row (a card is a button,
+  so the editor is its sibling). Picking a stock car calls `profileState().setRideActive(false)`: MY
+  RIDE comes off, the profile keeps it for later.
+- **MY RIDE.** `<RideTab preview="button" onDrive>`: DRIVE MY RIDE sets `rideActive`, selects the
+  ride's base class (`setCar(ride.base)`) and closes the menu. The 3D preview is a second WebGL
+  context, so it waits for a **SHOW 3D PREVIEW** tap and then mounts two frames later behind a
+  "BUILDING PREVIEW…" veil (`RidePreview onReady` drops it after the first frame that drew the car).
+  Measured headless (SwiftShader, load ~7): the compile is a 4.9 s long task the first time and 5.9 s
+  on a repeat open (every context compiles again under software GL), far over the 400 ms bar, so the
+  button is the default on every open; the car on track wears the look regardless. Opening the other
+  tabs: menu open 152 ms (same as before: 75–200 ms on this box for every tab), GARAGE 53 ms, DRIVERS
+  / MY RIDE / MAPS / PHYSICS / SETTINGS / SQUAD no long task.
+- **How the look reaches the car.** `car/model/carAssets.ts getCarAssets(carId, look)` applies
+  `ride/livery.ts applyLook` over the class's body grid (filled once per page, shared with the
+  preview via `ride/previewAssets.ts baseGridFor`): `look.materials` colour the body, wing and
+  wheels, `look.wheelStyle` picks the wheel preset, `look.outlets` place the flame (exhaust `none` ⇒
+  no flame mesh). Results are cached by `carId|rideLookKey|avatarKey` in an 8-entry LRU (evicted
+  geometries disposed). `CarModel` reads the look from the profile store — `ride` only while
+  `rideActive && ride.base === spec.id`, the active driver's avatar always — so a paint change
+  re-renders the model with other cached geometries in place: no remount, the physics body, wheels
+  and run clock are untouched (a physics replay is identical; the look is vertex colours and extra
+  voxels on the visual mesh). Stance moves the body / wing / plate / flame / bust group on Y; the
+  wheels stay on the road.
+- **Driver bust and window.** Open cockpits (`ride/anchors.ts seatFor(id).open`: Razorwing, Dune
+  Goblin, Pixel Gnat) mount `<DriverBust>` inside the body group with the shared car material (+1 draw call, no
+  shadow; 14 boxes / 168 triangles for the default Anaye). The Razorwing's and the Pixel Gnat's painted stock
+  driver voxels are gone (`formulaShape.ts driver()` keeps only the seat, `kartShape.ts driver()` the legs and
+  arms; the kart's bust sits where its yellow helmet was, h 0.48 / z −0.22). Closed cabins get the driver's
+  helmet / face painted into the glass beside the seat by `applyLook` (0 extra draw calls); Smoke Lantern
+  (door glass only, 9 + 5 cells) and Ion Dragonfly (door glass + screen, 23 + 5) have authored anchors too.
+- **Plates.** The car wears `car/plates/platePick.ts useWornPlate(carId)`: MY RIDE's plate while the
+  ride is mounted on that class, else the garage's own text, else the catalog default; `plateFor()`
+  is the same rule for the results and `__RACER__`. The garage editor always edits the stock car's
+  plate (it comes back when the ride is unmounted), so a ride never overwrites it.
+- **Session fields.** `net/squadLink.ts gameSessionInfo()` adds `driverName` and, while the ride is
+  worn, `rideName` (both through `sanitizeDisplayText`); `SquadLink` re-sends `game:state` on any
+  profile change (rename, driver swap, ride edit, mount / unmount). The relay copies both into
+  `snapshot.session` for late dashboards (`server/test/relay.test.ts`).
+- **Flavour.** RACE tab "now" chip shows the plate (and `MY RIDE · <name>` with the base class);
+  the menu header names the ride; the results subtitle adds `· <plate> · <driver>`; the start card
+  shows the driver's name and taunt.
+- **Debug.** `window.__PROFILE__` is installed next to `__RACER__` (`debug/racerHandle.ts`);
+  `__RACER__.setPlate(text)` edits the plate of the car in play and returns what it now wears.
+- **Budget (Pixel 7 landscape, GamerFleet Chaos spawn, headless SwiftShader, this session):** Neon
+  Hypercar 36 calls / 111,994 triangles / 12 programs (HEAD 35 / 111,982: +1 call and +12 triangles
+  for the plate, 0 for the painted driver window), Ember Swallowtail 35 / 105,458, the coupe wearing a
+  GT wing + quad tips ride 35 / 106,490, Razorwing with the bust 37 / 101,302 (portrait). Budget
+  48 / 160 k.
+- **Catalog data.** Landing lip speeds from the cars builder's runs: chaos `coupe 182.5`,
+  `electric 175`; Isles `kart 164.5` (mirrored in `dashboard/src/squad/garage.ts`, test-guarded). The
+  kart's Isles card tip comes from the new `tipByCar` field: "JUMP ATTEMPT (10 / T5 / −30) from the
+  leap's checkpoint" (`GameMenu.tsx setupTip`).

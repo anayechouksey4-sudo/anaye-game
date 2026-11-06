@@ -1,0 +1,94 @@
+/* Open-world minimap (Minimap.tsx), PLAN §5.5–§5.6. Inherits the HUD tokens from .hud.
+   Never over the thumbs or the top bar:
+     portrait   right edge, under ⟲ ☰ (12 px gap), --mm = clamp(96, 27vw, 120)
+     landscape  top left, --mm from the room above the steer pad (72…128), hidden under 240 px height
+     desktop    220 px inside the top-left column, under the squad link panel
+   While it shows (.hud--minimap) the chips, callouts and start lights make room (rules at the end). */
+
+.mm { position: relative; flex: none; width: 220px; height: 220px; pointer-events: none; }
+.mm.is-hidden { display: none; }
+.mm__disc {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  border-radius: 50%;
+  background: #12304c;
+  border: 1px solid rgba(0, 240, 255, 0.75);
+  box-shadow: 0 0 10px rgba(0, 240, 255, 0.35), 0 2px 10px rgba(0, 0, 0, 0.5);
+  pointer-events: auto;
+  touch-action: none;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  /* Own compositing layer: the rounded clip of the moving picture stays on the GPU. */
+  isolation: isolate;
+}
+.mm__layer { position: absolute; left: 0; top: 0; width: 512px; height: 512px; transform-origin: 0 0; will-change: transform; pointer-events: none; }
+.mm__layer canvas { position: absolute; left: 0; top: 0; width: 512px; height: 512px; image-rendering: pixelated; }
+/* Edge vignette so the picture reads as a lens, not a hole. */
+.mm__disc::after { content: ''; position: absolute; inset: 0; border-radius: 50%; box-shadow: inset 0 0 14px rgba(0, 0, 0, 0.55); pointer-events: none; }
+
+/* The car: a fixed arrow at 50 % / 60 % pointing up (heading-up map). */
+.mm__car {
+  position: absolute;
+  left: 50%;
+  top: 60%;
+  width: 14px;
+  height: 16px;
+  margin: -9px 0 0 -7px;
+  background: #fff;
+  clip-path: polygon(50% 0, 100% 100%, 50% 74%, 0 100%);
+  filter: drop-shadow(0 0 3px rgba(0, 0, 0, 0.9));
+  z-index: 2;
+}
+
+/* Gate dots and the N tick / rim arrow are placed by transform from the box's top-left corner. */
+.mm__dot,
+.mm__rim,
+.mm__label,
+.mm__north { position: absolute; left: 0; top: 0; pointer-events: none; will-change: transform; }
+.mm__dot { width: 10px; height: 10px; margin: -5px 0 0 -5px; border-radius: 50%; background: var(--yellow); box-shadow: 0 0 8px var(--yellow); display: none; z-index: 1; }
+.mm__dot.is-on { display: block; animation: mm-pulse 0.9s ease-in-out infinite; }
+.mm__dot--after { width: 8px; height: 8px; margin: -4px 0 0 -4px; background: none; border: 2px solid var(--yellow); box-shadow: none; opacity: 0.85; }
+.mm__dot--after.is-on { animation: none; }
+.mm__rim { width: 0; height: 0; margin: -7px 0 0 -7px; border-left: 7px solid transparent; border-right: 7px solid transparent; border-bottom: 11px solid var(--yellow); filter: drop-shadow(0 0 3px rgba(0, 0, 0, 0.9)); display: none; }
+.mm__rim.is-on { display: block; }
+.mm__label { display: none; margin: -7px 0 0 -22px; width: 44px; text-align: center; font-size: 10px; font-weight: 800; line-height: 14px; letter-spacing: 0.02em; color: var(--yellow); text-shadow: 0 0 3px #000, 0 0 3px #000; white-space: nowrap; }
+.mm__label.is-on { display: block; }
+.mm__north { width: 14px; height: 14px; margin: -7px 0 0 -7px; border-radius: 50%; font-size: 9px; font-weight: 800; line-height: 14px; text-align: center; color: #05060a; background: var(--cyan); box-shadow: 0 0 6px rgba(0, 240, 255, 0.8); }
+@keyframes mm-pulse { 50% { opacity: 0.45; } }
+
+/* ── Desktop: inside the top-left column, under the link panel. ── */
+.hud-corner-tl > .mm { align-self: flex-start; }
+
+/* ── Phones (compact HUD): absolute, sized by --mm. ── */
+.hud--compact > .mm { position: absolute; width: var(--mm); height: var(--mm); z-index: 2; }
+.hud--compact .mm__label { font-size: 9px; }
+@media (orientation: portrait) {
+  .hud--compact { --mm: clamp(96px, 27vw, 120px); --mm-top: calc(var(--hud-t) + 2 * var(--btn) + 20px); }
+  /* Right edge, 12 px under ☰ (⟲ and ☰ are stacked at the top right). */
+  .hud--compact > .mm { top: var(--mm-top); right: var(--hud-r); }
+  /* The floating physics panel spans this width: the disc steps aside while it is open. */
+  .hud--compact.hud--physics-open > .mm { display: none; }
+}
+@media (orientation: landscape) {
+  .hud--compact { --mm: clamp(72px, calc(100dvh - var(--hud-t) - var(--hud-b) - var(--tc-steer-h, 100px) - 64px), 128px); }
+  .hud--compact > .mm { top: var(--hud-t); left: var(--hud-l); }
+}
+@media (orientation: landscape) and (max-height: 239px) {
+  .hud--compact > .mm { display: none; }
+}
+
+/* ── Making room while the disc shows. ── */
+@media (orientation: portrait) {
+  /* Chips stop short of the disc; callouts, the event prompt and the start lights go under it. */
+  .hud--compact.hud--minimap:not(.hud--physics-open) .hud-corner-tl { max-width: calc(100vw - var(--hud-l) - var(--hud-r) - var(--mm) - 18px); }
+  .hud--compact.hud--minimap:not(.hud--physics-open) .hud-banners { top: calc(var(--mm-top) + var(--mm) + 12px); }
+  .hud--compact.hud--minimap:not(.hud--physics-open) .hud-countdown { top: calc(var(--mm-top) + var(--mm) + 20px); }
+}
+@media (orientation: landscape) and (min-height: 240px) {
+  /* Chips go under the disc (the column scrolls in what is left above the steer pad). */
+  .hud--compact.hud--minimap .hud-corner-tl { top: calc(var(--hud-t) + var(--mm) + 8px); max-height: calc(100% - var(--hud-t) - var(--mm) - 8px - var(--hud-b) - var(--hud-reserve-b)); }
+  /* Centred callouts, prompt and lights stay clear of the disc on both sides. */
+  .hud--compact.hud--minimap .hud-banners,
+  .hud--compact.hud--minimap .hud-countdown { max-width: calc(100vw - 2 * (var(--mm) + var(--hud-l) + 8px)); }
+}

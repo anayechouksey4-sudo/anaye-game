@@ -13,6 +13,7 @@ import { PHYSICS_DT } from '../config';
 import { emitGameEvent, onGameEvent } from '../game/events';
 import { useSelection } from '../state/selection';
 import { gameState } from '../state/store';
+import { resolveRespawn } from '../track/respawn';
 import type { Vec3 } from '../track/types';
 import { carDebug } from './carDebug';
 import { resolveCarId } from './catalog';
@@ -75,7 +76,13 @@ export function Car({ spawn }: CarProps) {
       emitGameEvent('teleported', { position, yaw });
     };
     carDebug.place = placeAt;
-    const offRespawn = onGameEvent('respawn', ({ checkpoint }) => {
+    const offRespawn = onGameEvent('respawn', ({ checkpoint, reason }) => {
+      // An open world may pick the spot (free roam: last safe road pose); null = the checkpoint, as before.
+      const target = resolveRespawn(checkpoint, reason);
+      if (target) {
+        placeAt(target.position, target.yaw);
+        return;
+      }
       const layout = gameState().trackLayout;
       const cp = layout?.checkpoints[checkpoint] ?? layout?.checkpoints[0];
       if (cp) placeAt(cp.position, cp.yaw);

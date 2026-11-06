@@ -266,12 +266,15 @@ export async function createRelayServer(options: RelayServerOptions = {}): Promi
       }
       case 'game:state': {
         snapshot.physics = message.physics;
-        const { carId, trackId, bigJumpKmh } = message;
-        if (carId !== undefined || trackId !== undefined || bigJumpKmh !== undefined) {
+        const { carId, trackId, bigJumpKmh, driverName, rideName } = message;
+        if (carId !== undefined || trackId !== undefined || bigJumpKmh !== undefined || driverName !== undefined || rideName !== undefined) {
           const session: GameSessionInfo = {};
           if (carId !== undefined) session.carId = carId;
           if (trackId !== undefined) session.trackId = trackId;
           if (bigJumpKmh !== undefined) session.bigJumpKmh = bigJumpKmh;
+          // Driver / MY RIDE names (optional): a late dashboard's welcome shows who is at the wheel too.
+          if (driverName !== undefined) session.driverName = driverName;
+          if (rideName !== undefined) session.rideName = rideName;
           snapshot.session = session;
         }
         relay(c, message);

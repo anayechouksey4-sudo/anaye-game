@@ -25,6 +25,7 @@ import {
   type CarPhysicsParams,
 } from '@shared/protocol';
 import type { CarTuning } from './tuning';
+import { wheelGrip } from './surfaceGrip';
 import { carRuntime } from './runtime';
 import {
   createDrivenWheelState,
@@ -268,14 +269,16 @@ export class CarController {
     if (throttle > 0 && !reversing && !noDrive) {
       driveForceN = (p.engineTorque * throttle * drive) / car.driveWheelRadius;
       for (const wheel of this.wheels) {
-        if (wheel.driven && vehicle.wheelIsInContact(wheel.index)) driveGripN += longMu * (vehicle.wheelSuspensionForce(wheel.index) ?? 0);
+        if (wheel.driven && vehicle.wheelIsInContact(wheel.index)) driveGripN += longMu * wheelGrip(wheel.index) * (vehicle.wheelSuspensionForce(wheel.index) ?? 0);
       }
     }
 
     for (const wheel of this.wheels) {
       const i = wheel.index;
       const front = wheel.axle === 'front';
-      let friction = traction;
+      // Per-wheel surface grip (open worlds); exactly 1 elsewhere, so these multiplies change nothing there.
+      const g = wheelGrip(i);
+      let friction = traction * g;
       let side = baseSide;
       if (wheel.driven) {
         const inContact = vehicle.wheelIsInContact(i);
@@ -296,7 +299,7 @@ export class CarController {
             torque,
             groundSpeed,
             normalLoad: Math.min(vehicle.wheelSuspensionForce(i) ?? 0, MAX_SUSPENSION_FORCE),
-            mu: longMu,
+            mu: longMu * g,
             radius: wheel.radius,
             inContact,
             dt,
@@ -304,12 +307,12 @@ export class CarController {
           force = out.force;
         }
         vehicle.setWheelEngineForce(i, force);
-        vehicle.setWheelBrake(i, (front ? frontBrake : rearBrake) * dt);
+        vehicle.setWheelBrake(i, (front ? frontBrake : rearBrake) * dt * Math.min(1, g));
         const spin = Math.abs(state.omega * wheel.radius - groundSpeed);
         friction *= 1 - T.spinGripLoss * smoothstep(0, T.spinGripLossFullSlip, inContact ? spin : 0);
       } else {
         vehicle.setWheelEngineForce(i, 0);
-        vehicle.setWheelBrake(i, (front ? frontBrake : rearBrake) * dt);
+        vehicle.setWheelBrake(i, (front ? frontBrake : rearBrake) * dt * Math.min(1, g));
       }
       if (handbrake > 0 && !front) {
         friction *= 1 - (1 - T.handbrakeRearFriction) * handbrake;

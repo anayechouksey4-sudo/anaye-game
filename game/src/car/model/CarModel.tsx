@@ -16,13 +16,46 @@
 import { useEffect, useRef } from 'react';
 import { useFrame } from '@react-three/fiber';
 import { Color, type Group, type Mesh, type Object3D } from 'three';
+import { DriverBust } from '../../drivers/DriverBust';
+import { seatFor } from '../../ride/anchors';
+import { activeDriver, useProfile } from '../../state/profile';
 import { gameState } from '../../state/store';
+import { getCarEntry } from '../catalog';
+import { useWornPlate } from '../plates/platePick';
+import { PLATE_THICKNESS, getPlateAsset, plateGeometry } from '../plates/plateTexture';
 import { carRuntime } from '../runtime';
 import { HYPERCAR_SPEC, type VehicleSpec, type WheelSpec } from '../vehicleSpec';
 import { getCarAssets, type CarAssets } from './carAssets';
 import { carFxDebug, useCarFxDebugHandle, type CarFxLiveState } from './carFxDebug';
 import { CAR_COLORS, CH, setChannel } from './carMaterial';
 import { frontWingPose, type FrontWingPose } from './frontWing';
+import { CAR_MODELS } from './models';
+
+/**
+ * The rear number plate: one shared 12-triangle box with a per-text canvas texture (car/plates),
+ * +1 draw call. Re-renders only when this car's plate text changes (selection store, or the mounted
+ * ride's own plate from the profile).
+ */
+function NumberPlate({ spec }: { spec: VehicleSpec }) {
+  const mount = CAR_MODELS[spec.id].plates?.rear;
+  const text = useWornPlate(spec.id);
+  if (!mount) return null;
+  const asset = getPlateAsset(text, getCarEntry(spec.id).accent);
+  const [x, h, z] = mount.position;
+  const s = mount.scale ?? 1;
+  return (
+    <mesh
+      name="car-plate"
+      geometry={plateGeometry()}
+      material={asset.material}
+      position={[x, h - spec.rideHeight, z - PLATE_THICKNESS / 2 - 0.001]}
+      rotation={[mount.tilt ?? 0, Math.PI, 0]}
+      scale={[s, s, 1]}
+      userData={{ plate: text }}
+      dispose={null}
+    />
+  );
+}
 
 /**
  * Drives a wheel group from the runtime every frame: suspension travel, steering and spin.
@@ -91,9 +124,19 @@ function countDrawables(root: Object3D | null): { meshes: number; shadowCasters:
   return { meshes, shadowCasters };
 }
 
-/** `spec`: the mounted class (defaults to the hypercar, e.g. for previews). */
+/**
+ * `spec`: the mounted class (defaults to the hypercar, e.g. for previews).
+ *
+ * The look (state/profile.ts): MY RIDE while it is mounted on this class, and the active driver.
+ * A look change re-renders this component with other cached geometries (carAssets) — the meshes
+ * swap geometry in place, the physics body, wheels and run are untouched. Stance (a ride's cosmetic
+ * body offset) moves the body, wing, plate, flame and bust group only; the wheels stay on the road.
+ */
 export function CarModel({ spec = HYPERCAR_SPEC }: { spec?: VehicleSpec }) {
-  const assets = getCarAssets(spec.id);
+  const ride = useProfile((s) => (s.rideActive && s.ride.base === spec.id ? s.ride : null));
+  const avatar = useProfile((s) => activeDriver(s).avatar);
+  const assets = getCarAssets(spec.id, { ride, driver: avatar });
+  const stance = ride?.stance ?? 0;
   const wing = assets.wing;
   const mainRef = useRef<Group>(null);
   const mainMeshRef = useRef<Mesh>(null);
@@ -198,36 +241,43 @@ export function CarModel({ spec = HYPERCAR_SPEC }: { spec?: VehicleSpec }) {
   const material = assets.material.material;
   const [, outletY, outletZ] = assets.flameOrigin;
   return (
-    <group ref={rootRef} name="car-model" userData={{ carId: spec.id }}>
-      <mesh name="car-body" geometry={assets.body} material={material} castShadow receiveShadow dispose={null} />
-      {wing && (
-        <group position={wing.config.pivot}>
-          <group ref={mainRef}>
-            <mesh ref={mainMeshRef} name="car-front-wing-main" geometry={wing.main} material={material} dispose={null} />
-            {wing.upper && (
-              <group ref={upperMountRef}>
-                <group ref={upperRef}>
-                  <mesh ref={upperMeshRef} name="car-front-wing-upper" geometry={wing.upper} material={material} dispose={null} />
+    <group ref={rootRef} name="car-model" userData={{ carId: spec.id, look: assets.lookKey }}>
+      <group name="car-body-group" position={[0, stance, 0]}>
+        <mesh name="car-body" geometry={assets.body} material={material} castShadow receiveShadow dispose={null} />
+        {wing && (
+          <group position={wing.config.pivot}>
+            <group ref={mainRef}>
+              <mesh ref={mainMeshRef} name="car-front-wing-main" geometry={wing.main} material={material} dispose={null} />
+              {wing.upper && (
+                <group ref={upperMountRef}>
+                  <group ref={upperRef}>
+                    <mesh ref={upperMeshRef} name="car-front-wing-upper" geometry={wing.upper} material={material} dispose={null} />
+                  </group>
                 </group>
-              </group>
-            )}
+              )}
+            </group>
           </group>
-        </group>
-      )}
+        )}
+        <NumberPlate spec={spec} />
+        {/* Open cockpits seat the driver's bust (+1 draw call, no shadow); closed cabins show the driver in the painted glass. */}
+        {seatFor(spec.id).open && <DriverBust avatar={avatar} carId={spec.id} rideHeight={spec.rideHeight} material={material} />}
+        {/* Flame geometry already carries the outlets' offsets; only the first outlet's plane is placed here. */}
+        {assets.flame && (
+          <mesh
+            ref={flameRef}
+            name="car-exhaust-flame"
+            position={[0, outletY, outletZ]}
+            geometry={assets.flame}
+            material={assets.flameMaterial}
+            visible={false}
+            renderOrder={2}
+            dispose={null}
+          />
+        )}
+      </group>
       {spec.wheels.map((wheel) => (
         <VoxelWheel key={wheel.id} wheel={wheel} assets={assets} />
       ))}
-      {/* Flame geometry already carries the outlets' offsets; only the first outlet's plane is placed here. */}
-      <mesh
-        ref={flameRef}
-        name="car-exhaust-flame"
-        position={[0, outletY, outletZ]}
-        geometry={assets.flame}
-        material={assets.flameMaterial}
-        visible={false}
-        renderOrder={2}
-        dispose={null}
-      />
     </group>
   );
 }

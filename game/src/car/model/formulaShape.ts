@@ -3,7 +3,7 @@
  *
  *   nose     long raised needle nose on two pylons over a full-width two-element front wing
  *            (the animated part, FORMULA_MODEL.wing) between carbon endplates
- *   centre   narrow monocoque, open cockpit with a yellow helmet, a glowing halo, sidepods with
+ *   centre   narrow monocoque, open cockpit (the active driver's bust sits in it), a glowing halo, sidepods with
  *            dark intakes, carbon floor and wishbones out to the exposed wheels
  *   rear     airbox over the driver's head, tapering engine cover, tall rear wing on a centre
  *            pylon with magenta-edged endplates, rain light and a single central exhaust
@@ -47,7 +47,8 @@ function monocoque(ax: number, h: number, z: number): number {
 }
 
 function driver(ax: number, h: number, z: number): number {
-  if (z > 0.18 && z < 0.46 && ax < 0.13 && h > 0.62 && h < 0.94) return z > 0.38 && h > 0.72 && h < 0.84 ? M.glass : M.paint2;
+  // The driver is no longer painted here: the active driver's bust (drivers/DriverBust.tsx) sits at
+  // the seat anchor (ride/anchors.ts, h 0.6, z 0.32); only the seat / cockpit floor stays voxels.
   if (z > 0.06 && z < 0.5 && ax < 0.22 && h > 0.4 && h <= 0.48) return M.intake; // seat / cockpit floor
   return 0;
 }

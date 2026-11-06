@@ -50,9 +50,27 @@ export interface TrackCatalogEntry {
   surfaceGrip?: number;
   /** Short setup hint for the map card. */
   tip?: string;
+  /** A car's own hint when the map's `tip` does not fit it (e.g. the kart's Isles leap needs its JUMP preset from the checkpoint). */
+  tipByCar?: { readonly [carId: string]: string };
+  /** Open-world entries: the world they share (MAPS groups them; <Track/> keeps the world mounted across them). */
+  world?: string;
+  /** 'roam' = free drive (no timer, results or medals); omitted = a race. */
+  mode?: 'roam' | 'race';
+  /** Route length for the card, m. */
+  lengthM?: number;
+  /** Surface chip for the card. */
+  terrain?: 'ASPHALT' | 'DIRT' | 'MIXED';
 }
 
-export const TRACK_CATALOG: readonly TrackCatalogEntry[] = [
+/**
+ * Tessera Isle (the open-world entries, `world: 'tessera'`) ships behind this switch until its own
+ * verification lands. Off, the island's entries stay out of the menus, the registry and `?track=`;
+ * the six classic maps are untouched either way.
+ */
+export const ISLAND_ENABLED = false;
+
+/** Every entry, the island's included. The dashboard mirror (dashboard/src/squad/garage.ts) and its drift test follow this list. */
+export const TRACK_CATALOG_ALL: readonly TrackCatalogEntry[] = [
   {
     id: 'chaos',
     name: 'GamerFleet Chaos',
@@ -63,7 +81,7 @@ export const TRACK_CATALOG: readonly TrackCatalogEntry[] = [
     medalsMs: { gold: 46000, silver: 53000, bronze: 62000 },
     bigJumpKmh: 183,
     landKmh: 183.5,
-    landKmhByCar: { rally: 184, muscle: 182, formula: 188.5 },
+    landKmhByCar: { rally: 184, muscle: 182, formula: 188.5, coupe: 182.5, electric: 175 },
     tip: 'Big jump needs tier 5. Hypercar: 20–34 % wing (from 11 % with weight forward). Others: JUMP ATTEMPT preset.',
   },
   {
@@ -86,8 +104,9 @@ export const TRACK_CATALOG: readonly TrackCatalogEntry[] = [
     medalsMs: { gold: 49000, silver: 56000, bronze: 66000 },
     bigJumpKmh: 163,
     landKmh: 160.5,
-    landKmhByCar: { rally: 160.5, muscle: 156.5, formula: 164.5 },
+    landKmhByCar: { rally: 160.5, muscle: 156.5, formula: 164.5, kart: 164.5 },
     tip: 'Final leap (hypercar): tier 4 with 15–40 % wing, or tier 5 with 20–80 %. It lands from 160.5 km/h at the lip.',
+    tipByCar: { kart: "JUMP ATTEMPT (10 / T5 / −30) from the leap's checkpoint: the short run-up only just gets the kart there." },
   },
   {
     id: 'cryo',
@@ -118,7 +137,65 @@ export const TRACK_CATALOG: readonly TrackCatalogEntry[] = [
     hasBigJump: false,
     accent: '#25e7f2',
   },
+  {
+    id: 'tessera',
+    name: 'Tessera Isle',
+    description: 'Free roam on an open island: a neon city, red canyons, a voxel village and a mountain. Drive anywhere.',
+    difficulty: 1,
+    hasBigJump: false,
+    accent: '#7bd389',
+    world: 'tessera',
+    mode: 'roam',
+    tip: 'Rally and buggy keep their grip off-road. Park on a glowing pad to start a race.',
+  },
+  {
+    id: 'tessera-rim',
+    name: 'Rimway Loop',
+    description: 'One lap of the coastal ring highway: city boulevard, desert, cove and village sweepers.',
+    difficulty: 2,
+    hasBigJump: false,
+    accent: '#ffd23f',
+    world: 'tessera',
+    lengthM: 4610,
+    terrain: 'ASPHALT',
+  },
+  {
+    id: 'tessera-crown',
+    name: 'Crown Climb',
+    description: 'From the city gate over Crown Saddle and up the summit hairpins to the observatory.',
+    difficulty: 3,
+    hasBigJump: false,
+    accent: '#b8f25c',
+    world: 'tessera',
+    lengthM: 1900,
+    terrain: 'ASPHALT',
+  },
+  {
+    id: 'tessera-neon',
+    name: 'Neon Sprint',
+    description: 'Volt Docks to Spire Plaza through the Prism City grid: six square corners under the towers.',
+    difficulty: 2,
+    hasBigJump: false,
+    accent: '#5c7cff',
+    world: 'tessera',
+    lengthM: 1070,
+    terrain: 'ASPHALT',
+  },
+  {
+    id: 'tessera-rally',
+    name: 'Cinnabar Rally',
+    description: 'A dirt loop out of Tin Spur: canyon bends, under the arch, three hops along the salt pan.',
+    difficulty: 3,
+    hasBigJump: false,
+    accent: '#ff6a3d',
+    world: 'tessera',
+    lengthM: 1800,
+    terrain: 'DIRT',
+  },
 ];
+
+/** The entries the game offers: all of them, or only the classic maps while the island is switched off. */
+export const TRACK_CATALOG: readonly TrackCatalogEntry[] = ISLAND_ENABLED ? TRACK_CATALOG_ALL : TRACK_CATALOG_ALL.filter((t) => t.world === undefined);
 
 export function getTrackEntry(id: string): TrackCatalogEntry {
   return TRACK_CATALOG.find((t) => t.id === id) ?? TRACK_CATALOG[0]!;

@@ -10,7 +10,7 @@ import { jumpReach, medalsFor, type JumpReach } from '../state/records';
 import { selectionState } from '../state/selection';
 import type { TrackMedals } from '../track/catalog';
 import { autoPauseLog, type AutoPauseRecord } from './autoPause';
-import { closeMenu, openMenu, useHudUi, type MenuTab } from './uiStore';
+import { closeMenu, minimapStats, openMenu, useHudUi, type MenuTab } from './uiStore';
 
 export interface HudDebugHandle {
   /** Start-light state: { serial, active, step } (step 3/2/1, 0 = GO, null before the first light). */
@@ -31,6 +31,22 @@ export interface HudDebugHandle {
   medals(trackId?: string, carId?: string): TrackMedals | null;
   /** Big-jump reach for a car on a map (records.ts jumpReach; null = no big jump there), with the scan time. */
   reach(trackId?: string, carId?: string): (JumpReach & { ms: number }) | null;
+  /**
+   * Open-world minimap disc: its rect (CSS px) for overlap tests, or null when it is not on screen
+   * (no open world, hidden by a rule, menu open); plus its render / frame counters.
+   */
+  minimap(): MinimapProbe | null;
+  /** The minimap's counters even while it is hidden (renders must not grow while driving). */
+  minimapStats(): typeof minimapStats & { frameMsMean: number };
+}
+
+export interface MinimapProbe {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  right: number;
+  bottom: number;
 }
 
 declare global {
@@ -63,6 +79,15 @@ export function useHudDebugHandle(): void {
         const reach = jumpReach(trackId, carId);
         return reach && { ...reach, ms: performance.now() - t0 };
       },
+      minimap: () => {
+        const el = document.querySelector<HTMLElement>('[data-testid=minimap]');
+        if (!el) return null;
+        const style = getComputedStyle(el);
+        const r = el.getBoundingClientRect();
+        if (style.display === 'none' || style.visibility === 'hidden' || r.width === 0 || r.height === 0) return null;
+        return { x: r.x, y: r.y, width: r.width, height: r.height, right: r.right, bottom: r.bottom };
+      },
+      minimapStats: () => ({ ...minimapStats, frameMsMean: minimapStats.frames > 0 ? minimapStats.frameMsTotal / minimapStats.frames : 0 }),
     };
     window.__HUD__ = handle;
     return () => {

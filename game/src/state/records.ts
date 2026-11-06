@@ -65,13 +65,25 @@ export function nextMedal(ms: number | null | undefined, medals: TrackMedals | n
  * Bruiser V8's chaos gold from 44.0 to 43.5 s with no real difference in pace).
  * Missing = can't finish (big jump out of reach). Measured with `?ws=off` and `__RACER__.advance`;
  * README "Medals per car" has the resulting medal table.
+ *
+ * The four newer cars (coupe, drift, electric, kart) were measured the same way with the same
+ * autopilot and sliders, 8 runs per car per map at 8 hazard phases, FLAT OUT (traction control only
+ * where flat out can't finish: the Smoke Lantern on Neon Ribbon, 0 of 8 flat out, 8 of 8 with the
+ * usual traction control, and on Cryo Drift, where it needs a firmer one — easing off from 35 % slip
+ * instead of 50 % — to bring 3 of 8 runs home without a fall, median 58.75), median of the runs
+ * without a fall. A same-session hypercar control (8 phases) gave 54.35 / 41.48 /
+ * 48.92 / 56.94 / 24.27 flat out against the stored 54.15 / 40.96 / 48.83 / 56.67 / 24.27, so the
+ * stored bases stand. The kart's Isles time switches to its JUMP ATTEMPT preset at the leap's
+ * checkpoint like every car does on chaos (with the map's 30/5/0 it reaches the lip at ~160 km/h
+ * and falls every time); even so only 3 of 8 runs made the leap (lip 164.8–165.2 cleared, ≤ 162.5
+ * short), so the Pixel Gnat's Isles medals are a marginal, honest target.
  */
 export const MEASURED_COURSE_S: Readonly<Record<string, Readonly<Record<string, number>>>> = {
-  chaos: { hypercar: 54.15, rally: 54.67, muscle: 51.54, formula: 53.56 },
-  ribbon: { hypercar: 40.96, rally: 40.82, muscle: 40.88, formula: 41.62, buggy: 44.11 },
-  isles: { hypercar: 48.83, rally: 49.2, muscle: 49.08, formula: 49.21 },
-  cryo: { hypercar: 56.67, rally: 52.67, muscle: 56.52, formula: 55.0, buggy: 61.16 },
-  strip: { hypercar: 24.27, rally: 24.15, muscle: 24.23, formula: 23.23, buggy: 34.07 },
+  chaos: { hypercar: 54.15, rally: 54.67, muscle: 51.54, formula: 53.56, coupe: 55.0, drift: 55.27, electric: 54.52 },
+  ribbon: { hypercar: 40.96, rally: 40.82, muscle: 40.88, formula: 41.62, buggy: 44.11, coupe: 40.99, drift: 41.49, electric: 41.59, kart: 40.2 },
+  isles: { hypercar: 48.83, rally: 49.2, muscle: 49.08, formula: 49.21, coupe: 48.5, drift: 52.3, electric: 49.59, kart: 51.47 },
+  cryo: { hypercar: 56.67, rally: 52.67, muscle: 56.52, formula: 55.0, buggy: 61.16, coupe: 54.67, drift: 58.75, electric: 54.6, kart: 57.4 },
+  strip: { hypercar: 24.27, rally: 24.15, muscle: 24.23, formula: 23.23, buggy: 34.07, coupe: 24.02, drift: 24.78, electric: 25.42, kart: 25.27 },
 };
 
 /**

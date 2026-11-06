@@ -1,8 +1,9 @@
 import { useLayoutEffect, useState } from 'react';
 import { getCarEntry } from '../car/catalog';
+import { useActiveDriver } from '../state/profile';
 import { jumpOutOfReachNote, jumpReach } from '../state/records';
 import { useSelection } from '../state/selection';
-import { gameState } from '../state/store';
+import { gameState, useGameStore } from '../state/store';
 import { getTrackEntry } from '../track/catalog';
 import { canFullscreen, toggleFullscreen } from './fullscreen';
 import { useHudUi } from './uiStore';
@@ -26,6 +27,11 @@ export function StartGate() {
   const car = getCarEntry(useSelection((s) => s.carId));
   const track = getTrackEntry(useSelection((s) => s.trackId));
   const reach = jumpReach(track.id, car.id);
+  // The driver at the wheel (DRIVERS tab) and their start-line line.
+  const driver = useActiveDriver();
+  // Free roam (open worlds): nothing to race, the card just starts the drive.
+  const roamLayout = useGameStore((s) => s.trackLayout?.mode === 'roam');
+  const roam = roamLayout || track.mode === 'roam';
   // Auto-pause (hud/autoPause.ts) leaves the card alone: no run has really started behind it.
   useLayoutEffect(() => {
     useHudUi.getState().setStartGateOpen(open);
@@ -53,17 +59,20 @@ export function StartGate() {
         <span className="sg__car" style={{ ['--accent' as string]: car.accent }}>
           {car.name}
         </span>
+        <span className="sg__driver" data-testid="start-driver">
+          {driver.name.toUpperCase()} · <i>{driver.taunt}</i>
+        </span>
         {reach && !reach.reachable && (
           <span className="sg__warn" data-testid="start-reach-note">
             BIG JUMP OUT OF REACH · {jumpOutOfReachNote(reach, car.name)}
           </span>
         )}
         <button type="button" className="gm-btn gm-btn--primary sg__go" onClick={() => start(fullscreen)} data-testid="start-race">
-          {fullscreen ? '▶ RACE · FULLSCREEN' : '▶ TAP TO RACE'}
+          {roam ? (fullscreen ? '▶ DRIVE · FULLSCREEN' : '▶ TAP TO DRIVE') : fullscreen ? '▶ RACE · FULLSCREEN' : '▶ TAP TO RACE'}
         </button>
         {fullscreen && (
           <button type="button" className="gm-btn sg__window" onClick={() => start(false)} data-testid="start-race-window">
-            RACE IN THIS WINDOW
+            {roam ? 'DRIVE IN THIS WINDOW' : 'RACE IN THIS WINDOW'}
           </button>
         )}
         <span className="sg__hint">Left thumb steers · right thumb GAS, BRAKE, DRIFT · ☰ for cars, maps, physics and sound</span>

@@ -64,9 +64,14 @@
 .gm__close:hover,
 .gm__close:focus-visible { background: rgba(0, 240, 255, 0.2); color: #fff; outline: none; }
 
-.gm__tabs { grid-area: tabs; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
+/* Eight tabs: two rows of four (RACE GARAGE DRIVERS MY RIDE / MAPS PHYSICS SETTINGS SQUAD), 79 px wide at 360 px. */
+.gm__tabs { grid-area: tabs; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; }
 .gm__tabs button {
   min-height: 44px;
+  padding: 0 2px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   font: inherit;
   font-size: 11px;
   font-weight: 800;
@@ -112,7 +117,10 @@
   .gm__panel { gap: 6px; padding-top: 6px; padding-bottom: 6px; }
   .gm__head { min-height: 46px; }
   .gm__close { width: 52px; height: 46px; }
-  .gm__tabs button { min-height: 40px; }
+  /* Phone landscape (≤ 420 px tall): eight 40 px rail buttons would scroll, so the rail is two columns of four. */
+  .gm__panel { grid-template-columns: 164px minmax(0, 1fr); }
+  .gm__tabs { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 5px; }
+  .gm__tabs button { min-height: 44px; font-size: 10px; letter-spacing: 0.1em; }
   .gm-btn { min-height: 46px; }
 }
 /* Desktop-sized windows: a centred window instead of a full-screen sheet. */
@@ -148,6 +156,8 @@
   touch-action: manipulation;
 }
 .gm-now__item b { font-size: 14px; color: #fff; letter-spacing: 0.06em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* The number plate the car wears (and the base class, when MY RIDE is mounted) under the car's name. */
+.gm-now__plate { font-size: 10px; letter-spacing: 0.12em; color: var(--accent); opacity: 0.9; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-variant-numeric: tabular-nums; }
 .gm-runstats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; margin: 10px 0 0; }
 .gm-runstats div { padding: 8px 10px; background: rgba(8, 10, 18, 0.7); border: 1px solid rgba(0, 240, 255, 0.18); border-radius: 10px; min-width: 0; }
 .gm-runstats dt { color: var(--dim); font-size: 9px; letter-spacing: 0.18em; }
@@ -161,6 +171,8 @@
 
 /* Cards (garage + maps). */
 .gm-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 270px), 1fr)); gap: 10px; }
+/* The number-plate editor (PlateEditor.tsx) under the selected car's card spans the whole row. */
+.gm-cards > .pe { grid-column: 1 / -1; margin: 0; }
 .gm-card {
   --accent: var(--cyan);
   position: relative;
@@ -206,6 +218,61 @@
 .gm-reach-sub { font-size: 10px; line-height: 1.45; color: #ffb35c; letter-spacing: 0.03em; }
 .gm-reach { display: flex; flex-direction: column; gap: 3px; margin-top: 10px; padding: 8px 12px; font-size: 11px; line-height: 1.45; color: #ffd0a0; background: rgba(255, 154, 31, 0.1); border: 1px solid rgba(255, 154, 31, 0.55); border-radius: 10px; }
 .gm-reach b { font-size: 10px; letter-spacing: 0.18em; color: #ff9a1f; }
+
+/* Open-world island card (IslandCard.tsx): one full-width card for every entry of a world. */
+.gm-island { grid-column: 1 / -1; cursor: default; gap: 10px; }
+.gm-island:active { transform: none; }
+.gm-island--loading { min-height: 420px; }
+.gm-island__top { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.gm-island__thumb { position: relative; flex: none; width: 96px; height: 96px; overflow: hidden; border-radius: 10px; background: #12304c; border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent); }
+.gm-island__thumb img { display: block; width: 100%; height: 100%; image-rendering: pixelated; }
+.gm-island__placeholder { position: absolute; inset: 6%; display: block; opacity: 0.9; }
+.gm-island__flag { position: absolute; width: 8px; height: 8px; margin: -4px 0 0 -4px; border-radius: 50%; background: var(--accent); border: 1px solid #05060a; box-shadow: 0 0 6px var(--accent); }
+.gm-island__roam { width: 100%; min-height: 56px; font-size: 14px; letter-spacing: 0.18em; }
+.gm-island__rows { display: grid; gap: 6px; }
+.gm-island__row {
+  --accent: var(--cyan);
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 5px;
+  min-height: 56px;
+  padding: 7px 12px 7px 14px;
+  text-align: left;
+  font: inherit;
+  color: var(--text);
+  background: linear-gradient(90deg, color-mix(in srgb, var(--accent) 16%, transparent), rgba(8, 10, 18, 0.88) 60%);
+  border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent);
+  border-left: 4px solid var(--accent);
+  border-radius: 10px;
+  cursor: pointer;
+  touch-action: pan-y;
+  min-width: 0;
+}
+.gm-island__row:hover,
+.gm-island__row:focus-visible { border-color: var(--accent); outline: none; }
+.gm-island__row:active { transform: scale(0.99); }
+.gm-island__row.is-selected { box-shadow: 0 0 0 2px var(--accent); }
+.gm-island__line { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; min-width: 0; }
+.gm-island__line > b { font-size: 13px; letter-spacing: 0.08em; color: #fff; }
+.gm-island__line--sub .gm-k { display: inline; }
+.gm-island__chip { color: var(--accent); }
+.gm-island__len { font-size: 10px; letter-spacing: 0.12em; color: var(--dim); }
+.gm-island__best { font-size: 12px; color: var(--yellow); font-variant-numeric: tabular-nums; }
+
+/* RACE tab on an open world (GameMenu.tsx IslandBlock). */
+.gm-isle { --accent: #7bd389; display: grid; gap: 4px; margin-top: 10px; }
+.gm-isle__now { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; padding: 10px 12px; background: rgba(8, 10, 18, 0.8); border: 1px solid color-mix(in srgb, var(--accent) 50%, transparent); border-radius: 12px; }
+.gm-isle__now .gm-k { flex-basis: 100%; }
+.gm-isle__now b { font-size: 15px; letter-spacing: 0.1em; color: #fff; }
+.gm-isle__now small { font-size: 10px; letter-spacing: 0.12em; color: var(--dim); }
+.gm-isle__actions { display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr); gap: 8px; margin-top: 4px; }
+.gm-isle__actions .gm-btn { min-height: 52px; white-space: normal; line-height: 1.2; letter-spacing: 0.08em; }
+.gm-isle__grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 150px), 1fr)); gap: 6px; }
+.gm-isle__grid .gm-btn { min-height: 48px; padding: 4px 10px; white-space: normal; line-height: 1.2; letter-spacing: 0.06em; font-size: 11px; }
+.gm-isle__spot:disabled { opacity: 0.5; }
+.gm-isle__event { --accent: var(--cyan); display: flex; flex-direction: column; align-items: flex-start; justify-content: center; gap: 2px; text-align: left; border-color: color-mix(in srgb, var(--accent) 60%, transparent); border-left: 4px solid var(--accent); }
+.gm-isle__event small { font-size: 9px; color: var(--dim); letter-spacing: 0.12em; }
 
 /* Medals. */
 .gm-medal { display: inline-flex; align-items: center; gap: 5px; padding: 3px 9px 3px 4px; font-size: 10px; font-weight: 800; letter-spacing: 0.14em; color: #ffd23f; background: rgba(0, 0, 0, 0.45); border: 1px solid currentColor; border-radius: 20px; }
@@ -315,6 +382,11 @@
 .hud-results__card > * { min-width: 0; }
 .hud-results__actions { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr) minmax(0, 1fr); gap: 8px; }
 .hud-results__actions .gm-btn { min-height: 50px; padding: 0 4px; letter-spacing: 0.08em; white-space: normal; line-height: 1.2; }
+/* Open-world races: four buttons in a row, 2 × 2 on a narrow card (e.g. 360 px portrait). */
+.hud-results__actions--world { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+@container results-card (max-width: 400px) {
+  .hud-results__actions--world { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
 
 /* Phones: the card fits between the top bar, the ☰ / ⟲ buttons and the thumb controls. */
 .hud--compact .hud-results { inset: var(--below-bar) var(--hud-r) var(--hud-b) var(--hud-l); align-items: flex-start; }
@@ -382,6 +454,9 @@
 .sg__brand { font-size: 11px; font-weight: 800; letter-spacing: 0.3em; color: var(--cyan); text-shadow: 0 0 10px rgba(0, 240, 255, 0.6); }
 .sg__map { font-size: 24px; font-weight: 800; letter-spacing: 0.06em; color: var(--accent, var(--text)); text-shadow: 0 0 14px var(--accent, transparent); }
 .sg__car { font-size: 13px; font-weight: 700; letter-spacing: 0.12em; color: var(--accent, var(--text)); }
+/* The driver at the wheel and their start-line line (DRIVERS tab). */
+.sg__driver { font-size: 10px; font-weight: 700; letter-spacing: 0.14em; color: var(--text); opacity: 0.85; }
+.sg__driver i { font-style: normal; color: var(--yellow); }
 .sg__warn { padding: 6px 10px; font-size: 10px; font-weight: 700; line-height: 1.45; letter-spacing: 0.06em; color: #ffb35c; background: rgba(255, 154, 31, 0.1); border: 1px solid rgba(255, 154, 31, 0.55); border-radius: 8px; }
 .sg__go { min-height: 56px; margin-top: 4px; font-size: 15px; letter-spacing: 0.16em; }
 .sg__window { min-height: 44px; font-size: 11px; color: var(--dim); }

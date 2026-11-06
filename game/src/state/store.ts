@@ -106,6 +106,8 @@ export interface GameState {
   pushUplink: (kind: UplinkKind, text: string) => void;
 
   setTrackLayout: (layout: TrackLayout) => void;
+  /** No layout (an open world is still loading): the car unmounts, the run is blank. */
+  clearTrackLayout: () => void;
   startRun: () => void;
   syncElapsed: () => void;
   reachCheckpoint: (index: number) => void;
@@ -270,6 +272,12 @@ export const useGameStore = create<GameState>()((set, get) => {
       set({ trackLayout: layout, run: freshRun(totalCheckpointsOf(layout), loadBestTime(layout.id, get().carId)) });
     },
 
+    clearTrackLayout: () => {
+      if (get().trackLayout === null) return;
+      resetRunClock();
+      set({ trackLayout: null, run: freshRun(0, null) });
+    },
+
     startRun: () => {
       const { run } = get();
       if (run.started || run.finished) return;
@@ -311,7 +319,7 @@ export const useGameStore = create<GameState>()((set, get) => {
       const { run, trackLayout } = get();
       const maxIndex = trackLayout ? trackLayout.checkpoints.length - 1 : 0;
       const checkpoint = Math.min(run.checkpoint, Math.max(0, maxIndex));
-      if (reason === 'fall') set({ run: { ...run, falls: run.falls + 1 } });
+      if (reason === 'fall' || reason === 'water' || reason === 'bounds') set({ run: { ...run, falls: run.falls + 1 } });
       emitGameEvent('respawn', { checkpoint, reason });
     },
 

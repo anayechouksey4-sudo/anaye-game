@@ -4,7 +4,8 @@
  * persistent state in the zustand store — this is only for "something just happened".
  */
 
-export type RespawnReason = 'fall' | 'manual' | 'flipped' | 'debug';
+/** 'water' | 'bounds' | 'stuck' | 'travel' are only ever emitted by open worlds. */
+export type RespawnReason = 'fall' | 'manual' | 'flipped' | 'debug' | 'water' | 'bounds' | 'stuck' | 'travel';
 
 export interface GameEventMap {
   /** Full run reset: back to checkpoint 0, timer cleared. Hazards should reset completely. */

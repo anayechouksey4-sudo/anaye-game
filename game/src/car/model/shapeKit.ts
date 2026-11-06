@@ -16,6 +16,17 @@ import type { WheelStyle } from './wheelVoxels';
 
 export const VOXEL = 0.08;
 
+/**
+ * Where a number plate hangs on a car: the centre of its face, [x, h, z] (h ground-relative like
+ * `exhaust`), facing −Z for a rear plate. `scale` shrinks the 0.52 × 0.13 m plate for small cars;
+ * `tilt` (rad, positive = face up) follows a raked tail.
+ */
+export interface PlateMount {
+  position: readonly [number, number, number];
+  scale?: number;
+  tilt?: number;
+}
+
 /** What a car class's model provides to carAssets / CarModel. */
 export interface CarModelDef {
   /** Fills and paints the body grid in the chassis frame of `spec`. */
@@ -24,9 +35,11 @@ export interface CarModelDef {
   livery?: Livery;
   /** Animated front wing / spoiler driven by frontDownforce; null = none. Its pivot is [x, h, z] (h ground-relative). */
   wing: FrontWingConfig | null;
-  /** Exhaust outlets [x, h, z] (h ground-relative) for the flame; all on one z plane. */
+  /** Exhaust outlets [x, h, z] (h ground-relative) for the flame; all on one z plane. Empty = no flame. */
   exhaust: readonly (readonly [number, number, number])[];
   wheel?: Partial<WheelStyle>;
+  /** Number plate mounts (car/plates); a car without `plates` shows none. */
+  plates?: { rear: PlateMount };
 }
 
 /**

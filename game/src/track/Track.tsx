@@ -1,6 +1,6 @@
 import { useSelection } from '../state/selection';
 import { useMapsDebugHandle } from './mapsDebug';
-import { TRACKS, resolveTrackId } from './registry';
+import { TRACKS, WORLD_OF, resolveTrackId } from './registry';
 
 /**
  * Renders the map selected in the selection store (`?track=` seeds it at load; the ☰ menu
@@ -12,5 +12,5 @@ export function Track() {
   const id = resolveTrackId(useSelection((s) => s.trackId));
   useMapsDebugHandle(id);
   const Selected = TRACKS[id];
-  return Selected ? <Selected key={id} /> : null;
+  return Selected ? <Selected key={WORLD_OF[id] ?? id} /> : null;
 }

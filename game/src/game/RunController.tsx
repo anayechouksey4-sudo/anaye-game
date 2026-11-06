@@ -41,18 +41,21 @@ export function RunController() {
     const layout = s.trackLayout;
     if (!layout || !carRuntime.ready) return;
 
+    const roam = layout.mode === 'roam';
     if (runClock.running) {
       runClock.elapsedMs += PHYSICS_DT * 1000;
       if (++stepCounter.current % ELAPSED_SYNC_STEPS === 0) s.syncElapsed();
     }
-    // Start lights (game/countdown.ts). The timer starts on the GO step and counts from the next one.
-    if (isCountdownActive()) {
-      const scripted = getInputOverride();
-      if (scripted && (scripted.throttle ?? 0) > 0.05) cancelCountdown();
-      else if (tickCountdown()) s.startRun();
+    if (!roam) {
+      // Start lights (game/countdown.ts). The timer starts on the GO step and counts from the next one.
+      if (isCountdownActive()) {
+        const scripted = getInputOverride();
+        if (scripted && (scripted.throttle ?? 0) > 0.05) cancelCountdown();
+        else if (tickCountdown()) s.startRun();
+      }
+      // Without lights (a scripted driver skipped them): the run starts on the first throttle.
+      if (!isCountdownActive() && !s.run.started && !s.run.finished && carRuntime.throttle > 0.05) s.startRun();
     }
-    // Without lights (a scripted driver skipped them): the run starts on the first throttle.
-    if (!isCountdownActive() && !s.run.started && !s.run.finished && carRuntime.throttle > 0.05) s.startRun();
 
     if (settleSteps.current > 0) {
       settleSteps.current--;
@@ -65,16 +68,24 @@ export function RunController() {
       return;
     }
 
-    if (!s.run.finished) {
-      // Any later checkpoint counts (a jump can sail over a gate on a linear track).
-      for (let i = layout.checkpoints.length - 1; i > s.run.checkpoint; i--) {
-        const cp = layout.checkpoints[i];
-        if (cp && isInsideGate(pos, cp)) {
-          s.reachCheckpoint(i);
-          break;
+    if (!roam && !s.run.finished) {
+      if (layout.strictOrder) {
+        // Only the next checkpoint counts; the finish only once every checkpoint is reached.
+        const next = layout.checkpoints[s.run.checkpoint + 1];
+        if (next) {
+          if (isInsideGate(pos, next)) s.reachCheckpoint(s.run.checkpoint + 1);
+        } else if (isInsideGate(pos, layout.finish)) s.finishRun();
+      } else {
+        // Any later checkpoint counts (a jump can sail over a gate on a linear track).
+        for (let i = layout.checkpoints.length - 1; i > s.run.checkpoint; i--) {
+          const cp = layout.checkpoints[i];
+          if (cp && isInsideGate(pos, cp)) {
+            s.reachCheckpoint(i);
+            break;
+          }
         }
+        if (isInsideGate(pos, layout.finish)) s.finishRun();
       }
-      if (isInsideGate(pos, layout.finish)) s.finishRun();
     }
 
     const jump = layout.bigJump;

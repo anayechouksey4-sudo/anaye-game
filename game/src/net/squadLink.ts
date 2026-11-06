@@ -18,6 +18,7 @@ import {
   TELEMETRY_INTERVAL_MS,
   encodeMessage,
   parseMessage,
+  sanitizeDisplayText,
   sanitizeId,
   withRole,
   type GameSessionInfo,
@@ -26,6 +27,7 @@ import {
   type SquadControls,
 } from '@shared/protocol';
 import { isNetworkDisabled, resolveServerUrl } from '../config';
+import { activeDriver, useProfile } from '../state/profile';
 import { gameState, useGameStore } from '../state/store';
 import { bigJumpKmhOf } from '../track/catalog';
 import { buildTelemetry } from './telemetry';
@@ -62,6 +64,7 @@ export class SquadLink {
   private telemetryTimer: ReturnType<typeof setInterval> | null = null;
   private pingTimer: ReturnType<typeof setInterval> | null = null;
   private unsubscribeStore: (() => void) | null = null;
+  private unsubscribeProfile: (() => void) | null = null;
   private lastFrameAt = 0;
   private pendingPings = new Map<number, number>();
   private pingNonce = 0;
@@ -86,6 +89,12 @@ export class SquadLink {
         this.scheduleState();
       }
     });
+    // A rename, a driver swap or MY RIDE (un)mounting changes the names game:state carries.
+    this.unsubscribeProfile = useProfile.subscribe((state, prev) => {
+      if (state.drivers !== prev.drivers || state.activeDriverId !== prev.activeDriverId || state.ride !== prev.ride || state.rideActive !== prev.rideActive) {
+        this.scheduleState();
+      }
+    });
     // Deferred one tick: React StrictMode's throwaway first mount stops us before a socket exists.
     this.retryTimer = setTimeout(() => {
       this.retryTimer = null;
@@ -97,6 +106,8 @@ export class SquadLink {
     this.stopped = true;
     this.unsubscribeStore?.();
     this.unsubscribeStore = null;
+    this.unsubscribeProfile?.();
+    this.unsubscribeProfile = null;
     this.clearTimers();
     if (this.retryTimer) clearTimeout(this.retryTimer);
     this.retryTimer = null;
@@ -311,12 +322,22 @@ export class SquadLink {
 
 /**
  * What we are playing, for game:state: the car class, the map, and the lip speed of the map's big
- * jump (null when the map has none). Before a track has registered, only the car is known.
+ * jump (null when the map has none), plus who is driving (DRIVERS) and the name of MY RIDE while it
+ * is mounted on that class (the wire rule is sanitizeDisplayText; an empty name is left out). Before
+ * a track has registered, only the car and the names are known.
  */
 export function gameSessionInfo(): GameSessionInfo {
   const { carId, trackLayout } = gameState();
-  if (!trackLayout) return { carId };
-  const info: GameSessionInfo = { carId, bigJumpKmh: bigJumpKmhOf(trackLayout) };
+  const info: GameSessionInfo = { carId };
+  const profile = useProfile.getState();
+  const driverName = sanitizeDisplayText(activeDriver(profile).name);
+  if (driverName) info.driverName = driverName;
+  if (profile.rideActive && profile.ride.base === carId) {
+    const rideName = sanitizeDisplayText(profile.ride.name);
+    if (rideName) info.rideName = rideName;
+  }
+  if (!trackLayout) return info;
+  info.bigJumpKmh = bigJumpKmhOf(trackLayout);
   // The relay rejects a whole game:state with a malformed id, so an odd track id is left out instead.
   const trackId = sanitizeId(trackLayout.id);
   if (trackId) info.trackId = trackId;

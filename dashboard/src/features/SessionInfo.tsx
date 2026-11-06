@@ -3,6 +3,7 @@ import { StyleSheet, View } from 'react-native';
 
 import { formatKmh, formatNumber } from '../lib/format';
 import { DEFAULT_CAR_LOOK, describeCar, describeMap } from '../squad/garage';
+import { driverLine } from '../squad/session';
 import { useConnection, useGameLink, usePlaySession } from '../squad/SquadContext';
 import { alpha, colors, glow } from '../theme';
 import { Badge } from '../ui/Badge';
@@ -31,6 +32,8 @@ export const NowPlaying = memo(function NowPlaying() {
   const carSub = car.known
     ? `${car.drive} · GRIP ${formatNumber(car.carClass.traction, 2)} μ`
     : `UNKNOWN CAR · PREVIEWED AS ${DEFAULT_CAR_LOOK.name.toUpperCase()}`;
+  // The driver at the wheel and a mounted custom car (MY RIDE), when the game reports them (game:state driverName / rideName).
+  const driver = driverLine(session, car.name);
   const mapNotes: string[] = [];
   mapNotes.push(session.bigJumpKmh === null ? 'NO BIG JUMP' : `BIG JUMP · LIP ${formatKmh(session.bigJumpKmh)} KM/H`);
   if (map.surfaceGrip !== undefined) mapNotes.push(`ICE · ${Math.round(map.surfaceGrip * 100)} % GRIP`);
@@ -56,6 +59,11 @@ export const NowPlaying = memo(function NowPlaying() {
             <Txt style={styles.sub} numberOfLines={1}>
               {carSub}
             </Txt>
+            {driver !== null ? (
+              <Txt style={styles.driver} numberOfLines={1} testID="session-driver">
+                {driver}
+              </Txt>
+            ) : null}
           </View>
         </View>
         <View style={styles.row}>
@@ -164,6 +172,12 @@ const styles = StyleSheet.create({
     fontSize: 11,
     letterSpacing: 0.8,
     color: colors.textDim,
+    marginTop: 2,
+  },
+  driver: {
+    fontSize: 11,
+    letterSpacing: 0.8,
+    color: colors.white,
     marginTop: 2,
   },
   note: {
