@@ -3,6 +3,7 @@ import { Canvas, useThree } from '@react-three/fiber';
 import { Physics } from '@react-three/rapier';
 import { GRAVITY } from '@shared/protocol';
 import { DirectionalLight } from 'three';
+import { GameAudio } from './audio/GameAudio';
 import { ChaseCamera } from './camera/ChaseCamera';
 import { Car } from './car/Car';
 import { installKeyboardInput, isTouchDevice } from './car/input';
@@ -13,6 +14,7 @@ import { RunController } from './game/RunController';
 import { HUD } from './hud/HUD';
 import { useSquadLink } from './net/squadLink';
 import { Environment } from './scene/Environment';
+import { useSelection } from './state/selection';
 import { useGameStore } from './state/store';
 import { Track } from './track/Track';
 
@@ -40,10 +42,11 @@ function TouchShadowBudget() {
   return null;
 }
 
-/** The car mounts once the track has registered its layout, keyed so a new track gets a fresh car. */
+/** The car mounts once the track has registered its layout, keyed so a new track or car gets a fresh car. */
 function PlayerCar() {
   const layout = useGameStore((s) => s.trackLayout);
-  return layout ? <Car key={layout.id} spawn={layout.spawn} /> : null;
+  const carId = useSelection((s) => s.carId);
+  return layout ? <Car key={`${layout.id}:${carId}`} spawn={layout.spawn} /> : null;
 }
 
 export function App() {
@@ -73,6 +76,7 @@ export function App() {
         </Suspense>
       </Canvas>
       <HUD />
+      <GameAudio />
     </div>
   );
 }

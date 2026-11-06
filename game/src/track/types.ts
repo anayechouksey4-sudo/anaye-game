@@ -51,6 +51,11 @@ export interface TrackLayout {
   bigJump?: TrackBigJump;
   /** Total driving length in metres (HUD progress only). */
   lengthM?: number;
+  /**
+   * Tyre-grip multiplier of the driving surface (1 = normal tarmac, < 1 = slippery, e.g. ice).
+   * The car controller multiplies its tyre friction by this; omitted = 1.
+   */
+  surfaceGrip?: number;
 }
 
 /** Number shown as "x / total" in the HUD: intermediate checkpoints plus the finish line. */
