@@ -25,9 +25,9 @@ npm run dev:all
 
 This one command:
 
-1. Installs dependencies for the root, `server/`, `game/` and `dashboard/`, one package at a time. On later runs it skips any package whose `package.json` and lockfile haven't changed.
-2. Starts the relay, the game and the dashboard together in this terminal. Each service's log lines are prefixed with its name.
-3. Waits until each service answers, then prints a summary like this:
+1. Installs dependencies for the root, `server/` and `game/`, one package at a time. On later runs it skips any package whose `package.json` and lockfile haven't changed. If the `server/` or `game/` install fails, that service is skipped and the others still start. Only a failed root install stops the launcher.
+2. Starts the relay, the game and the dashboard together in this terminal. Each service's log lines are prefixed with its name. If the dashboard needs an install (by far the biggest), it runs inside the dashboard's own process, so the relay and game don't wait for it. A failed dashboard install is retried twice, then the dashboard is skipped and the rest keep running.
+3. Prints a summary as soon as the relay and the game answer. It doesn't wait for a dashboard that is still installing; on a laptop it gives one that is already starting up to 10 more seconds, on a phone none:
 
 ```
 ────────────────────────────────────────────────────────────────────────
@@ -42,7 +42,9 @@ This one command:
 ────────────────────────────────────────────────────────────────────────
 ```
 
-Press Ctrl+C to stop all three services. Closing the terminal (or the Termux session) or `pkill -f dev-all` stops them too. If the launcher itself was killed (for example by Android's low-memory killer) and left a service holding its port, free the ports with `fuser -k 8787/tcp 5173/tcp 8081/tcp` (`pkg install psmisc` on Termux if `fuser` is missing).
+If the dashboard is still installing or starting at that point, its row says so, and one more line with its URLs follows when it answers.
+
+Press Ctrl+C to stop all three services. Closing the terminal (or the Termux session) or `pkill -f dev-all` stops them too. If the launcher itself was killed (for example by Android's low-memory killer) and left a service holding its port, free the ports with `fuser -k 8787/tcp 5173/tcp 8081/tcp` (`pkg install psmisc` on Termux if `fuser` is missing). If Android kills an install partway, the launcher says so and starts the rest; run `node scripts/dev-all.mjs --fresh` later to repair that package.
 
 | Command | Does |
 | --- | --- |
@@ -58,26 +60,47 @@ Press Ctrl+C to stop all three services. Closing the terminal (or the Termux ses
 
 ```bash
 pkg update && pkg install nodejs-lts git
-git clone https://github.com/anayechouksey4-sudo/make-an-app-like-claude-and-chatgpt-mixed.git
+git clone --depth 1 -b claude/racing-game-physics-dashboard-fzyqvv https://github.com/anayechouksey4-sudo/make-an-app-like-claude-and-chatgpt-mixed.git
 cd make-an-app-like-claude-and-chatgpt-mixed
-git checkout claude/racing-game-physics-dashboard-fzyqvv
+termux-wake-lock
 npm run dev:all
 ```
+
+Later, to update and start again: `cd ~/make-an-app-like-claude-and-chatgpt-mixed && git pull && npm run dev:all`.
 
 The launcher handles the parts of Termux that usually break Node dev servers:
 
 - **No `/bin/sh` on Android.** Services are started through Termux's own shell.
 - **Blocked network listing.** Android can block `os.networkInterfaces()` (the error is `uv_interface_addresses returned Unknown system error 13`). The launcher finds the Wi-Fi address another way. It also preloads `scripts/termux-netfix.cjs` into every service, so Vite and Expo don't crash.
-- **Limited memory.** The three installs run one after another, not in parallel.
+- **Limited memory.** Installs run one after another, not in parallel.
+- **Slow installs.** The dashboard's install runs while the relay and game are already up, so the game doesn't wait for it.
 
 The first install and Metro's first bundle can take several minutes on a phone. Run `termux-wake-lock` first so Android doesn't put Termux to sleep while that happens.
 
 Then, on the same phone:
 
-- **Game:** open `http://localhost:5173` in Chrome.
+- **Game:** once the summary appears, open `http://localhost:5173` in Chrome.
 - **Dashboard:** open Expo Go and enter `exp://127.0.0.1:8081`. You can also open `http://localhost:8081` in a second Chrome tab. It connects to the relay on its own; the Connection panel should turn ONLINE within a few seconds.
 
 Other devices on the same Wi-Fi use the LAN URLs from the summary instead.
+
+#### "localhost refused to connect"
+
+Chrome shows this when nothing is serving the page yet.
+
+- **Wait for the summary, on the same phone.** `localhost` means "this phone": `http://localhost:5173` only works on the phone running `npm run dev:all`, and only after the `SQUADHQ //` summary has appeared in Termux. Keep that Termux session open. Closing it stops every service.
+- **`[Process completed (signal 9) - press Enter]` in Termux.** Android 12 and later can kill the child processes that apps like Termux start in the background, and `dev:all` runs several. To stop that:
+  - Android 14 and later: enable Developer options (tap **Build number** seven times in Settings → About phone), then turn on **Disable child process restrictions** in Developer options. The exact menu path varies by phone maker.
+  - Android 12–13, no computer needed (Termux talks to the phone over Wireless debugging; you need Wi-Fi):
+    1. Enable Developer options as above and turn on **Wireless debugging** in it.
+    2. In Termux: `pkg install android-tools`
+    3. Put Settings and Termux in split screen. In Wireless debugging tap **Pair device with pairing code**, then in Termux run `adb pair localhost:<port> <code>` with the port and 6-digit code it shows.
+    4. Run `adb connect localhost:<port>` with the port shown under **IP address & Port** (a different one).
+    5. Run `adb shell "/system/bin/device_config set_sync_disabled_for_tests persistent; /system/bin/device_config put activity_manager max_phantom_processes 2147483647"`. On Android 12L/13 `adb shell "settings put global settings_enable_monitor_phantom_procs false"` also works. Once is enough.
+  - Without changing any setting: keep Termux visible in split screen next to Chrome while you play; Android rarely kills a visible app.
+- **Keep Termux awake.** Run `termux-wake-lock` before `npm run dev:all`, and don't dismiss Termux's notification.
+- **Start the game without the dashboard.** `node scripts/dev-all.mjs --only=relay,game` skips the dashboard and its install, the slowest part on a phone.
+- **Repair an interrupted install.** If Termux was killed or stopped during an install, run `node scripts/dev-all.mjs --fresh`. It deletes `node_modules` and installs every package again.
 
 ## How the pieces talk
 
