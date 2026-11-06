@@ -9,6 +9,7 @@ import { Box3, BufferAttribute, BufferGeometry, Group, Mesh, Sphere, Vector3, ty
 import type { MeshArrays, WorldData } from '../gen/types';
 import { worldEngine } from '../engine';
 import { aabbDistance } from './terrainChunks';
+import { geometryBytes } from './gpuBytes';
 
 export const NEAR_FAR_M = 300;
 export const FAR_FAR_M = 540;
@@ -58,6 +59,7 @@ function build(world: WorldData, material: Material): { group: Group; list: Dist
     const b = d.near?.bounds ?? d.far?.bounds ?? d.bounds;
     list.push({ near, far, bounds: b });
   }
+  worldEngine.gpu.districts = geometryBytes(geometries);
   return { group, list, geometries };
 }
 

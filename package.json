@@ -14,7 +14,8 @@
     "dev:relay": "npm --prefix server start",
     "dev:game": "npm --prefix game run dev -- --host 0.0.0.0",
     "dev:dashboard": "npm --prefix dashboard start",
-    "test": "npm --prefix server test && npm --prefix dashboard test",
+    "test": "npm --prefix server test && npm --prefix dashboard test && npm run test:world",
+    "test:world": "node scripts/test-world.mjs",
     "typecheck": "npm --prefix server run typecheck && npm --prefix game run typecheck && npm --prefix dashboard run typecheck",
     "build": "npm --prefix game run build"
   },

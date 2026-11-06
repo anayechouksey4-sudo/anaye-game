@@ -63,11 +63,11 @@ export interface TrackCatalogEntry {
 }
 
 /**
- * Tessera Isle (the open-world entries, `world: 'tessera'`) ships behind this switch until its own
- * verification lands. Off, the island's entries stay out of the menus, the registry and `?track=`;
- * the six classic maps are untouched either way.
+ * Tessera Isle (the open-world entries, `world: 'tessera'`) is behind this switch. On (the island is
+ * integrated: medals measured, relay matrix and goldens run), its five entries are in the menus, the
+ * registry and `?track=`. Off, they stay out of all three; the six classic maps are untouched either way.
  */
-export const ISLAND_ENABLED = false;
+export const ISLAND_ENABLED = true;
 
 /** Every entry, the island's included. The dashboard mirror (dashboard/src/squad/garage.ts) and its drift test follow this list. */
 export const TRACK_CATALOG_ALL: readonly TrackCatalogEntry[] = [
@@ -156,7 +156,8 @@ export const TRACK_CATALOG_ALL: readonly TrackCatalogEntry[] = [
     hasBigJump: false,
     accent: '#ffd23f',
     world: 'tessera',
-    lengthM: 4610,
+    medalsMs: { gold: 127500, silver: 146500, bronze: 172000 },
+    lengthM: 4636,
     terrain: 'ASPHALT',
   },
   {
@@ -167,7 +168,8 @@ export const TRACK_CATALOG_ALL: readonly TrackCatalogEntry[] = [
     hasBigJump: false,
     accent: '#b8f25c',
     world: 'tessera',
-    lengthM: 1900,
+    medalsMs: { gold: 120000, silver: 138000, bronze: 162000 },
+    lengthM: 2783,
     terrain: 'ASPHALT',
   },
   {
@@ -178,7 +180,8 @@ export const TRACK_CATALOG_ALL: readonly TrackCatalogEntry[] = [
     hasBigJump: false,
     accent: '#5c7cff',
     world: 'tessera',
-    lengthM: 1070,
+    medalsMs: { gold: 56500, silver: 65000, bronze: 76000 },
+    lengthM: 1040,
     terrain: 'ASPHALT',
   },
   {
@@ -189,7 +192,8 @@ export const TRACK_CATALOG_ALL: readonly TrackCatalogEntry[] = [
     hasBigJump: false,
     accent: '#ff6a3d',
     world: 'tessera',
-    lengthM: 1800,
+    medalsMs: { gold: 72000, silver: 83000, bronze: 97500 },
+    lengthM: 1434,
     terrain: 'DIRT',
   },
 ];

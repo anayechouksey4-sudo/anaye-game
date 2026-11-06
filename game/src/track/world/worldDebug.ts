@@ -38,6 +38,8 @@ export interface WorldInfo {
   /** Mount → data in hand / colliders built / programs linked, ms. */
   phases: { data: number; colliders: number; shaders: number };
   bytes: number;
+  /** Upper-bound island GPU memory, MB (buffers + textures with mips). */
+  gpuMB: { terrain: number; districts: number; events: number; textures: number; total: number };
 }
 
 export interface WorldDebugHandle {
@@ -118,6 +120,11 @@ export function installWorldDebug(roads: RoadIndex): () => void {
           shaders: worldEngine.phases.shaders ? Math.round(worldEngine.phases.shaders - worldEngine.mountedAt) : 0,
         },
         bytes: w?.stats.bytes ?? 0,
+        gpuMB: (() => {
+          const g = worldEngine.gpu;
+          const mb = (b: number) => Math.round((b / 1048576) * 100) / 100;
+          return { terrain: mb(g.terrain), districts: mb(g.districts), events: mb(g.events), textures: mb(g.textures), total: mb(g.terrain + g.districts + g.events + g.textures) };
+        })(),
       };
     },
     route: (id) => {

@@ -108,6 +108,9 @@
 .hud-run__stats b { font-size: 14px; color: var(--yellow); font-variant-numeric: tabular-nums; }
 .hud-run__stats b.is-bad { color: var(--magenta); }
 .hud-run__hint { margin-top: 6px; color: var(--green); font-size: 10px; letter-spacing: 0.3em; animation: hud-pulse 1.2s infinite; }
+.hud-run__roam { font-size: 26px; letter-spacing: 0.12em; }
+.hud-run__region { font-size: 13px; letter-spacing: 0.2em; color: var(--yellow); min-height: 1.3em; }
+.hud-run__hint.is-calm { animation: none; opacity: 0.85; }
 
 /* ── Speedometer ────────────────────────────────────── */
 .hud-speedo { text-align: center; padding: 8px 18px 10px; }

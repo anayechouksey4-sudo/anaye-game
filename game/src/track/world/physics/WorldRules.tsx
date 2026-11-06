@@ -15,7 +15,7 @@ import { GRAVITY } from '@shared/protocol';
 import { setCameraFloorResolver } from '../../../camera/cameraFloor';
 import { resolveCarId } from '../../../car/catalog';
 import { carRuntime } from '../../../car/runtime';
-import { setWheelGripResolver } from '../../../car/surfaceGrip';
+import { setChassisInertiaResolver, setWheelGripResolver } from '../../../car/surfaceGrip';
 import { PHYSICS_DT } from '../../../config';
 import { emitGameEvent, onGameEvent } from '../../../game/events';
 import { selectionState, useSelection } from '../../../state/selection';
@@ -30,6 +30,7 @@ import { REGION_IDS, REGION_LABELS, SURF, SURFACE_KINDS, rampDistance, type Worl
 import { ROAM_ID } from '../gen/tessera';
 import { worldEngine, type RespawnRecord } from '../engine';
 import { recordAir, recordTrap } from './records';
+import { stableRollInertia } from './rollStability';
 import { hit, nearestRoad, roadSurfaceAt, type RoadIndex } from './roadIndex';
 import { clearSafePoses, newestSafePose, pushSafePose, takePendingTravel, takeSafePose, setPendingTravel, pendingTravel, type Pose } from './safePose';
 
@@ -220,6 +221,7 @@ export function WorldRules({ data, roads, entryId }: { data: WorldData; roads: R
     const heights = data.heights;
     const offGrip = setWheelGripResolver((i) => wheelGripNow[i] ?? 1);
     const offFloor = setCameraFloorResolver((x, z) => heightAt(heights, x, z) + 1.0);
+    const offInertia = setChassisInertiaResolver(stableRollInertia);
     const fallback = (): { position: [number, number, number]; yaw: number } => {
       const safe = takeSafePose(carRuntime.simTime);
       if (safe) {
@@ -257,6 +259,7 @@ export function WorldRules({ data, roads, entryId }: { data: WorldData; roads: R
       offGrip();
       offFloor();
       offRespawn();
+      offInertia();
       wheelGripNow.fill(1);
     };
   }, [data, roads]);

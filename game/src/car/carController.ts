@@ -25,7 +25,7 @@ import {
   type CarPhysicsParams,
 } from '@shared/protocol';
 import type { CarTuning } from './tuning';
-import { wheelGrip } from './surfaceGrip';
+import { chassisInertia, wheelGrip } from './surfaceGrip';
 import { carRuntime } from './runtime';
 import {
   createDrivenWheelState,
@@ -146,7 +146,7 @@ export class CarController {
   applyParams(p: CarPhysicsParams): void {
     if (p.mass !== this.appliedMass || p.balance !== this.appliedBalance) {
       const com = centerOfMassFor(this.spec, p.balance);
-      const inertia = chassisInertiaFor(this.spec, p.mass);
+      const inertia = chassisInertia(this.spec, p.mass, balanceToSuspensionStiffness(p.balance, this.car), chassisInertiaFor(this.spec, p.mass));
       // The chassis collider has zero density: all mass comes from here, so COM is exactly ours.
       this.body.setAdditionalMassProperties(p.mass, toVec(com), toVec(inertia), IDENTITY_ROTATION, true);
       this.body.recomputeMassPropertiesFromColliders();

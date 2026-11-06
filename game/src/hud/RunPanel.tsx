@@ -3,10 +3,34 @@ import { useShallow } from 'zustand/react/shallow';
 import { getCountdownSnapshot, subscribeCountdown } from '../game/countdown';
 import { runClock } from '../game/runClock';
 import { useGameStore } from '../state/store';
+import { useWorldHud } from '../state/worldRuntime';
 import { formatRaceTime, setText, useRafLoop } from './hudUtils';
 
 /** Desktop run panel (phones show the timer and checkpoints in TopBar). */
 export function RunPanel() {
+  const roam = useGameStore((s) => s.trackLayout?.mode === 'roam');
+  return roam ? <RoamPanel /> : <RacePanel />;
+}
+
+/** Free roam on an open world: no timer, checkpoints or best time; the region under the car instead (as the phone TopBar). */
+function RoamPanel() {
+  const trackName = useGameStore((s) => s.trackLayout?.name ?? '—');
+  const region = useWorldHud((s) => s.regionLabel);
+  return (
+    <div className="hud-panel hud-run is-roam" data-testid="run-panel">
+      <div className="hud-run__track">{trackName}</div>
+      <div className="hud-run__timer hud-run__roam" data-testid="hud-roam">
+        FREE ROAM
+      </div>
+      <div className="hud-run__region" data-testid="hud-region">
+        {region || '\u00a0'}
+      </div>
+      <div className="hud-run__hint is-calm">PARK ON A GLOWING PAD TO START A RACE</div>
+    </div>
+  );
+}
+
+function RacePanel() {
   // Field-level selection: the run object is refreshed at ~10 Hz for the timer mirror.
   const run = useGameStore(
     useShallow((s) => ({

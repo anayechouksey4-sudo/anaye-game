@@ -77,6 +77,13 @@ export function nextMedal(ms: number | null | undefined, medals: TrackMedals | n
  * checkpoint like every car does on chaos (with the map's 30/5/0 it reaches the lip at ~160 km/h
  * and falls every time); even so only 3 of 8 runs made the leap (lip 164.8–165.2 cleared, ≤ 162.5
  * short), so the Pixel Gnat's Isles medals are a marginal, honest target.
+ *
+ * Tessera Isle races (tessera-rim / -crown / -neon / -rally): the island autopilot (pure pursuit on the
+ * race route, a speed plan from curvature with each car's off-road grip, gentle traction control) at
+ * 50/3/0 for every car, 8 runs per car per race with the look-ahead jittered ±5 %, flat out and with
+ * traction control; each row is the faster of the two medians, all 288 runs without a fall. The
+ * catalog's island medals are the hypercar's median (gold), × 1.15 (silver), × 1.35 (bronze), rounded
+ * to 0.5 s. No island race has a big jump, so every car, the buggy included, gets medals there.
  */
 export const MEASURED_COURSE_S: Readonly<Record<string, Readonly<Record<string, number>>>> = {
   chaos: { hypercar: 54.15, rally: 54.67, muscle: 51.54, formula: 53.56, coupe: 55.0, drift: 55.27, electric: 54.52 },
@@ -84,6 +91,11 @@ export const MEASURED_COURSE_S: Readonly<Record<string, Readonly<Record<string, 
   isles: { hypercar: 48.83, rally: 49.2, muscle: 49.08, formula: 49.21, coupe: 48.5, drift: 52.3, electric: 49.59, kart: 51.47 },
   cryo: { hypercar: 56.67, rally: 52.67, muscle: 56.52, formula: 55.0, buggy: 61.16, coupe: 54.67, drift: 58.75, electric: 54.6, kart: 57.4 },
   strip: { hypercar: 24.27, rally: 24.15, muscle: 24.23, formula: 23.23, buggy: 34.07, coupe: 24.02, drift: 24.78, electric: 25.42, kart: 25.27 },
+  // Tessera Isle races (see the note below).
+  'tessera-rim': { hypercar: 127.39, formula: 135.46, muscle: 125.32, rally: 132.71, buggy: 175.53, coupe: 125.5, drift: 122.87, electric: 126.57, kart: 141.3 },
+  'tessera-crown': { hypercar: 120.13, formula: 120.7, muscle: 118.03, rally: 120.1, buggy: 146.96, coupe: 120.85, drift: 119.18, electric: 123.47, kart: 119.97 },
+  'tessera-neon': { hypercar: 56.39, formula: 55.9, muscle: 55.14, rally: 56.14, buggy: 65.57, coupe: 57.37, drift: 56.44, electric: 57.62, kart: 54.74 },
+  'tessera-rally': { hypercar: 72.09, formula: 72.01, muscle: 70.24, rally: 68.12, buggy: 75.82, coupe: 71.88, drift: 71.94, electric: 71.39, kart: 72.32 },
 };
 
 /**

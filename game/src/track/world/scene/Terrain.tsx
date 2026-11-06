@@ -6,6 +6,7 @@
 import { useEffect, useMemo } from 'react';
 import { useFrame } from '@react-three/fiber';
 import { BufferAttribute, BufferGeometry, Group, Mesh, Sphere, Vector3, type Material } from 'three';
+import { geometryBytes } from './gpuBytes';
 import type { WorldData } from '../gen/types';
 import { worldEngine } from '../engine';
 import { aabbDistance, CHUNKS, chunkIndex, chunkPositions, LOD_STEPS } from './terrainChunks';
@@ -52,6 +53,7 @@ function buildChunks(world: WorldData, material: Material): { group: Group; chun
       if (!sunken) group.add(mesh);
       chunks.push({ mesh, lods, bounds: b, sunken });
     }
+  worldEngine.gpu.terrain = geometryBytes(chunks.filter((c) => !c.sunken).flatMap((c) => c.lods));
   return { group, chunks };
 }
 

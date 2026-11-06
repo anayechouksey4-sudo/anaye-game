@@ -263,7 +263,8 @@ function RaceTab({ goTo }: { goTo: (tab: MenuTab) => void }) {
           {(TOUCH_CONTROLS ? DRIVE_HELP_TOUCH : DRIVE_HELP_KEYS).map(([k, v]) => (
             <div key={k}>
               <dt>{k}</dt>
-              <dd>{v}</dd>
+              {/* Free roam has no checkpoints: ⟲ goes back to the last safe spot on a road. */}
+              <dd>{roam && k === '⟲' ? 'Back to the last safe spot on the road' : v}</dd>
             </div>
           ))}
         </dl>
@@ -647,7 +648,7 @@ function MenuPanel() {
           <button type="button" className="gm-btn" onClick={respawn} data-testid="menu-respawn">
             ⟲ RESPAWN
           </button>
-          <button type="button" className="gm-btn" onClick={restart} data-testid="menu-restart">
+          <button type="button" className={roam ? 'gm-btn gm-btn--wrap' : 'gm-btn'} onClick={restart} data-testid="menu-restart">
             {roam ? '⏮ TO SPAWN' : '⏮ RESTART'}
           </button>
           <button type="button" className="gm-btn gm-btn--primary gm-btn--resume" onClick={closeMenu} data-testid="menu-resume">

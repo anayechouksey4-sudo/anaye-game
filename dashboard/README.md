@@ -102,6 +102,25 @@ the game itself; the Neon Hypercar keeps its classic preset. The same setups are
 Midnight Strip, Proving Ground) have no big jump. The car colours, map names and landing speeds come from the
 game's catalogs and are copied in `src/squad/garage.ts`; `test/garage.test.ts` fails if that copy drifts.
 
+Every map the dashboard knows (`MAP_GARAGE` in `src/squad/garage.ts`, in the game's ☰ MAPS order). **On track**
+shows the name and the big-jump note; the five Tessera Isle entries share one open-world island in the game
+(free roam plus four checkpoint races) and report `bigJumpKmh: null`, so the Big Jump card says **NO BIG JUMP**
+there for every car:
+
+| Map id | Name | Big jump (lip sign) | Notes |
+| --- | --- | --- | --- |
+| `chaos` | GamerFleet Chaos | 183 km/h | default map |
+| `ribbon` | Neon Ribbon | — | |
+| `isles` | Cloudbreak Isles | 163 km/h | |
+| `cryo` | Cryo Drift | — | `ICE · 55 % GRIP` |
+| `strip` | Midnight Strip | — | |
+| `test` | Proving Ground | — | |
+| `tessera` | Tessera Isle | — | open world, free roam (no timer) |
+| `tessera-rim` | Rimway Loop | — | island race, 4.6 km asphalt |
+| `tessera-crown` | Crown Climb | — | island race, 2.8 km asphalt, +175 m |
+| `tessera-neon` | Neon Sprint | — | island race, 1.0 km city asphalt |
+| `tessera-rally` | Cinnabar Rally | — | island race, 1.4 km dirt |
+
 **Verdict rule** (`assessBigJump` in `shared/protocol.ts`, the same function the game uses). A car that is fast
 enough (estimated top speed ≥ what it needs) is **NOSE LIFT** when its lift-off speed is below its top speed plus
 a per-car reserve (12 km/h on the Neon Hypercar): the long run-up brings it to within a few km/h of top speed,

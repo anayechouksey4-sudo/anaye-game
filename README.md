@@ -15,7 +15,7 @@ GitHub Pages serves the game from the [`docs/`](docs/) folder. One-time setup in
 
 | Folder | What it is | Stack |
 | --- | --- | --- |
-| [`game/`](game/README.md) | 3D racer: voxel hypercar, the **GamerFleet Chaos Track** over a bottomless void, race-car aero and drivetrain physics | Vite, React Three Fiber, @react-three/rapier |
+| [`game/`](game/README.md) | 3D racer: nine voxel cars, six track maps (the **GamerFleet Chaos Track** over a bottomless void first) and **Tessera Isle**, an open-world island with free roam and four races; race-car aero and drivetrain physics | Vite, React Three Fiber, @react-three/rapier |
 | [`dashboard/`](dashboard/README.md) | Cyberpunk control panel with **Front Wing Aero**, **Engine Tier** and **Chassis Balance** sliders, big-jump readiness and live telemetry | Expo, React Native |
 | [`server/`](server/README.md) | Local WebSocket relay on port 8787 that connects the two | Node, ws |
 | [`shared/protocol.ts`](shared/protocol.ts) | Wire protocol and the slider → physics mapping used by all three | TypeScript, no dependencies |
@@ -62,7 +62,7 @@ Press Ctrl+C to stop all three services. Closing the terminal (or the Termux ses
 | `node scripts/dev-all.mjs --fresh` | Delete `node_modules` and reinstall every package from scratch (repairs an interrupted install) |
 | `node scripts/dev-all.mjs --only=relay,game` | Run only some services |
 | `npm run dev:relay` / `dev:game` / `dev:dashboard` | Run one service on its own |
-| `npm test`, `npm run typecheck`, `npm run build` | Relay and dashboard tests, typecheck all three, production build of the game |
+| `npm test`, `npm run typecheck`, `npm run build` | Relay, dashboard and island-generator tests (the last is skipped where the dashboard is not installed), typecheck all three, production build of the game |
 
 ### On an Android phone (Termux)
 

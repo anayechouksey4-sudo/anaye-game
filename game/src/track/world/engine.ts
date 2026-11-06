@@ -57,6 +57,8 @@ export interface WorldEngine {
   physics: { world: World; rapier: RapierContext['rapier'] } | null;
   /** Build phase timestamps (performance.now): data in hand, colliders done, programs linked. */
   phases: { data: number; colliders: number; shaders: number };
+  /** Upper-bound GPU bytes per part (buffers + textures with mips), filled when each part builds. */
+  gpu: { terrain: number; districts: number; events: number; textures: number };
   /** Mount time (performance.now) and when the layout was first registered after it. */
   mountedAt: number;
   readyAt: number;
@@ -81,6 +83,7 @@ export const worldEngine: WorldEngine = {
   respawnLog: [],
   physics: null,
   phases: { data: 0, colliders: 0, shaders: 0 },
+  gpu: { terrain: 0, districts: 0, events: 0, textures: 0 },
   mountedAt: 0,
   readyAt: 0,
 };
@@ -99,4 +102,5 @@ export function resetWorldEngine(): void {
   worldEngine.respawnLog = [];
   worldEngine.physics = null;
   worldEngine.phases = { data: 0, colliders: 0, shaders: 0 };
+  worldEngine.gpu = { terrain: 0, districts: 0, events: 0, textures: 0 };
 }

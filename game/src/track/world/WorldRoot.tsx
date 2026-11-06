@@ -29,6 +29,7 @@ import { createEventAtlas } from './scene/eventAtlas';
 import { EventLayer } from './scene/EventLayer';
 import { createGlowMaterial } from './scene/glowMaterial';
 import { signSpecs } from './scene/signs';
+import { textureBytes } from './scene/gpuBytes';
 import { Terrain } from './scene/Terrain';
 import { createTerrainMaterial, createTerrainTextures } from './scene/terrainMaterial';
 import { ShaderWarmup, type WarmupItem } from './scene/ShaderWarmup';
@@ -145,6 +146,7 @@ function WorldScene({ data, trackId, ready, onProgress, onReady }: { data: World
       // Glassmere is ≤ 0.6 m deep: stretch its depth so it reads as a clear shelf, not foam.
       lake: createWaterMaterial(textures.tile, 6),
     };
+    worldEngine.gpu.textures = textureBytes(textures.tile) + textureBytes(textures.field) + textureBytes(atlas.texture);
     out.terrain.name = 'tessera-terrain';
     out.voxel.name = 'tessera-voxel';
     out.water.name = 'tessera-water';

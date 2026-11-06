@@ -18,6 +18,8 @@ export function HelpPanel() {
   const open = useGameStore((s) => s.ui.helpOpen);
   const physicsOpen = useGameStore((s) => s.ui.physicsPanelOpen);
   const camera = useGameStore((s) => s.ui.cameraMode);
+  // Free roam (open worlds): R goes to the last safe spot on a road, T back to the world's spawn.
+  const roam = useGameStore((s) => s.trackLayout?.mode === 'roam');
   const { toggleHelp, togglePhysicsPanel, cycleCamera } = useGameStore.getState();
   return (
     <div className="hud-corner-br">
@@ -39,7 +41,7 @@ export function HelpPanel() {
             {KEYS.map(([key, action]) => (
               <div key={key}>
                 <dt>{key}</dt>
-                <dd>{action}</dd>
+                <dd>{roam && key === 'R' ? 'Respawn on the road' : roam && key === 'T / ⌫' ? 'Back to the spawn' : action}</dd>
               </div>
             ))}
           </dl>

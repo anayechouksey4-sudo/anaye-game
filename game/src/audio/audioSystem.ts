@@ -156,6 +156,8 @@ export class AudioSystem {
   private lastPopAt = 0;
   private lastBlowOffAt = 0;
   private lastStepCount = -1;
+  /** Rapier handle of the car body the gearbox was last reset for (a map or car switch mounts a new one). */
+  private lastBodyHandle: number | null = null;
   private readonly cleanups: (() => void)[] = [];
   // Open-world surface voice (identity off the island), its target and the lazily built crunch modulator.
   private readonly surfaceMix: SurfaceVoice = { ...SURFACE_IDENTITY };
@@ -438,6 +440,12 @@ export class AudioSystem {
     // The engine follows the simulation's clock (physics steps since the last frame), so the
     // gearbox keeps pace with the car even when the sim runs ahead of or behind real time (slow
     // frames, scripted advance). Paused or before the car exists: real time, engine idling.
+    // A new car body (map or car switch, which emit no respawn): back to 1st at idle, as a respawn
+    // does. Otherwise a car that stopped in 5th keeps showing 5 at 0 km/h until it moves again.
+    if (rt.bodyHandle !== this.lastBodyHandle) {
+      this.lastBodyHandle = rt.bodyHandle;
+      if (rt.bodyHandle !== null && this.lastStepCount >= 0) this.gearbox.reset();
+    }
     const steps = this.lastStepCount < 0 ? 0 : rt.stepCount - this.lastStepCount;
     this.lastStepCount = rt.stepCount;
     const dt = paused || !rt.ready || steps < 0 ? realDt : Math.min(0.25, steps * PHYSICS_DT);

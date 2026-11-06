@@ -284,7 +284,8 @@ on the Ember Swallowtail, `SMOKE 01`, `ION 2060`, `GNAT 1`) or the text the play
 All maps are original and procedural (`src/track/maps/<map>.ts` recipes for the generator in
 `src/track/chaos/plan.ts`, except the Proving Ground). They switch live from the ☰ menu (the old map
 unmounts completely — no leaked bodies, colliders, joints, geometries or textures across 3 rounds of
-switching through all six) and each brings its own sky, fog, lights and palette.
+switching through all six) and each brings its own sky, fog, lights and palette. The five Tessera Isle
+entries share one generated island ([Tessera Isle](#tessera-isle-open-world)); MAPS shows them as one card.
 
 | Map (id) | What it is | Length / CPs | Big jump | Medals (hypercar) gold / silver / bronze |
 | --- | --- | --- | --- | --- |
@@ -294,6 +295,11 @@ switching through all six) and each brings its own sky, fog, lights and palette.
 | Cryo Drift (`cryo`) | Polar night on an ice shelf at **55 % grip** (`surfaceGrip`): pendulums on 13.5 m arms sweeping the full 20 m deck, two collapse fields | 1124 m / 4 | — | 58 / 67 / 80 s |
 | Midnight Strip (`strip`) | 1 km night drag strip (CPs at 400 / 800 m), then 400 m to brake | 1000 m / 2 | — | 24.5 / 27 / 31 s |
 | Proving Ground (`test`) | 1.85 km flat calibration straight with a speed-trap kicker (no gap: no jump verdict) | 1800 m / 2 | — | — |
+| Tessera Isle (`tessera`) | Open-world island, **free roam**: a neon city, red canyons, a voxel village and a 185 m mountain on a 2 km three-lobed island ([below](#tessera-isle-open-world)) | — | — | — (no timer) |
+| Rimway Loop (`tessera-rim`) | Island race: one lap of the coastal ring highway (city boulevard, salt flats, cove, village sweepers) | 4636 m / 10 | — | 2:07.5 / 2:26.5 / 2:52.0 |
+| Crown Climb (`tessera-crown`) | Island race: city gate → Crown Saddle → summit hairpins → observatory, +175 m | 2783 m / 5 | — | 2:00.0 / 2:18.0 / 2:42.0 |
+| Neon Sprint (`tessera-neon`) | Island race: Volt Docks to Spire Plaza through the city grid, six square corners | 1040 m / 6 | — | 56.5 / 65 / 76 s |
+| Cinnabar Rally (`tessera-rally`) | Island race on **dirt**: canyon bends, under the rock arch, three hops along the salt pan | 1434 m / 5 | — | 72 / 83 / 97.5 s |
 
 \* The lip speed that lands the Isles leap is below the sign: from 160.5 km/h for the hypercar and the
 Glitch Rally, 156.5 for the Bruiser V8 and 164.5 for the Razorwing (measured, `landKmh` /
@@ -400,6 +406,173 @@ MAPS with the Dune Goblin 305 → 3 ms, GARAGE on chaos 197 → 32 ms, GARAGE on
 with the hypercar stays ~21 ms (its early-exit scan). Checked at 412×839 and 780×360
 (and the start-light note for overlaps at 360×640 … 863×360): no card content overflows, nothing
 covers the thumb controls.
+
+## Tessera Isle (open world)
+
+An original open-world island you can drive anywhere (`src/track/world/`). It borrows only genres — a
+neon city, a frontier canyon country, a blocky village — and invents everything else: the shape is a
+three-lobed trefoil around a central mountain from a formula (`r = 700 − 210·cos 3θ` plus seeded noise),
+and every name on it is made up. One fixed seed (7177) generates the same island on every device: the
+Node test and the browser check the same pinned hash (`src/track/world/golden.ts`, `57ad65768fba31e1`).
+
+**The island.** 2048 m square, a 513² heightfield at 4 m, sea level at y 0.
+
+| Region | Genre | What is there |
+| --- | --- | --- |
+| Prism City (west lobe) | neon city | street grid, towers with neon window strips, Prism Spire, Volt Docks quay and pier (the spawn) |
+| Kite Bay | coast | Kiteflat airstrip with three table-top ramps (Kite Hop, Kite Leap, Kite Launcher), Sunscale Beach |
+| Cinnabar Reach (north-east lobe) | frontier | red plateau and buttes, Tin Spur, Cinnabar Gulch and its rock arch, Saltglass Flats (speed trap) |
+| Shell Cove | coast | chalk cliffs and a beach |
+| Patchwork Downs (south-east lobe) | voxel village | Hearthwick, Cobblekeep on Cobble Hill, Glassmere (a shallow lake you can drive across, ≤ 0.6 m) |
+| Lantern Bay | coast | Lantern Point lighthouse |
+| The Crown (centre) | mountain | Crownpeak (185 m), Crown Saddle, the summit hairpins, Crownpeak Observatory |
+
+Roads: the Rimway (a 4.6 km clover-shaped coastal ring), the city grid, the Crownway and summit road, the
+Cinnabar dirt loop, the Patchwork lanes, the castle ramp and the Kiteflat access road. Every road is level
+across, grades stay ≤ 11 % (≤ 6 % on the Rimway), hairpins sit on flat pads, and the generator's validator
+throws if a road, checkpoint, lake depth, slope (≤ 25° off-road outside cliffs), clearance or ramp rule is
+broken (`gen/validate.ts`).
+
+### Entries, races and medals
+
+Five catalog entries share the island (`world: 'tessera'`); switching between them keeps the island loaded
+and only moves the car (`<Track/>` keys by the world). MAPS shows them as one card: a map thumbnail, ▶ FREE
+ROAM and one row per race with its surface, length, difficulty, best time and this car's medal targets.
+
+| Entry | Start | Route | Checkpoints |
+| --- | --- | --- | --- |
+| Tessera Isle (`tessera`) | Volt Docks plaza, facing Prism Spire | free roam: no lights, no timer | — |
+| Rimway Loop (`tessera-rim`) | Bayfront Boulevard | 4636 m asphalt, one lap clockwise | 9 + finish |
+| Crown Climb (`tessera-crown`) | city east gate | 2783 m asphalt, y 6 → 181 | 4 + finish |
+| Neon Sprint (`tessera-neon`) | Volt Docks plaza | 1040 m city asphalt, 6 square corners | 5 + finish |
+| Cinnabar Rally (`tessera-rally`) | Tin Spur | 1434 m dirt loop, 3 hops | 4 + finish (on the start line) |
+
+Races use the normal start lights, timer, results and best times, in **strict order** (a gate only counts
+after the one before it). Guidance: a checkered arch over every gate, a fog-free beacon on the next one,
+glowing arrows on the road at junction turn-offs, chevron boards on bends tighter than 120 m, the minimap's
+route and next-gate dots, **WRONG WAY** and **MISSED CHECKPOINT ⟲** banners. No island race has a big jump,
+so every car, the Dune Goblin included, gets medals on all four.
+
+**Medals.** Measured like the other maps (`MEASURED_COURSE_S` in `src/state/records.ts`): the island
+autopilot (pure pursuit on the race route, a speed plan from curvature with each car's off-road grip, gentle
+traction control) at 50/3/0 for every car, 8 runs per car per race with the look-ahead jittered ±5 %, flat
+out and with traction control; each car's time is the faster of the two medians, 288 runs, 0 falls. The
+hypercar's median is gold, × 1.15 silver, × 1.35 bronze (rounded to 0.5 s); other cars scale by their time as
+usual. Gold is the autopilot's median at BALANCED: a stronger setup (e.g. 30/5/0: Rimway 1:47.6 for the
+hypercar) beats it.
+
+| Car | Rimway Loop | Crown Climb | Neon Sprint | Cinnabar Rally |
+| --- | --- | --- | --- | --- |
+| Neon Hypercar | 2:07.5 / 2:26.5 / 2:52.0 | 2:00.0 / 2:18.0 / 2:42.0 | 56.5 / 65.0 / 76.0 | 1:12.0 / 1:23.0 / 1:37.5 |
+| Glitch Rally | 2:13.0 / 2:32.5 / 2:59.0 | 2:00.0 / 2:18.0 / 2:42.0 | 56.5 / 65.0 / 76.0 | **1:08.0** / 1:18.5 / 1:32.0 |
+| Bruiser V8 | 2:07.5 / 2:26.5 / 2:52.0 | 2:00.0 / 2:18.0 / 2:42.0 | 55.0 / 63.5 / 74.5 | 1:10.0 / 1:21.0 / 1:35.0 |
+| Razorwing | 2:15.5 / 2:36.0 / 3:03.0 | 2:00.0 / 2:18.0 / 2:42.0 | 56.5 / 65.0 / 76.0 | 1:12.0 / 1:23.0 / 1:37.5 |
+| Dune Goblin | 2:55.5 / 3:22.0 / 3:57.0 | 2:27.0 / 2:49.0 / 3:18.0 | 65.5 / 75.5 / 88.5 | 1:15.5 / 1:27.5 / 1:42.5 |
+| Ember Swallowtail | 2:07.5 / 2:26.5 / 2:52.0 | 2:00.0 / 2:18.0 / 2:42.0 | 56.5 / 65.0 / 76.0 | 1:12.0 / 1:23.0 / 1:37.5 |
+| Smoke Lantern | 2:03.0 / 2:21.5 / 2:46.0 | 2:00.0 / 2:18.0 / 2:42.0 | 56.5 / 65.0 / 76.0 | 1:12.0 / 1:23.0 / 1:37.5 |
+| Ion Dragonfly | 2:07.5 / 2:26.5 / 2:52.0 | 2:03.5 / 2:22.0 / 2:46.5 | 57.5 / 66.5 / 77.5 | 1:12.0 / 1:23.0 / 1:37.5 |
+| Pixel Gnat | 2:21.5 / 2:42.5 / 3:11.0 | 2:00.0 / 2:18.0 / 2:42.0 | 55.0 / 63.0 / 74.0 | 1:12.0 / 1:23.0 / 1:37.5 |
+
+**Robustness** (autopilot, production build): every car × the four races + a free-roam Rimway lap at 50/3/0
+and 30/5/0: 0 falls, 0 water, bounds or stuck respawns, no airborne moment over 0.25 s on the asphalt routes
+(on the rally only at the three hops, 0.3–0.67 s), and the chassis never touches the ground on asphalt. The
+one exception is the Pixel Gnat on the Cinnabar Rally: its 10 cm of suspension travel bottoms out landing the
+hops (it still finishes, no fall). Off-road crossings (meadow, Saltglass Flats, Sunscale Beach, the Glassmere
+ford) work for every car at both settings.
+
+### Free roam, travel and respawns
+
+- **Event pads.** Each race start has a glowing ring and a beacon. Within 14 m of one, under 40 km/h, a pill
+  appears: **▶ START NEON SPRINT · 1.0 KM · BEST …**; tap it (or Enter) for the lights. The Neon Sprint pad
+  is at the spawn, so it is the first thing you see.
+- **RACE tab.** In free roam: the region you are in, **TRAVEL** (Volt Docks, the three other race starts,
+  Kiteflat, Glassmere shore, Hearthwick, Crownpeak, Saltglass Flats) and **EVENTS**. In a race: **EXIT TO FREE
+  ROAM** (the car stays where it is) and CHANGE EVENT. The bottom row's RESTART reads **TO SPAWN** in free
+  roam (back to Volt Docks).
+- **Results** on an island race: ⟲ RETRY · FREE ROAM (stay where you finished) · NEXT EVENT ▸ (NEXT MAP after
+  the last race) · GARAGE.
+- **Respawns** in free roam go to the last safe spot on a road (a road centreline sample 1.5 s or more back,
+  upright): ⟲, falling off the world, deep water (**SPLASH · BACK ON THE ROAD**; the Pier Launch ramp ends in
+  the bay on purpose), leaving the island (**OUT OF BOUNDS**), a flip, or being beached with all wheels in
+  the air (**UNSTUCK**). After 4 s of throttle without moving, **STUCK? TAP ⟲**. In races ⟲ goes to the last
+  checkpoint as on every map. A car swap in free roam keeps your place.
+- **Records.** Landing after more than 0.6 s in the air shows **AIR 1.9 S · 34 M**; off a ramp it is kept as
+  that car's best for that ramp and shown on the ramp's sign (**BEST AIR 2.2 S · 64 M**). Driving through the
+  Saltglass gantry shows the speed and keeps each car's best (`localStorage` `tessera.air.v1`,
+  `tessera.trap.v1`). Signs never claim a speed.
+- The first time you enter each region a card names it (e.g. CINNABAR REACH / FRONTIER). Leaving the app
+  (Termux, a call, the notification shade) pauses free roam like a race.
+
+### Minimap
+
+A heading-up disc with the car at 60 % of its height, an N tick, the race route in the event's colour, the
+next gate (pulsing) and the one after it, and an arrow with the distance on the rim when the next gate is off
+the disc. The island picture is painted once; driving only moves it with a CSS transform (about 0.07 ms per
+frame, 0 React renders). Portrait: under ⟲ ☰ on the right (96–120 px). Landscape: top-left (96–128 px, the
+status chips move under it). Desktop: 220 px under the SQUAD LINK panel. Tap it for ☰ MAPS. It hides while
+the island loads, behind results, with the portrait physics panel open, below 240 px of landscape height, and
+with SETTINGS → MINIMAP off. Checked on the real island at 412×839, 360×780, 360×640, 863×360, 780×360,
+740×280 and 800×264: it covers none of the top bar, ⟲, ☰, steer pad, pedals, chips, start lights, banners or
+the event prompt.
+
+### Surfaces and grip
+
+Each wheel reads the surface under it (road first, then the ground map) after every physics step; the tyre
+grip, the drivetrain's grip limit and the brakes all scale by `g_eff = max(0.4, 1 − (1 − g)·k)`, and
+off-road rolling drag is `C·k·m·g` (`gen/surfaces.ts`, applied through the `car/surfaceGrip.ts` seam, which
+is exactly 1 on every other map).
+
+| Surface | asphalt | cobble | salt | rock | dirt | grass | sand | snow | water (≤ 1.1 m) |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| Grip g | 1.00 | 0.97 | 0.90 | 0.90 | 0.85 | 0.72 | 0.62 | 0.55 | 0.60 |
+| Drag C | 0 | 0.005 | 0 | 0.01 | 0.02 | 0.05 | 0.09 | 0.04 | 0.25 × depth |
+
+Off-road factor k: hypercar 1.1, Razorwing 1.15, Bruiser V8 0.9, Glitch Rally 0.25, Dune Goblin 0.3, Ember
+Swallowtail 1.0, Smoke Lantern 1.0, Ion Dragonfly 0.85, Pixel Gnat 1.2. Calibrated on the Cinnabar Rally
+(targets: rally ≤ 0.95 × hypercar, buggy ≤ 1.10 × hypercar): rally 0.945 / 0.911 and buggy 1.052 / 0.996 at
+50/3/0 / 30/5/0. Audio follows the surface too (dirt crunch, grass, sand hiss, salt, a splash into water).
+
+**Roll stability on the island.** The raycast suspension damps explicitly, so a car whose damping is large
+for its roll inertia over-corrects every 1/60 s step. Only the Razorwing is past the limit
+(`dt·m·(c_f·t_f² + c_r·t_r²)/2 / I_roll` = 2.3–2.4, where 2 is unstable): on the island's crests and terrain
+creases it fell into a 30 Hz side-to-side chatter that halved its traction and stalled it on the Crown
+Climb. While the island is mounted it installs a chassis-inertia resolver (`physics/rollStability.ts`) that
+raises only the roll inertia, and only as far as that number = 1.6; today that touches the Razorwing alone.
+Off the island no resolver is installed and every car is exactly as before.
+
+### Performance (headless Chromium on a software GPU; Pixel 7 emulation at DPR 1.5)
+
+| Item | Island | Budget / reference |
+| --- | --- | --- |
+| Draw calls / triangles, spawn (portrait / landscape) | 28 / 80,608 · 32 / 95,456 | ≤ 40 / 130 k |
+| Worst of 12 probe spots (portrait / landscape) | 32 / 96,612 (Spire Plaza) · 37 / 105,426 (city centre) | ≤ 48 / 160 k |
+| Shader programs | 15 (chaos 12) | ≤ chaos + 3 |
+| Physics step, 600 steps, median of 3 | 0.086 ms (chaos 0.219 ms), 72 world colliders | ≤ chaos + 0.15 ms, ≤ 130 colliders |
+| Main-thread script per frame, landscape | 6.15 ms (chaos 5.12); at 4× CPU throttle 11.97 (chaos 15.99) | ≤ chaos + 1.5 ms |
+| JS heap | island +1.2 MB over chaos, +0.2 MB after leaving | ≤ +30 MB / ≤ +10 MB |
+| World data (typed arrays, outside the JS heap) | 9.57 MB | ≤ 12 MB |
+| GPU memory estimate (upper bound) | 13.8 MB | ≤ 25 MB |
+| Generation in the worker | 963–1026 ms | 900 ms (not met here) |
+| Direct load → island drivable | 2.1–2.3 s | ≤ 2.5 s |
+| Longest main-thread task, direct load / switch from chaos | 177–193 ms / 102–125 ms | 150 ms (direct load not met) |
+| Switch chaos → island drivable | 5.5–6.5 s | 2.5 s (not met: the software GPU stalls frames while it compiles and uploads) |
+| Leak test: 3 rounds through all 11 entries with car swaps | bodies, colliders, joints and programs equal on every revisit; rounds 2 and 3 identical in every counter | — |
+
+The world code is a lazy chunk (WorldRoot 55 kB, 21.9 kB gzip) plus its own worker file (96 kB); the boot
+bundle only carries the small shell. On a phone, generation takes longer (it runs in the worker, so the menus
+stay responsive while BUILDING TESSERA ISLE fills its bar). Cold generation in Node: about 0.9 s here.
+
+### Tests and debug handle
+
+- `npm run test:world` (also part of `npm test`): determinism against the pinned hash, the validator, the
+  budgets (boxes ≤ 6000, trees ≤ 3000, collider triangles ≤ 70 k, data ≤ 12 MB), ids, and Rapier heightfield
+  raycasts against `heightAt` (≤ 1e-4 m). Cold generation time is logged and must stay under 2.8 s;
+  `WORLD_PERF_STRICT=1 npm run test:world` asserts the 700 ms desktop budget instead (not met on this box).
+- `window.__WORLD__`: `info()` (seed, hash, genMs, genWhere, state, chunks, colliders, stepMs, gpuMB…),
+  `route(id)` (points, speeds, length, gates), `heightAt(x, z)`, `surfaceAt`, `regionAt`, `events()`,
+  `spots()`, `safePoses()`, `probes()`, `validate()`, `chassisContacts()`, `live()`, `hud()`, `respawns()`,
+  `actions()` (`travel(id)`, `freeRoamHere()`).
+- `?track=tessera` (or any island id) opens the island directly; `?worldgen=main` generates without the worker.
 
 ## Sound and haptics
 

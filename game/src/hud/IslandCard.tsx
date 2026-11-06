@@ -27,20 +27,55 @@ function thumbFor(world: string): WorldThumb {
   return t;
 }
 
-/** Minimap.tsx: the base picture was painted (cache a small copy for the MAPS card). */
-export function rememberWorldPicture(world: string, canvas: HTMLCanvasElement): void {
-  try {
-    const small = document.createElement('canvas');
-    small.width = THUMB_PX;
-    small.height = THUMB_PX;
-    const ctx = small.getContext('2d');
-    if (!ctx) return;
-    ctx.imageSmoothingEnabled = true;
-    ctx.drawImage(canvas, 0, 0, THUMB_PX, THUMB_PX);
-    thumbFor(world).url = small.toDataURL('image/png');
-  } catch {
-    // Canvas unavailable: the card keeps its placeholder.
-  }
+/** Pictures already cached (the minimap image object is stable per world data). */
+const thumbed = new WeakSet<MinimapImage>();
+
+/**
+ * Minimap.tsx: the base picture was painted; cache a small copy for the MAPS card. Built on the CPU
+ * from the minimap pixels, off the critical path: reading back a GPU canvas (toDataURL, or toBlob on
+ * an accelerated canvas) makes the main thread wait for the GPU, which is busy with the island's
+ * uploads right then (1.3–3.4 s on a software GPU). Here the downsample runs in an idle callback, the
+ * small canvas is CPU-backed (willReadFrequently) and toBlob encodes it asynchronously.
+ */
+export function rememberWorldPicture(world: string, image: MinimapImage): void {
+  if (thumbed.has(image)) return;
+  thumbed.add(image);
+  const run = () => {
+    try {
+      const small = document.createElement('canvas');
+      small.width = THUMB_PX;
+      small.height = THUMB_PX;
+      const ctx = small.getContext('2d', { willReadFrequently: true });
+      if (!ctx) return;
+      const out = ctx.createImageData(THUMB_PX, THUMB_PX);
+      const src = image.data;
+      const sx = image.width / THUMB_PX;
+      const sy = image.height / THUMB_PX;
+      for (let y = 0; y < THUMB_PX; y++) {
+        const v = Math.min(image.height - 1, Math.floor((y + 0.5) * sy));
+        for (let x = 0; x < THUMB_PX; x++) {
+          const u = Math.min(image.width - 1, Math.floor((x + 0.5) * sx));
+          const i = (v * image.width + u) * 4;
+          const o = (y * THUMB_PX + x) * 4;
+          out.data[o] = src[i]!;
+          out.data[o + 1] = src[i + 1]!;
+          out.data[o + 2] = src[i + 2]!;
+          out.data[o + 3] = src[i + 3]!;
+        }
+      }
+      ctx.putImageData(out, 0, 0);
+      small.toBlob((blob) => {
+        if (!blob) return;
+        const t = thumbFor(world);
+        if (t.url) URL.revokeObjectURL(t.url);
+        t.url = URL.createObjectURL(blob);
+      }, 'image/png');
+    } catch {
+      // Canvas unavailable: the card keeps its placeholder.
+    }
+  };
+  if (typeof window.requestIdleCallback === 'function') window.requestIdleCallback(run, { timeout: 4000 });
+  else window.setTimeout(run, 1000);
 }
 
 /** Minimap.tsx: markers changed; free-roam event markers become the card's flags. */

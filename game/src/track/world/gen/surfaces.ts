@@ -25,13 +25,22 @@ export const SURFACE_TABLE: Readonly<Record<SurfaceName, SurfaceSpec>> = {
 /** Shallow-water drag: 0.25 × depth (m) × m·g. */
 export const WATER_DRAG_PER_M = 0.25;
 
-/** Off-road factor k per car class. */
+/**
+ * Off-road factor k per car class (1 = road tyres; lower keeps more grip off the tarmac). The four
+ * newer classes: the coupe and the drift coupe are road cars (1.0), the electric saloon's all-wheel
+ * drive and long-travel suspension help a little (0.85), and the kart's slicks on 5-inch wheels lose
+ * the most (1.2). Unknown classes fall back to 1.
+ */
 export const OFFROAD_K: Readonly<Record<string, number>> = {
-  hypercar: 1.0,
+  hypercar: 1.1,
   formula: 1.15,
   muscle: 0.9,
-  rally: 0.55,
+  rally: 0.25,
   buggy: 0.3,
+  coupe: 1.0,
+  drift: 1.0,
+  electric: 0.85,
+  kart: 1.2,
 };
 
 export function effectiveGrip(surface: SurfaceName, k: number): number {

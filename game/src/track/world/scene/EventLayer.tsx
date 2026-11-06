@@ -21,6 +21,7 @@ import { hit, nearestRoad, type RoadIndex } from '../physics/roadIndex';
 import { toGeometry } from './Districts';
 import type { EventAtlas } from './eventAtlas';
 import { GlowBuilder, hexRgb } from './glowMaterial';
+import { geometryBytes } from './gpuBytes';
 import { isRecordSign, recordRampId, signBoxes, signLines, signQuads } from './signs';
 
 const ARCH_PILLAR = 0.8;
@@ -270,6 +271,7 @@ function build(data: WorldData, event: WorldEvent | null, roads: RoadIndex, atla
     beacon.visible = false;
     group.add(beacon);
   }
+  worldEngine.gpu.events = geometryBytes(geometries);
   return { group, geometries, beacon, stats };
 }
 

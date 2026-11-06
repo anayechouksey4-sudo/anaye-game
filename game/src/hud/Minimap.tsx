@@ -142,7 +142,7 @@ export function Minimap() {
     if (!canvas || !image) return;
     paintBase(canvas, image);
     // The MAPS island card keeps a small copy (shown there after leaving the world too).
-    if (worldId) rememberWorldPicture(worldId, canvas);
+    if (worldId) rememberWorldPicture(worldId, image);
   }, [image, worldId]);
 
   useLayoutEffect(() => {
