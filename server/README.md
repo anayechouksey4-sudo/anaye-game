@@ -136,7 +136,9 @@ address (a https page can only open TLS sockets). Two recipes are in the reposit
 - **Render (free plan):** [`render.yaml`](../render.yaml) at the repository root is a Blueprint: Render dashboard →
   New → Blueprint → this repository → one web service `gamerfleet-relay` built from
   [`server/Dockerfile`](Dockerfile) (health check `/health`, `PORT` set by Render). The service answers at
-  `wss://gamerfleet-relay.onrender.com` (free instances sleep after 15 min idle; the first connection wakes them).
+  `wss://gamerfleet-relay.onrender.com` (free instances sleep after 15 min idle; the first connection wakes them in
+  about 30 s). The blueprint picks the Singapore region, the closest to central India; change `region` in `render.yaml` if
+  your friends are elsewhere.
 - **Any Docker host:** `docker build -f server/Dockerfile -t gamerfleet-relay .` from the repository root (the
   context must include `shared/`), then `docker run -p 8787:8787 gamerfleet-relay` behind your TLS terminator
   (Caddy, nginx, a platform's edge). The relay itself speaks plain `ws://`; the terminator forwards the upgrade.

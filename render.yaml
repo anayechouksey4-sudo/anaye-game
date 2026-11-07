@@ -6,7 +6,8 @@ services:
     name: gamerfleet-relay
     runtime: docker
     plan: free
-    region: frankfurt
+    # Closest Render region to central India (about 60-80 ms from Nagpur); other choices: frankfurt, oregon, ohio, virginia.
+    region: singapore
     dockerfilePath: ./server/Dockerfile
     dockerContext: .
     healthCheckPath: /health
