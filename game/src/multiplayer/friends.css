@@ -90,3 +90,6 @@
   .fr__player { min-height: 48px; }
   .fr__btn--host { min-height: 52px; }
 }
+
+/* Small note under the CONNECT row (the relay address is remembered on the device). */
+.fr__hint { margin: 6px 0 0; font-size: 10px; line-height: 1.4; letter-spacing: 0.06em; color: var(--dim); }

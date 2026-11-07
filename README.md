@@ -41,6 +41,8 @@ tap READY, and the host taps START. Results (position, time, gap) land in the FR
 `render.yaml` + `server/Dockerfile`, free tier), then open the public game link with
 `?ws=wss://<your-relay>`; the room link the host copies carries `ws=` and `room=` for the friends.
 
+On a phone the easy way is the FRIENDS tab itself: ☰ MENU → FRIENDS → type the relay address (for example `wss://gamerfleet-relay.onrender.com`) → CONNECT. The address is remembered on that device, so the installed app reconnects to it every time it starts; FORGET RELAY in the same tab goes back to offline play.
+
 ## Run everything with one command
 
 Needs Node 22 or newer.

@@ -57,6 +57,7 @@ check, written on change, wrapped in try/catch so a blocked store only costs the
 | `gamerfleet.ghost.v1.<track>.<car>` + `gamerfleet.ghost.v1.index` | shadow-ghost tapes (≤ 64 KB each, LRU at 1.5 MB) | `rivals/ghost.ts` |
 | `gamerfleet.skid.v1` | SKID MARKS switch | `car/skid/skidStore.ts` |
 | `gamerfleet.career.v1` | career: records per map × car, totals, trophies with unlock times | `career/store.ts` |
+| `gamerfleet.relay.v1` | relay address typed in FRIENDS → CONNECT; the hosted copy's start-up script uses it when the address has no `?ws=` | `multiplayer/FriendsTab.tsx`, `scripts/build-pages.mjs` |
 | `tessera.air.v1`, `tessera.trap.v1` | the island's Kite Launcher air time and speed-trap bests per car | `track/world/physics/records.ts` |
 
 The service worker's caches are named `gf-racer-<version>`; rooms (FRIENDS) keep nothing locally.

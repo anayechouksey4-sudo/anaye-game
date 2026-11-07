@@ -21,12 +21,15 @@ const docs = path.join(root, 'docs');
 const out = mkdtempSync(path.join(tmpdir(), 'squadhq-pages-'));
 
 const OFFLINE_BY_DEFAULT = `<script>
-      // Hosted copy: play offline unless the address names a relay (?ws=…). ☰ MENU → PHYSICS tunes the car.
+      // Hosted copy: play offline unless the address names a relay (?ws=…) or one was saved in FRIENDS. ☰ MENU → PHYSICS tunes the car.
       (function () {
         try {
           if (/[?&]ws=/.test(location.search)) return;
+          // A relay address saved by ☰ MENU → FRIENDS → CONNECT (gamerfleet.relay.v1) is used on every start.
+          var saved = null;
+          try { saved = localStorage.getItem('gamerfleet.relay.v1'); } catch (e) { /* no storage */ }
           var url = new URL(location.href);
-          url.searchParams.set('ws', 'off');
+          url.searchParams.set('ws', saved || 'off');
           history.replaceState(null, '', url.toString());
         } catch (e) {
           /* no history access: the game shows OFFLINE MODE and keeps playing */

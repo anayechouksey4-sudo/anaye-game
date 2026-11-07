@@ -15,25 +15,28 @@
     <link rel="apple-touch-icon" href="./icons/apple-touch-180.png" />
     <title>GamerFleet Racer</title>
     <script>
-      // Hosted copy: play offline unless the address names a relay (?ws=…). ☰ MENU → PHYSICS tunes the car.
+      // Hosted copy: play offline unless the address names a relay (?ws=…) or one was saved in FRIENDS. ☰ MENU → PHYSICS tunes the car.
       (function () {
         try {
           if (/[?&]ws=/.test(location.search)) return;
+          // A relay address saved by ☰ MENU → FRIENDS → CONNECT (gamerfleet.relay.v1) is used on every start.
+          var saved = null;
+          try { saved = localStorage.getItem('gamerfleet.relay.v1'); } catch (e) { /* no storage */ }
           var url = new URL(location.href);
-          url.searchParams.set('ws', 'off');
+          url.searchParams.set('ws', saved || 'off');
           history.replaceState(null, '', url.toString());
         } catch (e) {
           /* no history access: the game shows OFFLINE MODE and keeps playing */
         }
       })();
     </script>
-    <script type="module" crossorigin src="./assets/index-V97KrnoH.js"></script>
+    <script type="module" crossorigin src="./assets/index-mXwo-0eW.js"></script>
     <link rel="modulepreload" crossorigin href="./assets/rolldown-runtime-XKyaHtl9.js">
     <link rel="modulepreload" crossorigin href="./assets/rapier-Cz3OoYOH.js">
     <link rel="modulepreload" crossorigin href="./assets/three-Dr2NfrmA.js">
     <link rel="modulepreload" crossorigin href="./assets/vendor-Cw_P7JMq.js">
     <link rel="modulepreload" crossorigin href="./assets/config-B_vs4cfY.js">
-    <link rel="stylesheet" crossorigin href="./assets/index-Bd8O1ONS.css">
+    <link rel="stylesheet" crossorigin href="./assets/index-CuAIKaV4.css">
   </head>
   <body>
     <div id="root"></div>

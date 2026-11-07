@@ -15,6 +15,30 @@ import { getTrackEntry } from '../track/catalog';
 import { decodePlayer } from './identity';
 import { relayNow, roomActions } from './roomClient';
 import { isHost, positionOf, sortedResults, useRoom, type RoomState } from './roomStore';
+
+/** The relay address typed in CONNECT, remembered so the installed app reconnects to it on the next start
+ *  (the hosted copy's start-up script reads it; see scripts/build-pages.mjs). */
+export const SAVED_RELAY_KEY = 'gamerfleet.relay.v1';
+export function savedRelay(): string {
+  try {
+    return localStorage.getItem(SAVED_RELAY_KEY) ?? '';
+  } catch {
+    return '';
+  }
+}
+function rememberRelay(value: string | null): void {
+  try {
+    if (value) localStorage.setItem(SAVED_RELAY_KEY, value);
+    else localStorage.removeItem(SAVED_RELAY_KEY);
+  } catch {
+    /* private mode: the address still works for this visit */
+  }
+}
+function reloadWithRelay(value: string): void {
+  const url = new URL(window.location.href);
+  url.searchParams.set('ws', value);
+  window.location.assign(url.toString());
+}
 import './friends.css';
 
 const PHASE_LABEL: Record<RoomRace['phase'], string> = { lobby: 'LOBBY', countdown: 'LIGHTS', racing: 'RACE ON', results: 'RESULTS' };
@@ -30,6 +54,19 @@ export default function FriendsTab() {
         <span className="fr__url" data-testid="friends-url">
           {serverUrl || 'no relay (?ws=off)'}
         </span>
+        {savedRelay() && (
+          <button
+            type="button"
+            className="gm-btn fr__btn fr__btn--fit"
+            onClick={() => {
+              rememberRelay(null);
+              reloadWithRelay('off');
+            }}
+            data-testid="friends-forget-relay-top"
+          >
+            FORGET RELAY
+          </button>
+        )}
       </div>
       {room.error && (
         <p className="fr__error" role="alert" data-testid="friends-error">
@@ -43,14 +80,19 @@ export default function FriendsTab() {
 
 /** No socket: how to get one (same Wi-Fi via dev:all, or a relay address). */
 function ConnectHelp({ linkStatus }: { linkStatus: string }) {
-  const [address, setAddress] = useState('');
+  const [address, setAddress] = useState(() => savedRelay());
+  const remembered = savedRelay();
   const connect = (e: FormEvent) => {
     e.preventDefault();
     const value = address.trim();
     if (!value) return;
-    const url = new URL(window.location.href);
-    url.searchParams.set('ws', value);
-    window.location.assign(url.toString());
+    rememberRelay(value);
+    reloadWithRelay(value);
+  };
+  const forget = () => {
+    rememberRelay(null);
+    setAddress('');
+    reloadWithRelay('off');
   };
   return (
     <>
@@ -95,6 +137,12 @@ function ConnectHelp({ linkStatus }: { linkStatus: string }) {
           CONNECT
         </button>
       </form>
+      {remembered && (
+        <button type="button" className="gm-btn fr__btn fr__btn--fit" onClick={forget} data-testid="friends-forget-relay">
+          FORGET SAVED RELAY
+        </button>
+      )}
+      <p className="fr__hint">The address is remembered on this device: the installed app reconnects to it on its own.</p>
     </>
   );
 }
