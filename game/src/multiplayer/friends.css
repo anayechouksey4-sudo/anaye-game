@@ -99,3 +99,4 @@
 .fr__get-title { font-size: 10px; letter-spacing: 0.2em; color: var(--cyan); }
 .fr__row--wrap { flex-wrap: wrap; }
 .fr__got { display: inline-flex; align-items: center; min-height: 44px; font-size: 11px; letter-spacing: 0.08em; color: var(--dim); }
+a.fr__btn { display: inline-flex; align-items: center; justify-content: center; text-decoration: none; }

@@ -40,3 +40,6 @@
 .pwa-chip.is-on { color: #04161a; background: var(--cyan); border-color: var(--cyan); }
 .pwa-chip--warn { color: var(--yellow); border-color: rgba(245, 230, 99, 0.6); }
 .pwa-version { margin-left: auto; font-size: 10px; letter-spacing: 0.08em; color: var(--dim); }
+
+/* An anchor used as a button (OPEN THE GAME PAGE from inside a frame). */
+a.pwa-btn { display: inline-flex; align-items: center; justify-content: center; text-decoration: none; }

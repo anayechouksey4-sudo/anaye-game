@@ -76,6 +76,20 @@ function set(patch: Partial<PwaState>): void {
 
 export const pwaState = (): PwaState => state;
 
+/** The game's own public page: installing and the offline cache only work there (or on a LAN copy), never
+ *  inside another app's frame. */
+export const PUBLIC_GAME_URL = 'https://anayechouksey4-sudo.github.io/anaye-game/';
+
+/** True when this copy runs inside another page's frame (an embed or a viewer), where the browser offers no
+ *  install prompt and the service worker cannot take control. */
+export function isFramed(): boolean {
+  try {
+    return window.top !== window.self;
+  } catch {
+    return true;
+  }
+}
+
 export function subscribePwa(fn: () => void): () => void {
   listeners.add(fn);
   return () => {

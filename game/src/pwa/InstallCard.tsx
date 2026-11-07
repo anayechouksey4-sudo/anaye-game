@@ -5,15 +5,27 @@
  * update row ("UPDATE INSTALLED · RESTART TO USE IT" + RESTART) above it all. Mounted by the ☰
  * menu's SETTINGS tab; reads pwa/register.ts.
  */
-import { promptInstall, restartForUpdate, usePwa } from './register';
+import { useEffect, useState } from 'react';
+import { isFramed, PUBLIC_GAME_URL, promptInstall, restartForUpdate, usePwa } from './register';
 import './pwa.css';
 
 export default function InstallCard() {
   const pwa = usePwa();
+  const framed = isFramed();
+  // A worker that has not registered after 12 s is not coming (a frame or a browser without it).
+  const [stale, setStale] = useState(false);
+  useEffect(() => {
+    if (!pwa.supported || pwa.registered) return;
+    const t = setTimeout(() => setStale(true), 12000);
+    return () => clearTimeout(t);
+  }, [pwa.supported, pwa.registered]);
 
   let status: string;
   let hint: string | null = null;
-  if (!pwa.supported) {
+  if (framed) {
+    status = 'INSTALL FROM THE GAME\u2019S OWN PAGE';
+    hint = 'This copy runs inside another app\u2019s frame, which cannot install or cache the game. Open the game\u2019s page in Chrome or Safari and install from there.';
+  } else if (!pwa.supported) {
     status = import.meta.env.PROD ? 'OFFLINE PLAY NOT AVAILABLE HERE' : 'DEV SERVER · NO OFFLINE CACHE';
     hint = import.meta.env.PROD ? 'This browser or frame has no service workers; the game still plays online.' : 'The production build registers the service worker.';
   } else if (pwa.standalone || pwa.installed) {
@@ -47,10 +59,16 @@ export default function InstallCard() {
           <b data-testid="pwa-status">{status}</b>
           {hint && <small data-testid="pwa-hint">{hint}</small>}
         </span>
-        {pwa.canInstall && (
-          <button type="button" className="pwa-btn pwa-btn--primary" onClick={() => void promptInstall()} data-testid="pwa-install">
-            INSTALL APP
-          </button>
+        {framed ? (
+          <a className="pwa-btn pwa-btn--primary" href={PUBLIC_GAME_URL} target="_blank" rel="noopener noreferrer" data-testid="pwa-open-page">
+            OPEN THE GAME PAGE
+          </a>
+        ) : (
+          pwa.canInstall && (
+            <button type="button" className="pwa-btn pwa-btn--primary" onClick={() => void promptInstall()} data-testid="pwa-install">
+              INSTALL APP
+            </button>
+          )
         )}
       </div>
       <div className="pwa-chips" data-testid="pwa-chips">
@@ -61,7 +79,7 @@ export default function InstallCard() {
         )}
         {pwa.supported && !pwa.offlineReady && (
           <span className="pwa-chip" data-testid="pwa-caching">
-            {pwa.registered ? 'CACHING FOR OFFLINE…' : 'SERVICE WORKER STARTING…'}
+            {framed || (stale && !pwa.registered) ? 'NO OFFLINE CACHE HERE' : pwa.registered ? 'CACHING FOR OFFLINE…' : 'SERVICE WORKER STARTING…'}
           </span>
         )}
         {pwa.offline && (

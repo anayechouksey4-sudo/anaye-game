@@ -14,7 +14,7 @@ import { useGameStore } from '../state/store';
 import { getTrackEntry } from '../track/catalog';
 import { decodePlayer } from './identity';
 import { relayNow, roomActions } from './roomClient';
-import { promptInstall, usePwa } from '../pwa/register';
+import { isFramed, PUBLIC_GAME_URL, promptInstall, usePwa } from '../pwa/register';
 import { isHost, positionOf, sortedResults, useRoom, type RoomState } from './roomStore';
 
 /** The relay address typed in CONNECT, remembered so the installed app reconnects to it on the next start
@@ -112,7 +112,13 @@ function GetTheGame() {
     }
   };
   let install: ReactNode;
-  if (pwa.standalone || pwa.installed) {
+  if (isFramed()) {
+    install = (
+      <a className="gm-btn gm-btn--primary fr__btn fr__btn--fit" href={PUBLIC_GAME_URL} target="_blank" rel="noopener noreferrer" data-testid="friends-open-page">
+        OPEN THE GAME PAGE
+      </a>
+    );
+  } else if (pwa.standalone || pwa.installed) {
     install = <span className="fr__got" data-testid="friends-installed">INSTALLED ON THIS DEVICE</span>;
   } else if (pwa.canInstall) {
     install = (
