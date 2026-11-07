@@ -2,7 +2,7 @@
   "expo": {
     "name": "SquadHQ",
     "slug": "squadhq",
-    "description": "Cyberpunk tuning HQ for the GamerFleet racer: three sliders broadcast live over WebSocket.",
+    "description": "Cyberpunk tuning HQ for SquadHQ Racer: three sliders broadcast live over WebSocket.",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",

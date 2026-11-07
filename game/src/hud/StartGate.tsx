@@ -52,7 +52,7 @@ export function StartGate() {
   return (
     <div className="sg" role="dialog" aria-label="Start" data-testid="start-gate">
       <div className="sg__card">
-        <span className="sg__brand">GAMERFLEET RACER</span>
+        <span className="sg__brand">SQUADHQ RACER</span>
         <b className="sg__map" style={{ ['--accent' as string]: track.accent }}>
           {track.name}
         </b>

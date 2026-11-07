@@ -32,7 +32,7 @@ export default function InstallCard() {
     status = 'INSTALLED · ONLINE WITH FRIENDS, OFFLINE ANYWHERE';
   } else if (pwa.canInstall) {
     status = 'INSTALL THE APP';
-    hint = 'Adds GF Racer to your home screen or desktop: full screen, online rooms with your friends, and it still plays without a network.';
+    hint = 'Adds SquadHQ Racer to your home screen or desktop: full screen, online rooms with your friends, and it still plays without a network.';
   } else if (pwa.ios) {
     status = 'ADD TO HOME SCREEN';
     hint = 'iPhone / iPad: tap Share, then Add to Home Screen. It then opens full screen, plays online with friends and offline anywhere.';

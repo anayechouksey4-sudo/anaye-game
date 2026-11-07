@@ -1,4 +1,4 @@
-# GamerFleet Racer (game/)
+# SquadHQ Racer (game/)
 
 3D voxel racer built with React Three Fiber + `@react-three/rapier`: **five original cars**
 (garage), **six maps** (four procedural parkour courses over the void, a drag strip and a test

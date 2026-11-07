@@ -46,7 +46,7 @@ const SILENCE_TIMEOUT_MS = 10_000;
 const DEAD_PROBE_MS = 3000;
 /** Give up on a socket stuck in CONNECTING (an attempt started mid-outage can hang for minutes). */
 const CONNECT_TIMEOUT_MS = 8_000;
-const CLIENT_NAME = 'GamerFleet Racer';
+const CLIENT_NAME = 'SquadHQ Racer';
 
 export function describeControls(c: SquadControls): string {
   const bal = c.chassisBalance > 0 ? `+${c.chassisBalance}` : `${c.chassisBalance}`;

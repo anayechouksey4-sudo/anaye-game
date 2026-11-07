@@ -1,6 +1,6 @@
 # SquadHQ dashboard (`dashboard/`)
 
-SquadHQ is the squad's tuning console for the GamerFleet racer. It's a dark cyberpunk control panel built with
+SquadHQ is the squad's tuning console for SquadHQ Racer. It's a dark cyberpunk control panel built with
 React Native and Expo (SDK 58). It has three sliders: **Front Wing Aero**, **Engine Tier** and **Chassis
 Balance**. Every slider movement goes out live over WebSocket to the local relay (`server/`). The game
 (`game/`) picks the values up and changes its car physics straight away, then sends back its applied physics,
