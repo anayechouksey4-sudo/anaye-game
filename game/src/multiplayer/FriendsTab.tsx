@@ -160,11 +160,6 @@ function ConnectHelp({ linkStatus }: { linkStatus: string }) {
     rememberRelay(value);
     reloadWithRelay(value);
   };
-  const forget = () => {
-    rememberRelay(null);
-    setAddress('');
-    reloadWithRelay('off');
-  };
   return (
     <>
       <p className="fr__lead">
@@ -208,12 +203,11 @@ function ConnectHelp({ linkStatus }: { linkStatus: string }) {
           CONNECT
         </button>
       </form>
-      {remembered && (
-        <button type="button" className="gm-btn fr__btn fr__btn--fit" onClick={forget} data-testid="friends-forget-relay">
-          FORGET SAVED RELAY
-        </button>
-      )}
-      <p className="fr__hint">The address is remembered on this device: the installed app reconnects to it on its own.</p>
+      <p className="fr__hint">
+        {remembered
+          ? 'This address is remembered on this device; FORGET RELAY above switches this device to offline play.'
+          : 'The address is remembered on this device: the installed app reconnects to it on its own.'}
+      </p>
     </>
   );
 }
