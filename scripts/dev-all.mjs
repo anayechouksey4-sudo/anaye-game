@@ -316,6 +316,7 @@ function printSummary(services, lan, states) {
   }
   out.push('');
   out.push(' Game + dashboard connect to the relay on port 8787 of whichever host served them.');
+  out.push(' Play with friends: everyone opens the game link above, then ☰ MENU → FRIENDS → HOST A ROOM (the others JOIN by code).');
   for (const service of waiting) {
     out.push(` The ${service.key} is still ${states.get(service)}: one more line with its URLs follows when it answers.`);
   }

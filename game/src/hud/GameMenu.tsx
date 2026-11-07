@@ -1,6 +1,6 @@
 /**
  * The ☰ menu: pause screen + garage (+ number plates) + drivers + MY RIDE + maps + physics +
- * settings + squad link, thumb-sized and scrollable in both orientations. Open =
+ * settings + squad link + friends (rooms), thumb-sized and scrollable in both orientations. Open =
  * `useSelection().menuOpen` (App pauses <Physics> from it, so the run clock, hazards and pendulums
  * freeze). Opened by ☰, Esc / M, or GARAGE on the results screen; closed by RESUME, ✕/☰, Esc / M,
  * the Android back button (useMenuBackButton) or picking a car or map (which starts a new run with
@@ -9,6 +9,11 @@
 import { Fragment, lazy, Suspense, useEffect, useRef, type ReactNode } from 'react';
 import { CAR_CATALOG, getCarEntry, resolveCarId, type CarCatalogEntry } from '../car/catalog';
 import { useWornPlate } from '../car/plates/platePick';
+import { SkidToggle } from '../car/skid/SkidSettings';
+import InputSettings from '../input/InputSettings';
+import FriendsTab from '../multiplayer/FriendsTab';
+import InstallCard from '../pwa/InstallCard';
+import RivalsSettings from '../rivals/RivalsSettings';
 import type { RideConfig } from '../ride/config';
 import { profileState, useProfile } from '../state/profile';
 import { MEDALS, jumpOutOfReachNote, jumpReach, loadBestTime, medalFor, medalsFor, type JumpReach } from '../state/records';
@@ -479,6 +484,14 @@ function SettingsTab() {
   const { setSettings } = selectionState();
   return (
     <>
+      {/* Grouped CONTROLS · RACE · DISPLAY · CAMERA · SOUND & FEEL · APP; every control is a 44 px+ menu button / toggle. */}
+      <Section title="CONTROLS">
+        <InputSettings />
+      </Section>
+      <Section title="RACE">
+        <RivalsSettings />
+        <SkidToggle />
+      </Section>
       <Section title="DISPLAY">
         <Toggle
           label="HUD"
@@ -522,6 +535,9 @@ function SettingsTab() {
           testId="menu-haptics"
         />
       </Section>
+      <Section title="APP">
+        <InstallCard />
+      </Section>
     </>
   );
 }
@@ -553,6 +569,7 @@ const TAB_BODY: Record<MenuTab, (props: { goTo: (tab: MenuTab) => void }) => Rea
   physics: PhysicsTab,
   settings: SettingsTab,
   squad: SquadTab,
+  friends: FriendsTab,
 };
 
 export function GameMenu() {

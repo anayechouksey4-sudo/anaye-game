@@ -2,6 +2,8 @@ import './hud.css';
 import './menu.css';
 import { lazy, Suspense, useEffect } from 'react';
 import { useAutoPause } from './autoPause';
+import InputChip from '../input/InputChip';
+import { NameTags } from '../rivals/NameTags';
 import { useSelection } from '../state/selection';
 import { useGameStore } from '../state/store';
 import { useWorldHud } from '../state/worldRuntime';
@@ -120,6 +122,9 @@ export function HUD() {
           <Minimap />
         </Suspense>
       )}
+      <NameTags />
+      {/* GAMEPAD CONNECTED / TILT … notices under the top bar (input/InputChip; hides with the HUD while the menu is open). */}
+      <InputChip />
       <LoadingVeil />
       <Banners />
       <Countdown />

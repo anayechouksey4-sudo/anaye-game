@@ -1,0 +1,42 @@
+/* Installable-app card (pwa/InstallCard.tsx) in the ☰ menu's SETTINGS tab. Inherits the HUD tokens from .hud. */
+.pwa { display: grid; gap: 8px; margin-bottom: 8px; }
+.pwa-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  min-height: 58px;
+  padding: 10px 14px;
+  background: rgba(8, 10, 18, 0.82);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+}
+.pwa-row--update { border-color: rgba(57, 255, 20, 0.6); box-shadow: 0 0 14px rgba(57, 255, 20, 0.18); }
+.pwa-text { min-width: 0; }
+.pwa-text b { display: block; font-size: 13px; letter-spacing: 0.16em; }
+.pwa-text small { display: block; margin-top: 3px; font-size: 10px; line-height: 1.35; color: var(--dim); letter-spacing: 0.04em; }
+.pwa-btn {
+  pointer-events: auto;
+  min-height: 48px;
+  min-width: 44px;
+  padding: 0 14px;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  color: var(--text);
+  background: rgba(8, 10, 18, 0.86);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  cursor: pointer;
+  touch-action: manipulation;
+  white-space: nowrap;
+}
+.pwa-btn:active { transform: scale(0.97); }
+.pwa-btn:focus-visible { border-color: var(--cyan); outline: none; }
+.pwa-btn--primary { color: #04130a; background: var(--green); border-color: var(--green); box-shadow: 0 0 18px rgba(57, 255, 20, 0.4); }
+.pwa-chips { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; min-height: 22px; padding: 0 2px; }
+.pwa-chip { padding: 4px 8px; font-size: 10px; letter-spacing: 0.12em; color: var(--dim); border: 1px solid var(--line); border-radius: 999px; }
+.pwa-chip.is-on { color: #04161a; background: var(--cyan); border-color: var(--cyan); }
+.pwa-chip--warn { color: var(--yellow); border-color: rgba(245, 230, 99, 0.6); }
+.pwa-version { margin-left: auto; font-size: 10px; letter-spacing: 0.08em; color: var(--dim); }

@@ -22,11 +22,14 @@ import {
   type OutgoingMessage,
   type PeerCounts,
   type PhysicsSetMessage,
+  type RoomPlayer,
+  type RoomRace,
   type ServerSnapshot,
   type SquadControlsMessage,
 } from '../../shared/protocol';
 import { formatControls, formatPeers, formatPhysics, formatSession } from './format';
 import { displayHost } from './network';
+import { RoomManager, type Room, type RoomManagerOptions, type RoomStats } from './rooms';
 import { createThrottledLog } from './throttled-log';
 
 export interface RelayLogger {
@@ -56,6 +59,10 @@ export interface RelayServerOptions {
   maxConsecutiveBadFrames?: number;
   /** Telemetry is skipped for a client whose send buffer exceeds this many bytes. */
   telemetryBackpressureBytes?: number;
+  /** Rooms (room.v1): clock, limits and the pose rate limit. Tests inject a fake clock here. */
+  rooms?: RoomManagerOptions;
+  /** How often idle rooms are swept (ROOM_IDLE_EXPIRY_MS decides what is idle). Default 60 s. */
+  roomSweepMs?: number;
 }
 
 export interface RelayCounters {
@@ -66,6 +73,8 @@ export interface RelayCounters {
   rateLimitedFrames: number;
   telemetrySkipped: number;
   heartbeatTerminations: number;
+  /** room:pose frames fanned out (one per recipient). */
+  posesRelayed: number;
 }
 
 export interface RelayClientInfo {
@@ -82,6 +91,7 @@ export interface RelayStats {
   clients: RelayClientInfo[];
   snapshot: ServerSnapshot;
   counters: RelayCounters;
+  rooms: RoomStats;
 }
 
 export interface RelayServer {
@@ -93,6 +103,10 @@ export interface RelayServer {
   /** Closes every client with 1001, then the HTTP server. Idempotent. */
   close(): Promise<void>;
   stats(): RelayStats;
+  /** Deletes rooms idle for ROOM_IDLE_EXPIRY_MS (per the rooms clock) and tells their members. Also runs every `roomSweepMs`. */
+  sweepRooms(): number;
+  /** The rooms a client id is in (for tests and the info page). */
+  roomOf(clientId: string): Room | undefined;
 }
 
 export const RELAY_DEFAULTS = {
@@ -106,6 +120,9 @@ export const RELAY_DEFAULTS = {
 const CLOSE_GRACE_MS = 1000;
 const RATE_LIMIT_ERROR_INTERVAL_MS = 1000;
 const LOG_THROTTLE_MS = 1000;
+const ROOM_SWEEP_MS = 60_000;
+/** room:players goes out for a ping update at most this often per room (membership changes always go out). */
+const ROOM_PING_BROADCAST_MS = 4000;
 
 interface Client {
   id: string;
@@ -130,9 +147,12 @@ export async function createRelayServer(options: RelayServerOptions = {}): Promi
   const rateLimit = options.rateLimit ?? RELAY_DEFAULTS.rateLimit;
   const maxBadFrames = options.maxConsecutiveBadFrames ?? RELAY_DEFAULTS.maxConsecutiveBadFrames;
   const backpressureBytes = options.telemetryBackpressureBytes ?? RELAY_DEFAULTS.telemetryBackpressureBytes;
+  const rooms = new RoomManager(options.rooms);
+  const roomNow = options.rooms?.now ?? Date.now;
 
   const startedAt = Date.now();
   const clients = new Map<WebSocket, Client>();
+  const clientsById = new Map<string, Client>();
   const snapshot: ServerSnapshot = { controls: null, physics: null, telemetry: null };
   const counters: RelayCounters = {
     framesIn: 0,
@@ -142,6 +162,7 @@ export async function createRelayServer(options: RelayServerOptions = {}): Promi
     rateLimitedFrames: 0,
     telemetrySkipped: 0,
     heartbeatTerminations: 0,
+    posesRelayed: 0,
   };
   let nextClientNumber = 1;
   let shuttingDown = false;
@@ -235,6 +256,72 @@ export async function createRelayServer(options: RelayServerOptions = {}): Promi
     }
   };
 
+  // ── Rooms ────────────────────────────────────────────────────────────────
+
+  const roomClients = (room: Room): Client[] => {
+    const out: Client[] = [];
+    for (const id of room.members.keys()) {
+      const member = clientsById.get(id);
+      if (member) out.push(member);
+    }
+    return out;
+  };
+
+  const sendRoomPlayers = (room: Room): void => {
+    const players: RoomPlayer[] = rooms.players(room);
+    const frame = encodeMessage({ type: 'room:players', players });
+    for (const member of roomClients(room)) sendFrame(member, frame);
+  };
+
+  const sendRoomRace = (room: Room, from: Client): void => {
+    const race: RoomRace = room.race;
+    const frame = encodeMessage({ type: 'room:race', ...race, results: race.results.map((r) => ({ ...r })), from: from.id });
+    for (const member of roomClients(room)) sendFrame(member, frame);
+  };
+
+  const sendRoomJoined = (c: Client, room: Room): void => {
+    send(c, {
+      type: 'room:joined',
+      code: room.code,
+      you: c.id,
+      players: rooms.players(room),
+      race: { ...room.race, results: room.race.results.map((r) => ({ ...r })) },
+      serverNow: roomNow(),
+    });
+  };
+
+  const roomError = (c: Client, result: { ok: false; code: 'bad_code' | 'not_found' | 'full' | 'rooms_full' | 'already_in_room' | 'not_in_room' | 'not_host' | 'bad_state'; message: string }): void => {
+    send(c, { type: 'room:error', code: result.code, message: result.message });
+  };
+
+  /** Removes a client from its room (a leave or a disconnect) and tells the others. */
+  const leaveRoom = (c: Client, notifySelf: boolean): void => {
+    const left = rooms.leave(c.id);
+    if (!left) {
+      if (notifySelf) roomError(c, { ok: false, code: 'not_in_room', message: 'not in a room' });
+      return;
+    }
+    if (notifySelf) send(c, { type: 'room:left', reason: 'left' });
+    if (left.closed) {
+      logger.info(`room ${left.room.code} closed (last player ${c.id} left)`);
+      return;
+    }
+    sendRoomPlayers(left.room);
+    logger.info(`room ${left.room.code}: ${c.id} left (${left.room.members.size} left)${left.newHostId ? `; ${left.newHostId} is host now` : ''}`);
+  };
+
+  const sweepRooms = (): number => {
+    const gone = rooms.sweep();
+    for (const { code, memberIds } of gone) {
+      logger.info(`room ${code} expired (idle)`);
+      for (const id of memberIds) {
+        const member = clientsById.get(id);
+        if (member) send(member, { type: 'room:left', reason: 'expired' });
+      }
+    }
+    return gone.length;
+  };
+
   // ── Routing ──────────────────────────────────────────────────────────────
 
   const dispatch = (c: Client, message: ClientMessage): void => {
@@ -291,6 +378,102 @@ export async function createRelayServer(options: RelayServerOptions = {}): Promi
       }
       case 'ping': {
         send(c, { type: 'pong', nonce: message.nonce, serverTime: Date.now() });
+        return;
+      }
+      case 'room:create': {
+        const { name, carId, look, plate, avatar } = message;
+        const result = rooms.create(c.id, { name, carId, look, plate, avatar });
+        if (!result.ok) {
+          roomError(c, result);
+          return;
+        }
+        sendRoomJoined(c, result.room);
+        logger.info(`room ${result.room.code} created by ${c.id} "${name}" (${rooms.rooms.size} rooms)`);
+        return;
+      }
+      case 'room:join': {
+        const { code, name, carId, look, plate, avatar } = message;
+        const result = rooms.join(c.id, code, { name, carId, look, plate, avatar });
+        if (!result.ok) {
+          roomError(c, result);
+          return;
+        }
+        sendRoomJoined(c, result.room);
+        // The newcomer already has the list in room:joined; the others learn about it here.
+        const frame = encodeMessage({ type: 'room:players', players: rooms.players(result.room) });
+        for (const member of roomClients(result.room)) if (member !== c) sendFrame(member, frame);
+        logger.info(`room ${code}: ${c.id} "${name}" joined (${result.room.members.size} players)`);
+        return;
+      }
+      case 'room:update': {
+        const { name, carId, look, plate, avatar } = message;
+        const result = rooms.update(c.id, { name, carId, look, plate, avatar });
+        if (!result.ok) {
+          roomError(c, result);
+          return;
+        }
+        if (result.changed) sendRoomPlayers(result.room);
+        return;
+      }
+      case 'room:leave':
+        leaveRoom(c, true);
+        return;
+      case 'room:ready': {
+        const result = rooms.setReady(c.id, message.ready);
+        if (!result.ok) {
+          roomError(c, result);
+          return;
+        }
+        if (result.changed) sendRoomPlayers(result.room);
+        return;
+      }
+      case 'room:pose': {
+        const verdict = rooms.pose(c.id);
+        if (verdict === 'not_in_room') {
+          roomError(c, { ok: false, code: 'not_in_room', message: 'not in a room' });
+          return;
+        }
+        if (verdict === 'dropped') return;
+        const room = rooms.roomOf(c.id)!;
+        const { t, p, q, s, st, g, pm } = message;
+        const frame = encodeMessage({ type: 'room:pose', id: c.id, t, p, q, s, st, g, pm, from: c.id });
+        for (const member of roomClients(room)) {
+          if (member === c) continue;
+          if (member.ws.bufferedAmount > backpressureBytes) continue;
+          if (sendFrame(member, frame)) counters.posesRelayed += 1;
+        }
+        return;
+      }
+      case 'room:race': {
+        const result = rooms.setRace(c.id, { phase: message.phase, track: message.track, startAt: message.startAt });
+        if (!result.ok) {
+          roomError(c, result);
+          return;
+        }
+        sendRoomRace(result.room, c);
+        if (message.phase === 'countdown' || message.phase === 'results' || message.phase === 'lobby') sendRoomPlayers(result.room);
+        logger.info(`room ${result.room.code}: race ${message.phase}${result.room.race.track ? ` on ${result.room.race.track}` : ''}${message.startAt !== null ? ` startAt ${message.startAt}` : ''}`);
+        return;
+      }
+      case 'room:finish': {
+        const result = rooms.finish(c.id, message.finishMs, message.falls);
+        if (!result.ok) {
+          roomError(c, result);
+          return;
+        }
+        if (result.changed) {
+          sendRoomRace(result.room, c);
+          logger.info(`room ${result.room.code}: ${c.id} finished in ${message.finishMs} ms`);
+        }
+        return;
+      }
+      case 'room:ping': {
+        const room = rooms.ping(c.id, message.rtt);
+        send(c, { type: 'room:pong', t: message.t, serverNow: roomNow() });
+        if (room && message.rtt !== undefined && roomNow() - room.lastPingBroadcastAt >= ROOM_PING_BROADCAST_MS) {
+          room.lastPingBroadcastAt = roomNow();
+          sendRoomPlayers(room);
+        }
         return;
       }
     }
@@ -354,6 +537,7 @@ export async function createRelayServer(options: RelayServerOptions = {}): Promi
       consecutiveBadFrames: 0,
     };
     clients.set(ws, c);
+    clientsById.set(c.id, c);
 
     ws.on('pong', () => {
       c.alive = true;
@@ -365,6 +549,8 @@ export async function createRelayServer(options: RelayServerOptions = {}): Promi
     });
     ws.on('close', (code, reason) => {
       clients.delete(ws);
+      clientsById.delete(c.id);
+      if (!shuttingDown) leaveRoom(c, false);
       broadcastPresence();
       const why = reason.length > 0 ? ` ${reason.toString('utf8')}` : '';
       logger.info(`- ${describe(c)} disconnected (${code}${why}) (${formatPeers(peerCounts())})`);
@@ -388,6 +574,8 @@ export async function createRelayServer(options: RelayServerOptions = {}): Promi
     }
   }, heartbeatMs);
   heartbeat.unref();
+  const roomSweeper = setInterval(sweepRooms, options.roomSweepMs ?? ROOM_SWEEP_MS);
+  roomSweeper.unref();
 
   // ── HTTP ─────────────────────────────────────────────────────────────────
 
@@ -396,6 +584,8 @@ export async function createRelayServer(options: RelayServerOptions = {}): Promi
     protocolVersion: PROTOCOL_VERSION,
     peers: peerCounts(),
     snapshot,
+    rooms: rooms.stats(),
+    memory: (({ rss, heapUsed, heapTotal }) => ({ rss, heapUsed, heapTotal }))(process.memoryUsage()),
     uptimeSec: Math.round((Date.now() - startedAt) / 1000),
   });
 
@@ -435,6 +625,7 @@ export async function createRelayServer(options: RelayServerOptions = {}): Promi
     });
   } catch (err) {
     clearInterval(heartbeat);
+    clearInterval(roomSweeper);
     wss.close();
     throw err;
   }
@@ -446,6 +637,7 @@ export async function createRelayServer(options: RelayServerOptions = {}): Promi
     closePromise ??= (async () => {
       shuttingDown = true;
       clearInterval(heartbeat);
+      clearInterval(roomSweeper);
       for (const log of [controlsLog, physicsLog, stateLog, badFrameLog]) log.cancel();
 
       const open = [...clients.values()];
@@ -491,7 +683,10 @@ export async function createRelayServer(options: RelayServerOptions = {}): Promi
       })),
       snapshot: { ...snapshot },
       counters: { ...counters },
+      rooms: rooms.stats(),
     }),
+    sweepRooms,
+    roomOf: (clientId) => rooms.roomOf(clientId),
   };
 }
 

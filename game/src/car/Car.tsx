@@ -20,6 +20,7 @@ import { resolveCarId } from './catalog';
 import { CarController, yawToQuaternion } from './carController';
 import { CarModel } from './model/CarModel';
 import { carRuntime } from './runtime';
+import { SkidMarks } from './skid/SkidMarks';
 import { TireSmoke } from './smoke/TireSmoke';
 import { getVehicleSpec } from './vehicleSpec';
 
@@ -145,6 +146,7 @@ export function Car({ spawn }: CarProps) {
       </RigidBody>
       {/* World-space: smoke must stay where it was emitted, not ride along with the chassis. */}
       <TireSmoke spec={spec} />
+      <SkidMarks spec={spec} />
     </>
   );
 }

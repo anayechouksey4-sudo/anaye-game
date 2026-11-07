@@ -43,7 +43,49 @@ so opening the game from another device on the LAN just works.
 
 The picked car and map, sound, volume and vibration are remembered in `localStorage`
 (`src/state/selection.ts`, best effort: a private tab just starts from the defaults). Best times are
-kept per map **and** car.
+kept per map **and** car. Every key the game writes (each read once at load with a field-by-field
+check, written on change, wrapped in try/catch so a blocked store only costs the memory):
+
+| Key | Holds | Owner |
+| --- | --- | --- |
+| `squadhq.selection.v1` | car, map, sound / volume / vibration, the garage's number plates | `state/selection.ts` |
+| `gamerfleet.best.<track>` / `gamerfleet.best.<track>.<car>` | best time per map and car (ms; the hypercar's key has no car suffix) | `state/store.ts` |
+| `gamerfleet.profile.v1` | drivers, active driver, MY RIDE, mounted flag | `state/profile.ts` |
+| `gamerfleet.hud.v1` | TELEMETRY and MINIMAP switches | `hud/uiStore.ts` |
+| `gamerfleet.input.v1` | steering mode, tilt range, invert, calibration offset | `state/inputSettings.ts` |
+| `gamerfleet.rivals.v1` | RIVALS 3 / 1 / OFF, GHOST | `rivals/store.ts` |
+| `gamerfleet.ghost.v1.<track>.<car>` + `gamerfleet.ghost.v1.index` | shadow-ghost tapes (≤ 64 KB each, LRU at 1.5 MB) | `rivals/ghost.ts` |
+| `gamerfleet.skid.v1` | SKID MARKS switch | `car/skid/skidStore.ts` |
+| `tessera.air.v1`, `tessera.trap.v1` | the island's Kite Launcher air time and speed-trap bests per car | `track/world/physics/records.ts` |
+
+The service worker's caches are named `gf-racer-<version>`; rooms (FRIENDS) keep nothing locally.
+
+## Install as an app
+
+The game is an installable web app. The build emits `manifest.webmanifest`, the icons in
+`public/icons/` and a service worker (`sw.js`, written by the small plugin in `vite.config.ts` from
+the final list of emitted files) that precaches the whole game: hashed assets, `index.html`, the
+manifest, icons and favicon, about 5 MB.
+
+- **Install:** ☰ MENU → SETTINGS → APP → **INSTALL APP** (Chromium browsers offer it once they fire
+  `beforeinstallprompt`). Elsewhere use the browser menu (*Install app* / *Add to Home screen*);
+  on iPhone / iPad: Share → Add to Home Screen. Installed, it opens full screen (`display: standalone`,
+  any orientation) and the card reads INSTALLED · PLAYS OFFLINE.
+- **Offline:** once the card shows OFFLINE READY the game boots with no network: navigations go to
+  the network first and fall back to the cached `index.html` after 3 s without an answer, hashed
+  `assets/*` are served cache-first, manifest and icons stale-while-revalidate. Non-GET and
+  cross-origin requests are never cached, and the relay is a WebSocket (never cached): `?ws=off`,
+  the hosted copy's default, keeps the game in OFFLINE MODE.
+- **Updates:** each build carries a `VERSION` (hash of the emitted files). On the next page load the
+  browser installs the new worker, which precaches the new files, deletes this app's older caches
+  (`gf-racer-*`) and takes over without reloading the page; the card then shows **UPDATE INSTALLED ·
+  RESTART TO USE IT** with a RESTART button. A fresh page start simply gets the new version.
+- Service workers run only in production builds (`import.meta.env.PROD`); registration is wrapped
+  in try/catch (the page also runs inside sandboxed frames). Debug handle `window.__PWA__`:
+  `state()`, `promptInstall()`, `restart()`, `checkForUpdate()`.
+- `node ../scripts/build-pages.mjs` copies everything the build emits (`assets/`, `sw.js`,
+  `manifest.webmanifest`, `icons/`, `favicon.svg`) into `docs/`; the worker's scope is `./`, so the
+  same files work under `/<repo>/` on GitHub Pages and at `/` locally.
 
 ## Controls
 
@@ -59,10 +101,19 @@ kept per map **and** car.
 | C | Camera: chase → orbit (mouse) → onboard |
 | P | Physics panel (live sliders for every `CAR_PHYSICS_SPECS` param) |
 | H | Help |
-| Esc / M | ☰ menu: pause, garage, maps, physics, settings, squad link (Esc / M again closes it) |
+| Esc / M | ☰ menu: pause, garage, drivers, MY RIDE, maps, physics, settings, squad link, friends (Esc / M again closes it) |
 
-A standard-mapping gamepad also works (RT throttle, LT brake, left stick steer, A/B handbrake).
 While the menu is open only Esc / M do anything; the other hotkeys are ignored.
+
+**Gamepad (AUTO).** A standard-mapping pad is used as soon as it is connected (Chrome needs one
+button press first; the game looks for pads once a second and shows a GAMEPAD CONNECTED chip for
+3 s): left stick X steers (dead zone 0.12, response curve ^1.5), D-pad ◀ ▶ full lock, RT throttle,
+LT brake, A handbrake, B respawn, Y restart, Start the ☰ menu. Pad pedals wait for GO like the
+others and add up with the keyboard / touch pedals; the stick beats the steer pad and tilt. Works in
+desktop Chrome / Firefox / Edge and Android Chrome; ☰ MENU → SETTINGS → CONTROLS shows the pad's name.
+Every source is composed in one place, `src/input/inputBus.ts` → `src/input/compose.ts`, and fed
+through `car/input.ts setTouchInput`, so with no pad and tilt off the car reads exactly the keyboard /
+touch input it always did (`__RACER__.setInput` still overrides everything).
 
 ### Touch (phones and tablets)
 
@@ -75,7 +126,21 @@ hover-capable pointer; a laptop with a touchscreen stays a desktop). `?touch=1` 
 | Steer pad (left thumb, ◀ ▶) | Analog steer from the finger's position: a thumb on ◀ / ▶ is full lock like A / D, sliding toward the centre gives partial lock for fine corrections. The pad keeps its finger while it slides sideways off the pad (past an edge = full lock that side) and lets go only when the finger lifts or moves more than 80 px above or below it. |
 | GAS · BRAKE / REVERSE · DRIFT (right thumb) | Throttle, brake (reverses once stopped), handbrake. A finger presses whichever pedal it is on, so one thumb can slide gas → brake or gas → drift. |
 | ⟲ RESPAWN (top right) | Same as R. The one quick-access button; it fires when the finger lifts on it (slide off to cancel). |
-| ☰ MENU (top right) | Opens the menu (pauses the game). Everything else lives there: camera, HUD, physics, telemetry, garage, maps, sound, vibration, fullscreen, squad link. |
+| ☰ MENU (top right) | Opens the menu (pauses the game). Everything else lives there: controls (tilt steering, gamepad), camera, HUD, physics, telemetry, garage, maps, sound, vibration, fullscreen, app install, squad link. |
+
+**Tilt steering.** ☰ MENU → SETTINGS → CONTROLS → STEERING: **TILT** (phones with an orientation
+sensor only). Rolling the phone steers: the roll is read from the gravity vector (`gamma` in
+portrait, `±beta` in landscape by `screen.orientation`, and it keeps working with the phone tilted
+back), minus the calibration offset taken when TILT is switched on and whenever you tap
+**CALIBRATE** (hold the phone the way you play), a 2° dead zone, then linear to full lock at the
+TILT RANGE (QUICK 14° · NORMAL 22° · GENTLE 35°), optional INVERT, smoothed with a 60 ms time
+constant. With tilt on the ◀ ▶ pad is hidden (not removed: the layout variables and the pedal
+cluster stay exactly where they were) and a read-only TILT indicator with the live steer takes its
+place; GAS / BRAKE / DRIFT work as before. iPhone / iPad ask for motion access when you tap TILT;
+a refusal shows TILT NOT ALLOWED and keeps the pad. Settings persist under `gamerfleet.input.v1`
+(`src/state/inputSettings.ts`); debug handle `window.__INPUT__` (`status()`, `liveSteer()`,
+`liveTiltRoll()`, `setSteeringMode()`, `calibrateTilt()`, `settings()`); unit test
+`test/input.test.ts` (composition, tilt mapping, gamepad reading, settings validation).
 
 **Start gate.** On a touch device every page load opens with a small card (map, car, **▶ RACE ·
 FULLSCREEN** and **RACE IN THIS WINDOW**). Phone browsers only start audio from a touch that *ends*,
@@ -113,9 +178,11 @@ Touch devices render at a device-pixel ratio of at most 1.5 with a 512 px sun sh
 `useSelection().menuOpen`, so no physics steps run and the run clock, the start lights, the hazard
 clock, pendulums, shutters and tiles all freeze and carry on exactly where they were. The Android
 back button (and browser back) closes it: opening pushes a history entry, popstate closes, and
-closing any other way pops that entry again. Thumb-sized and scrollable in both orientations
-(portrait: tab grid on top, landscape and desktop: tab rail on the left), with RESPAWN · RESTART ·
-**RESUME** always at the bottom and ✕ where ☰ was.
+closing any other way pops that entry again. Thumb-sized and scrollable in both orientations: nine
+tabs as a 3 × 3 grid on top in portrait, a rail on the left in landscape (two columns of five on a
+phone up to 420 px tall, three columns of three on a 740×280 / 800×264 screen, one column on a desktop;
+the rail scrolls if it ever runs out of room), every tab ≥ 44 px, with RESPAWN · RESTART · **RESUME**
+always at the bottom and ✕ where ☰ was (`menu.css`).
 
 **Auto-pause on an app switch** (`src/hud/autoPause.ts`). Flipping to Termux, taking a call or
 pulling down the notification shade mid-run opens the menu on RACE by itself, through the same
@@ -153,8 +220,10 @@ doesn't, `pagehide` pauses, Android back closes it, no pause after the finish.
 | GARAGE | A card per car (`CAR_CATALOG`): accent, tagline, top speed / accel / grip / weight bars, your best time on the current map + medal and that car's gold / silver / bronze times there, or a JUMP OUT OF REACH badge (needs … km/h · max …) and no medals. Picking one starts a fresh run at the start line with that car |
 | MAPS | A card per map (`TRACK_CATALOG`): difficulty pips, BIG JUMP badge with its lip speed, ice grip badge, JUMP OUT OF REACH badge + one line when the current car can't clear the jump, description, setup tip, best time with the current car, medal earned and the current car's gold / silver / bronze times (none when out of reach). Picking one loads it with a fresh run |
 | PHYSICS | Every physics slider (the game is paused while you tune) + reset, and SHOW WHILE DRIVING for the floating panel |
-| SETTINGS | HUD (status chips on phones, help panel on desktop), TELEMETRY, FULLSCREEN, camera, SOUND + VOLUME, VIBRATION (`useSelection().settings`, persisted) |
+| DRIVERS · MY RIDE | The five block-built drivers and the build-your-own look ([Drivers and MY RIDE](#drivers-and-my-ride-srcdrivers-srcride-srcstateprofilets)) |
+| SETTINGS | Grouped: **CONTROLS** (STEERING TOUCH / TILT, TILT RANGE, INVERT TILT, CALIBRATE, GAMEPAD · AUTO status — `src/input/InputSettings.tsx`), **RACE** (RIVALS 3 / 1 / OFF, GHOST, SKID MARKS — `src/rivals/RivalsSettings.tsx`, `src/car/skid/SkidSettings.tsx`), **DISPLAY** (HUD: status chips on phones, help panel on desktop; TELEMETRY; MINIMAP; FULLSCREEN), **CAMERA**, **SOUND & FEEL** (SOUND + VOLUME, VIBRATION — `useSelection().settings`, persisted), **APP** (install / offline / update card — `src/pwa/InstallCard.tsx`). Every control is a 44 px+ button or switch |
 | SQUAD | Link status, relay URL, dashboards online, round trip, last update, the squad's Front Wing Aero / Engine Tier / Chassis Balance, the big-jump verdict for this car on this map, the uplink feed |
+| FRIENDS | Rooms over the relay ([Play with friends](#play-with-friends-srcmultiplayer)): HOST A ROOM / JOIN by code, the room code and share link, the player list with READY, START (host) and LEAVE, the results table |
 
 **Start lights.** Every new run (first load, restart, map or car change, RETRY / NEXT MAP; never a
 respawn) begins with 3 · 2 · 1 · GO, one light every 0.8 s of simulated time
@@ -574,6 +643,99 @@ stay responsive while BUILDING TESSERA ISLE fills its bar). Cold generation in N
   `actions()` (`travel(id)`, `freeRoamHere()`).
 - `?track=tessera` (or any island id) opens the island directly; `?worldgen=main` generates without the worker.
 
+## Rivals and ghost (`src/rivals/`)
+
+Every timed race (the five generated maps and the four island races; never free roam, never the test
+track) starts with three rivals on the grid behind the player. They are the other four drivers of the
+DRIVERS roster taking turns run by run, each in a different car class than the player and than each
+other, painted in their signature colour with their own plate (`VOLT 11`, `PIXEL RAE 22`…), and they
+drive at exactly this car's **GOLD, SILVER and BRONZE** pace on the map (`state/records.ts medalsFor`):
+beat the gold rival and you are P1. A medal still comes from your time as before; the position is extra.
+
+- **Zero physics.** A rival is a pose on the race route (`route.ts`: the plan's ideal line sampled every
+  2 m with the deck / tile heights baked in and a ballistic arc over the hops and the big jump; island
+  races use the generator's 2 m route with `heightAt` for the height) driven by a speed plan
+  (`speedPlan.ts`: v = √(10 m/s² · R) from curvature, capped by the class's top speed at tier 5,
+  accel ≤ 6 m/s², braking ≤ 10 m/s², then ONE factor on the capped profile so the driving time hits the
+  target within 0.1 %, plus a 0.15–0.35 s reaction after the lights). No bodies, no colliders, no
+  collisions: rivals are ghosts that ignore the hazards (they cross the tile field as if it held and
+  drive through pendulums and shutters). Within 6 m of the player they fade to 60 % so they never hide
+  the road; after the line they roll on for 1.5 s and fade out. A class whose top speed cannot make a
+  target is skipped for that slot (the buggy against a 46 s chaos gold); a map without medals for this
+  car (the buggy on chaos, the kart on chaos) has no rivals.
+- **Drawn by `KinematicCar`** (also used for the shadow ghost and for multiplayer's remote players): the
+  class's voxel car wearing a look at HALF resolution (`rivalAssets.ts`: every 2×2×2 block of the livery
+  grid becomes one voxel), the front wing merged in, the four wheels as one `InstancedMesh`, the plate;
+  3 draw calls per car, no shadow casting. The name tag is DOM (`NameTags.tsx`, projected from the
+  canvas): no draw call.
+- **Standings** (`standings.ts`, the contract multiplayer ranks remote players through): progress is
+  metres along the route, the player projected onto the segment between the last gate passed and the
+  next (so leaving the course never gains progress), published ≤ 10 Hz. Phones show `P n/N` in the top
+  bar (tap it for a 3 s standings sheet), desktop lists everyone with gaps under the run panel, and the
+  results card gains `P1 · AHEAD OF VOLT BY 2.3 S` / `P3 · 4.1 S BEHIND PIXEL RAE` (the nearest human
+  when friends are present, else the nearest rival). Nothing shows while fewer than two cars are ranked.
+- **Ghost.** Every timed run is recorded at 10 Hz from GO (position + quaternion, quantized to 1 cm and
+  delta-coded: 14 bytes per sample, ≤ 64 KB per run); a new best for this car on this map is saved
+  under `gamerfleet.ghost.v1.<track>.<car>` (LRU eviction at 1.5 MB total) and replayed on the next run
+  as a 40 % translucent copy of your own car tagged `<driver> · BEST`. It is never ranked.
+- **SETTINGS · RACE** (`RivalsSettings.tsx`, persisted under `gamerfleet.rivals.v1`): RIVALS 3 / 1
+  (gold only) / OFF, GHOST ON / OFF.
+
+Measured (production build, headless Chromium on SwiftShader, Pixel 7 landscape, `renderer.info`
+with rivals OFF → ON at the spawn, `__RIVALS__.castDown` physics raycasts at 10 Hz along the run):
+
+| Check | chaos | Neon Sprint | Budget |
+| --- | --- | --- | --- |
+| Draw calls | 36 → 45 (+9) | 33 → 42 (+9) | ≤ +9 |
+| Triangles | +22,296 | +21,040 | ≤ +30 k |
+| Shader programs | 12 → 15 | 11 → 14 | (instanced wheels, translucent variant) |
+| Bodies / colliders / joints | 53 / 189 / 3 unchanged | 2 / 73 / 0 unchanged | 0 added |
+| Rival finish vs target | +0.11 / +0.09 / +0.08 % | +0.09 / +0.08 / +0.07 % | ≤ 1.5 % |
+| Contact height vs raycast | median 0.000 m (outliers only where a rival crosses a shutter) | 0 of 1,654 samples off by > 0.3 m | ≤ 0.5 m |
+| Standings going backwards | never | never | — |
+
+Three rivals at rival resolution: 22,136 triangles for the heaviest three classes (node test; a full-resolution
+hypercar alone is 17 k). Ghost replay vs its recording on the strip: worst 0.007 m at matching race times; a
+31 s run stores 5.9 KB. Node test: `dashboard/node_modules/.bin/tsx --tsconfig game/tsconfig.app.json --test
+game/test/rivals.test.ts` (routes of all ten timed entries, the speed plan for every race × every player car ×
+every medal slot, standings math and the results line, the ghost tape round trip, the triangle budget).
+Debug handle `window.__RIVALS__`: `rivals()`, `standings()`, `participants()`, `route()`, `raceMs()`,
+`castDown(x, z)`, `ghost()`, `settings()` / `setSettings({ rivals, ghost })`.
+
+## Play with friends (`src/multiplayer/`)
+
+Rooms ride on the relay socket the game already keeps for the dashboard (`net/squadLink.ts` hands every
+`room:*` frame to `multiplayer/roomClient.ts`; `game:state` / `squad:controls` keep working, so the
+dashboard still tunes every car in the room). Protocol `room.v1` in `shared/protocol.ts`, relay side in
+`server/src/rooms.ts` ([server/README.md](../server/README.md#rooms--play-with-friends-roomv1)).
+
+- **Rooms.** ☰ MENU → **FRIENDS** → HOST A ROOM gives a 4-letter code (20-letter alphabet, no vowels, no
+  0/O/1/I; 2 h idle expiry, 8 players, 64 rooms per relay) and a share link `…/?room=CODE` (with `ws=` when
+  the page named a relay) that joins on load once the socket is open. The creator is host; when the host
+  leaves, the earliest member takes over. A lost socket drops the room and re-joins the same code when the
+  link is back. Identity (name, car, MY RIDE look, plate, avatar) follows the DRIVERS / GARAGE / MY RIDE
+  choices live (`identity.ts`, throttled to one `room:update` per 300 ms).
+- **Shared race.** The host's MAPS pick goes out as `room:race {phase: 'lobby', track}` and every member's
+  selection store follows it (the normal map switch). Members tap READY, the host taps START → `startAt =
+  relayNow + 4 s`; each client restarts its run `3 × 0.8 s` before `startAt` on the relay clock (`clockSync.ts`:
+  median offset of a 5-ping burst, then one ping per 5 s), so the local 3 · 2 · 1 · GO (`game/countdown.ts`,
+  counted in physics steps) reaches GO at `startAt`. Everyone races on their own physics with no collisions
+  between players; `finish` becomes `room:finish`; the host closes the race when everyone present has a
+  time or 60 s after the first finisher. Late joiners drive the track untimed and are in from the next START.
+  Free roam on Tessera Isle: everyone just roams together (poses only; START is refused).
+- **Remote cars.** Each client sends `room:pose` at 15 Hz (`poseSender.ts`; paused while the tab is hidden)
+  and the relay fans it out to the others (dropped above 30 Hz per sender). `remotePlayers.ts` keeps a
+  32-sample ring per player, read from the render loop 100 ms behind the newest sample with linear / slerp
+  interpolation, dead reckoning up to 250 ms past it, a hard snap beyond 2 m and an eased correction above
+  0.3 m; nothing heard for 3 s dims the car. `RemotePlayersLayer.tsx` (mounted in `App.tsx` inside
+  `<Physics>`) draws each one with `rivals/KinematicCar` (their class, look, plate, name tag in their colour),
+  and `roomClient` ranks them through `rivals/standings` as `remote`, so the `P n/N` chip and the results
+  line count friends and rivals together (the line names the nearest human when one is present) and the
+  results card adds `P1 OF 3 FRIENDS` (`FriendsResultLine.tsx`).
+- Debug handle `window.__ROOM__`: `state()`, `host()`, `join(code)`, `leave()`, `ready(on)`, `start()`,
+  `shareUrl()`, `relayNow()`, `clock()`, `remotes()`, `stats()`, `waitFor(predicate)`. No localStorage: the
+  room lives on the relay; the URL (`?room=`) is the only thing that outlives a reload.
+
 ## Sound and haptics
 
 Everything is synthesized live with WebAudio — no audio files, no extra dependencies (details in
@@ -758,6 +920,38 @@ Measured on `?track=test`:
 | Full-throttle launch, tier 4 / 5 | smoke from the first metre (`slip01` = 1, 150 puffs/s) until 51 / 100 km/h |
 | Handbrake turn at ~86 km/h | both rears at `slip01` = 1, smoke for the whole slide |
 | Burnout (throttle + brake), tier 3 | `slip01` = 1, continuous smoke while held |
+
+## Skid marks (`src/car/skid/`)
+
+Dark tyre marks where a grounded wheel slides, laid in world space from `carRuntime` every frame
+(contact point and normal, `slip01`, the handbrake); nothing in the physics changes. A wheel marks when
+its combined slip `slip01` passes 0.3 (fully dark at 0.95), and a rear wheel dragged under the handbrake
+marks from 1.5 m/s even before the slip saturates; gentle cornering (`slip01` ≈ 0.05) leaves nothing.
+Each wheel lays a strip perpendicular to the contact patch's travel, as wide as the tyre (0.6 × the
+width when sliding sideways, the contact-patch length), lifted 2 cm along the contact normal; a jump
+longer than 3 m (a respawn, a flight) starts a new strip. Marks hold for 10 s and fade over the next
+10 s. Graphite rubber on built surfaces, a pale faint scuff on the Cryo Circuit's ice and the island's
+salt and snow, ruts on its dirt, grass and sand (`skidRules.ts`).
+
+The marks belong to the map: a car swap keeps them, a different map starts clean; restart and respawn
+only break the strip. SETTINGS · SKID MARKS turns them off (persisted at `gamerfleet.skid.v1`).
+
+Implementation:
+- `SkidBuffer` keeps up to 2,048 quads for all four wheels in ONE interleaved vertex buffer (256 KB)
+  with a static 16-bit index: one mesh, one draw call, no shadow pass. A new quad overwrites the oldest;
+  quads older than 20 s are retired by moving the tail, and the draw range follows the live window.
+- The fade runs in the shader (`aBorn` + a time uniform), so a frame uploads only the vertices it
+  wrote and nothing is allocated per frame. With no live mark the mesh is hidden: 0 draw calls.
+- Budget: ≤ 1 draw call and ≤ 4,096 triangles per frame by construction, one program.
+
+Measured on the production build, Pixel 7 emulation (software GPU), chaos, a handbrake turn, the
+same paused frame with the marks on and off via `window.__SKID__.setEnabled`: +1 draw call,
++2 triangles per live quad (exactly the buffer's count), programs and geometries unchanged; JS heap
+after GC flat over 30 s of continuous sliding (±0.3 MB); the 30-combination G2 physics replay and the
+G3/G4 goldens identical to `main`.
+
+`window.__SKID__`: `stats()` (`enabled, capacity, live, written, head, tail, visible, triangles, now,
+newestAgeS, trackId, fadeS, laying[4]`), `setEnabled(on)`, `clear()`.
 
 ## GamerFleet Chaos Track (`?track=chaos`, default)
 
@@ -1070,7 +1264,12 @@ __RACER__.session()                 // { carId, trackId, bigJumpKmh } exactly as
 A scripted driver (`setInput` with throttle > 0.05) skips the start lights, so automated timings are
 unchanged. Other handles: `window.__HUD__` (menu, start lights, results — see the menu section),
 `window.__MAPS__` (see [Maps](#maps)), `window.__CHAOS__` (below), `window.__CARFX__` and
-`window.__AUDIO__` (live mix, engine, sfx and haptics counters — `src/audio/README.md`).
+`window.__AUDIO__` (live mix, engine, sfx and haptics counters — `src/audio/README.md`),
+`window.__WORLD__` (the island — [Tests and debug handle](#tests-and-debug-handle)), `window.__PROFILE__`
+(drivers and MY RIDE), `window.__PWA__` (install / offline / update state — [Install as an app](#install-as-an-app)),
+`window.__INPUT__` (tilt and gamepad status — [Controls](#controls)), `window.__RIVALS__` (rivals, standings,
+ghost — [Rivals and ghost](#rivals-and-ghost-srcrivals)), `window.__SKID__` (skid-mark buffer stats —
+[Skid marks](#skid-marks-srccarskid)) and `window.__ROOM__` (rooms — [Play with friends](#play-with-friends-srcmultiplayer)).
 
 `window.__CARFX__` (car visuals, read-only): `model()` (voxel/face counts, build time), `live()`
 (wing angles/chords, light-channel radiance, flame length, car draw calls), `smoke()` (capacity,
@@ -1080,9 +1279,10 @@ since the emitter mounted; both 0 for rear-drive cars), `renderInfo()` (renderer
 ## Code map / extension points
 
 ```
-src/main.tsx, App.tsx          entry; Canvas → PausablePhysics (<Physics timeStep=1/60 paused={menuOpen}>, subscribed
-                               inside the R3F tree) → Track, PlayerCar
-                               (keyed by map + car), RunController, debug handle; <HUD/>, <GameAudio/>
+src/main.tsx, App.tsx          entry (main.tsx registers the service worker: pwa/register.ts); Canvas → PausablePhysics
+                               (<Physics timeStep=1/60 paused={menuOpen}>, subscribed inside the R3F tree) → Track,
+                               PlayerCar (keyed by map + car), RunController, RivalsLayer, debug handle,
+                               RemotePlayersLayer; <HUD/>, <GameAudio/>
 src/config.ts                  PHYSICS_DT, resolveServerUrl(), getQueryParam(), isNetworkDisabled()
 src/state/selection.ts         persisted player choices: carId, trackId, menuOpen, settings {sound, volume, haptics}
 src/state/store.ts             zustand store (carId, physics, controls, link, uplink feed, run, trackLayout, ui) + actions;
@@ -1099,13 +1299,28 @@ src/car/vehicleSpec.ts         per-car geometry (getVehicleSpec): chassis frame,
 src/car/runtime.ts             carRuntime: per-step mutable state for visuals/hazards/HUD/audio (carId, spec)
 src/car/carController.ts       Rapier raycast vehicle + aero/drive (centre diff for AWD)/brakes/steering, surfaceGrip
 src/car/drivetrain.ts          wheelspin model;  tuning.ts: handling constants
-src/car/Car.tsx                RigidBody + controller wiring; renders <CarModel/> (chassis frame) and <TireSmoke/> (world)
+src/car/Car.tsx                RigidBody + controller wiring; renders <CarModel/> (chassis frame), <TireSmoke/> and <SkidMarks/> (world)
 src/car/model/                 voxel cars: models.ts (per-car shape, livery, wheels, lights), <car>Shape.ts,
                                shapeKit.ts, CarModel.tsx (meshes, live wing/lights/exhaust, useWheelPose),
                                frontWing.ts, wheelVoxels.ts, voxelGrid.ts (hidden-face mesher), carMaterial.ts,
                                carAssets.ts (build-once cache), carFxDebug.ts (window.__CARFX__)
 src/car/smoke/                 TireSmoke.tsx (emitter, frozen while paused), smokeRules.ts (rears smoke on slip,
                                AWD launch dust from drive force / grip), smokePool.ts, smokeMaterial.ts
+src/car/skid/                  SkidMarks.tsx (one ring-buffered mesh for all four wheels), skidBuffer.ts, skidMaterial.ts
+                               (shader fade), skidRules.ts (when / how dark / how wide), skidStore.ts (SKID MARKS setting),
+                               SkidSettings.tsx, skidDebug.ts (window.__SKID__)
+src/input/                     inputBus.ts (touch + tilt + gamepad composed into car/input.ts), compose.ts, tilt.ts,
+                               gamepad.ts, InputSettings.tsx (SETTINGS · CONTROLS), InputChip.tsx (HUD notices)
+src/state/inputSettings.ts     steering mode, tilt range / invert / offset (gamerfleet.input.v1)
+src/pwa/                       register.ts (service worker, install prompt, update flag), InstallCard.tsx (SETTINGS · APP)
+src/rivals/                    RivalsLayer.tsx (rivals, race clock, name-tag projector), rivals.ts + speedPlan.ts (who and
+                               how fast), route.ts / classicRoute.ts / islandRoute.ts / routeCache.ts (the race line),
+                               standings.ts (one ranking for player, rivals, remote players), KinematicCar.tsx,
+                               GhostCar.tsx + ghost.ts (shadow ghost tapes), NameTags.tsx + nameTags.ts, store.ts,
+                               RivalsSettings.tsx (SETTINGS · RACE)
+src/multiplayer/               roomClient.ts (rooms on the relay socket), roomStore.ts, raceFlow.ts (shared start / finish),
+                               clockSync.ts, poseSender.ts, remotePlayers.ts (interpolation), RemotePlayersLayer.tsx,
+                               identity.ts, FriendsTab.tsx (☰ FRIENDS), FriendsResultLine.tsx, roomDebug.ts (window.__ROOM__)
 src/audio/                     GameAudio.tsx + audioSystem.ts (WebAudio engine/tyres/wind/sfx), gearbox.ts,
                                presets.ts (per car), haptics.ts, engineReadout.ts (gear for the HUD), README.md
 src/track/catalog.ts           map cards (TRACK_CATALOG: difficulty, medals, tips), bigJumpKmhOf(layout)
@@ -1124,10 +1339,11 @@ src/track/chaos/               the generator every recipe runs on: recipe.ts (Tr
 src/scene/Environment.tsx      sky, fog, lights, stars, void grid from the layout's atmosphere
 src/net/squadLink.ts           WebSocket client + useSquadLink(); game:state with carId/trackId/bigJumpKmh;
                                telemetry.ts builds game:telemetry
-src/hud/                       HTML overlay (rAF-driven numbers, no 60 Hz React renders): TopBar (phones),
-                               Speedometer (desktop), GameMenu (☰), Countdown, Results, StartGate, TouchControls,
-                               SwipeSlider, Banners, LinkPanel, TelemetryPanel, PhysicsPanel, hudDebug (__HUD__),
-                               autoPause (menu on RACE when the page is hidden mid-run)
+src/hud/                       HTML overlay (rAF-driven numbers, no 60 Hz React renders): TopBar (phones, + the P n/N chip),
+                               Positions (chip, standings sheet, desktop lines), Speedometer (desktop), GameMenu (☰, nine
+                               tabs), Countdown, Results, StartGate, TouchControls, SwipeSlider, Banners, LinkPanel,
+                               TelemetryPanel, PhysicsPanel, Minimap, hudDebug (__HUD__), autoPause (menu on RACE when
+                               the page is hidden mid-run)
 src/camera/ChaseCamera.tsx     chase / orbit / onboard, framed per car size
 src/debug/racerHandle.ts       window.__RACER__
 ```

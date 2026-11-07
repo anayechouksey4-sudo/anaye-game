@@ -104,6 +104,49 @@ Relay guarantees:
 - **Heartbeat.** WebSocket pings every `--heartbeat` ms. Browsers, React Native and `ws` answer them
   automatically. A client that has not answered the previous ping is terminated, and presence is broadcast.
 
+## Rooms — play with friends (`room.v1`)
+
+The same relay hosts the game's multiplayer rooms (☰ MENU → **FRIENDS**). A game joins a room on the socket it
+already keeps open for the dashboard, so `squad:controls` / `game:state` keep working: the dashboard still tunes
+every car in the room. Shapes and rules live in [`shared/protocol.ts`](../shared/protocol.ts) ("Rooms"); the
+bookkeeping is `src/rooms.ts`, the routing `src/relay.ts`.
+
+| Frame | Sent by | Relay action |
+| --- | --- | --- |
+| `room:create {name, carId, look, plate, avatar}` | game | New room (4-letter code from `BCDFGHJKLMNPQRSTVWXZ`), sender is host → `room:joined {code, you, players, race, serverNow}` |
+| `room:join {code, …identity}` | game | Adds the sender (≤ 8 players) → `room:joined` to it, `room:players` to the others; `room:error` `not_found` / `full` / `already_in_room` |
+| `room:update {…identity}` / `room:ready {ready}` | game | `room:players` to everyone in the room (only when something changed) |
+| `room:pose {t, p, q, s, st, g, pm}` | game, 15 Hz | Fanned out to the **other** members with `id` + `from` = sender; dropped above 30 Hz per sender (token bucket, burst 6) |
+| `room:race {phase, track, startAt}` | host only | Stored and broadcast; `results` are the relay's own: `countdown` resets them to the present members, `room:finish` fills a row |
+| `room:finish {finishMs, falls}` | game | Fills the sender's results row → `room:race` to everyone (ignored without a row: late joiners race next time) |
+| `room:ping {t, rtt?}` | game | `room:pong {t, serverNow}` to the sender (the relay clock every member times its start lights to); the reported `rtt` shows as `ping` in `room:players` (≤ one broadcast per 4 s) |
+| `room:leave` | game | `room:left {reason: 'left'}` to the sender, `room:players` to the rest; a disconnect does the same silently |
+| `room:left {reason: 'expired'}` | relay | The room was idle for 2 h (swept every 60 s) |
+
+Rules: a client is in at most one room; the creator is host and the earliest-joined member takes over when the
+host leaves; an empty room is deleted at once; at most 64 rooms per relay (`rooms_full`); `/health` reports
+`rooms: {rooms, players, posesIn, posesDropped, expired}` and `memory`. Tests: `test/rooms.test.ts` (18 cases:
+codes, identities, poses and fan-out, the rate limit with an injected clock, host migration, race ordering, expiry).
+
+## Host the relay online
+
+Friends on the same Wi-Fi need nothing but `npm run dev:all`. Over the internet the relay needs a public `wss://`
+address (a https page can only open TLS sockets). Two recipes are in the repository:
+
+- **Render (free plan):** [`render.yaml`](../render.yaml) at the repository root is a Blueprint: Render dashboard →
+  New → Blueprint → this repository → one web service `gamerfleet-relay` built from
+  [`server/Dockerfile`](Dockerfile) (health check `/health`, `PORT` set by Render). The service answers at
+  `wss://gamerfleet-relay.onrender.com` (free instances sleep after 15 min idle; the first connection wakes them).
+- **Any Docker host:** `docker build -f server/Dockerfile -t gamerfleet-relay .` from the repository root (the
+  context must include `shared/`), then `docker run -p 8787:8787 gamerfleet-relay` behind your TLS terminator
+  (Caddy, nginx, a platform's edge). The relay itself speaks plain `ws://`; the terminator forwards the upgrade.
+
+Then open the public game link with the relay address: `https://…/anaye-game/?ws=wss://gamerfleet-relay.onrender.com`
+→ ☰ MENU → FRIENDS → HOST A ROOM; the tab's COPY button gives friends a link that carries both `ws=` and `room=`.
+Locally the same path is exercised with a self-signed TLS front (`https` + `ws` bridging to the relay) and the
+production game loaded with `?ws=wss://127.0.0.1:<port>`: two browser contexts host and join a room over `wss://`
+and finish a race with identical results.
+
 ## Tools
 
 All tools take `--url` (default `ws://localhost:8787`; a bare `host` or `host:port` also works) and `--help`.

@@ -1,0 +1,4 @@
+/* SKID MARKS setting (SkidSettings.tsx). The row itself reuses the menu's .gm-toggle look (menu.css);
+   this file only owns what is specific to this card. */
+.skid-settings { margin-top: 16px; }
+.skid-toggle { min-height: 58px; }

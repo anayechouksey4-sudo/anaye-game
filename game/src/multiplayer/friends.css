@@ -1,0 +1,92 @@
+/* FRIENDS tab (multiplayer/FriendsTab.tsx). Inherits the HUD tokens from .hud and the buttons from menu.css (.gm-btn). */
+.fr { display: flex; flex-direction: column; gap: 10px; }
+.fr__head { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; }
+.fr__url { color: var(--dim); font-size: 10px; letter-spacing: 0.06em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; }
+.fr__lead { margin: 0; color: var(--dim); font-size: 11px; line-height: 1.5; letter-spacing: 0.03em; }
+.fr__lead b { color: var(--text); }
+.fr__steps { margin: 0; padding-left: 18px; color: var(--text); font-size: 11px; line-height: 1.55; }
+.fr__steps code { color: var(--yellow); }
+.fr__error { margin: 0; padding: 8px 12px; color: #ffb3c6; font-size: 11px; line-height: 1.45; background: rgba(255, 42, 109, 0.12); border: 1px solid rgba(255, 42, 109, 0.5); border-radius: 10px; }
+.fr__note { margin: 0; padding: 8px 12px; color: #ffd0a0; font-size: 11px; line-height: 1.45; background: rgba(255, 154, 31, 0.1); border: 1px solid rgba(255, 154, 31, 0.55); border-radius: 10px; }
+
+/* Buttons: full width, 52 px (menu.css .gm-btn), optional small sub-line. */
+.fr__btn { width: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; line-height: 1.1; }
+.fr__btn small { font-size: 9px; font-weight: 400; letter-spacing: 0.16em; opacity: 0.8; }
+.fr__btn:disabled { opacity: 0.45; cursor: default; }
+.fr__btn--host { min-height: 56px; font-size: 13px; }
+.fr__row { display: flex; gap: 8px; align-items: stretch; }
+.fr__row > * { flex: 1 1 0; min-width: 0; }
+.fr__row > .fr__btn--fit { flex: 0 0 auto; width: auto; min-width: 88px; padding: 0 18px; }
+
+/* Text fields: 46 px tall, 18 px font (no zoom on phones). */
+.fr__input {
+  width: 100%;
+  min-height: 46px;
+  padding: 0 12px;
+  font: inherit;
+  font-size: 18px;
+  color: var(--text);
+  background: rgba(8, 10, 18, 0.86);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  outline: none;
+  pointer-events: auto;
+}
+.fr__input:focus { border-color: var(--cyan); }
+.fr__input::placeholder { color: var(--dim); font-size: 12px; letter-spacing: 0.14em; }
+.fr__input--code { text-transform: uppercase; letter-spacing: 0.32em; font-weight: 800; text-align: center; font-size: 22px; }
+.fr__input--url { font-size: 13px; }
+
+/* In a room */
+.fr__code { display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 10px 12px; background: linear-gradient(135deg, rgba(0, 240, 255, 0.16), rgba(8, 10, 18, 0.88) 70%); border: 1px solid var(--line); border-radius: 14px; }
+.fr__code small { color: var(--dim); font-size: 9px; letter-spacing: 0.22em; }
+.fr__code b { font-size: 34px; letter-spacing: 0.38em; margin-right: -0.38em; color: #fff; text-shadow: 0 0 14px rgba(0, 240, 255, 0.7); font-variant-numeric: tabular-nums; }
+.fr__share { display: flex; align-items: center; gap: 8px; }
+.fr__share-text { flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.fr__share-text small { color: var(--dim); font-size: 9px; letter-spacing: 0.18em; }
+.fr__share-text span { font-size: 11px; color: var(--cyan); overflow-wrap: anywhere; line-height: 1.35; user-select: text; -webkit-user-select: text; }
+.fr__share .gm-btn { flex: 0 0 auto; min-width: 88px; }
+.fr__status { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; font-size: 11px; letter-spacing: 0.16em; color: var(--yellow); }
+.fr__status b { color: var(--cyan); }
+.fr__status .gm-btn { min-height: 44px; padding: 0 10px; font-size: 10px; }
+.fr__phase--racing { color: var(--green); }
+.fr__phase--countdown { color: var(--magenta); }
+
+.fr__players { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.fr__player { --accent: var(--cyan); display: grid; grid-template-columns: 40px minmax(0, 1fr) auto; align-items: center; gap: 10px; min-height: 56px; padding: 6px 10px; background: rgba(8, 10, 18, 0.7); border: 1px solid color-mix(in srgb, var(--accent) 40%, transparent); border-radius: 12px; }
+.fr__player.is-you { border-color: var(--accent); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 40%, transparent); }
+.fr__avatar { width: 40px; height: 40px; border-radius: 10px; background: color-mix(in srgb, var(--accent) 22%, rgba(8, 10, 18, 0.9)); border: 1px solid var(--accent); image-rendering: pixelated; object-fit: contain; display: grid; place-items: center; font-weight: 800; color: var(--accent); }
+.fr__who { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.fr__who b { font-size: 13px; color: #fff; letter-spacing: 0.06em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fr__who small { font-size: 10px; color: var(--dim); letter-spacing: 0.08em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fr__who small i { font-style: normal; color: var(--accent); }
+.fr__tags { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; }
+.fr__tag { padding: 3px 7px; font-size: 9px; font-weight: 800; letter-spacing: 0.16em; border-radius: 6px; border: 1px solid currentColor; color: var(--dim); white-space: nowrap; }
+.fr__tag--host { color: var(--yellow); }
+.fr__tag--ready { color: var(--green); background: rgba(57, 255, 20, 0.12); }
+.fr__tag--you { color: var(--cyan); }
+.fr__tag--ping { border: none; padding: 0; font-weight: 400; font-variant-numeric: tabular-nums; }
+
+.fr__actions { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.fr__actions .gm-btn.is-on { border-color: var(--green); color: var(--green); }
+
+/* Results table */
+.fr__results { margin: 0; width: 100%; border-collapse: collapse; font-size: 12px; font-variant-numeric: tabular-nums; }
+.fr__results caption { text-align: left; padding: 0 0 6px; font-size: 11px; letter-spacing: 0.22em; color: var(--cyan); }
+.fr__results th { text-align: left; padding: 4px 6px; font-size: 9px; letter-spacing: 0.18em; color: var(--dim); font-weight: 400; border-bottom: 1px solid rgba(0, 240, 255, 0.18); }
+.fr__results td { padding: 7px 6px; border-bottom: 1px solid rgba(255, 255, 255, 0.06); white-space: nowrap; }
+.fr__results td.fr__name { max-width: 0; width: 50%; overflow: hidden; text-overflow: ellipsis; color: #fff; }
+.fr__results tr.is-you td { color: var(--cyan); }
+.fr__results td.fr__gap { color: var(--dim); }
+.fr__results td.fr__pos { font-weight: 800; color: var(--yellow); }
+
+/* The results card line (FriendsResultLine.tsx). */
+.fr-resultline { margin: 6px 0 0; font-size: 12px; font-weight: 800; letter-spacing: 0.2em; color: var(--cyan); text-shadow: 0 0 8px rgba(0, 240, 255, 0.5); }
+
+/* Short landscape phones (740×280): keep the code and the list compact. */
+@media (max-height: 420px) {
+  .fr__code { flex-direction: row; justify-content: center; gap: 12px; padding: 6px 12px; }
+  .fr__code b { font-size: 26px; }
+  .fr__player { min-height: 48px; }
+  .fr__btn--host { min-height: 52px; }
+}

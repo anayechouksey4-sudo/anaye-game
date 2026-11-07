@@ -984,7 +984,8 @@ export type ClientMessage =
   | PhysicsSetMessage
   | GameStateMessage
   | GameTelemetryMessage
-  | PingMessage;
+  | PingMessage
+  | RoomClientMessage;
 
 // Server → client ------------------------------------------------------------
 
@@ -1036,7 +1037,7 @@ export interface PongMessage extends Envelope {
   serverTime: number;
 }
 
-export type ServerMessage = WelcomeMessage | PresenceMessage | ErrorMessage | PongMessage;
+export type ServerMessage = WelcomeMessage | PresenceMessage | ErrorMessage | PongMessage | RoomServerMessage;
 
 /** Anything that can appear on the wire (server relays client frames with `from` set). */
 export type ProtocolMessage = ClientMessage | ServerMessage;
@@ -1046,6 +1047,233 @@ export type MessageType = ProtocolMessage['type'];
 export type OutgoingMessage<M extends ProtocolMessage = ProtocolMessage> = M extends ProtocolMessage
   ? Omit<M, 'v'> & { v?: typeof PROTOCOL_VERSION }
   : never;
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Rooms (room.v1) — "play with friends" over the same relay
+// ─────────────────────────────────────────────────────────────────────────────
+//
+// Additive to protocol v1: a relay or client that predates rooms ignores these frames (parseMessage
+// returns null for an unknown type, and the old relay answers `bad_message`). A game joins a room
+// on the socket it already keeps open for the dashboard; `game:state` / `squad:controls` keep
+// working unchanged, so the dashboard still tunes every car in the room.
+//
+//   room:create {name, carId, look, plate, avatar}  → room:joined {code, you, players, race, serverNow}
+//   room:join   {code, …same identity}              → room:joined, and room:players to the others
+//   room:update {…identity}                         → room:players to everyone in the room
+//   room:ready  {ready}                             → room:players to everyone in the room
+//   room:pose   {t, p, q, s, st, g, pm}             → fanned out to the OTHER members (id + from stamped),
+//                                                     dropped above ROOM_POSE_MAX_HZ per sender
+//   room:race   {phase, track, startAt, results}    → host only; the relay owns `results` (see below)
+//   room:finish {finishMs, falls}                   → recorded in race.results; room:race to everyone
+//   room:ping   {t, rtt?}                           → room:pong {t, serverNow} to the sender only
+//   room:leave                                      → room:left to the sender, room:players to the rest
+//   relay → room:error {code, message} to the offender; room:left {reason} when a room ends.
+//
+// Host = the creator; when the host leaves, the member who joined earliest becomes host (the relay
+// broadcasts room:players with the new isHost flags). Results are owned by the relay so every
+// member shows the same table: a host's `room:race` with phase 'countdown' resets them to every
+// present member with finishMs null; each `room:finish` fills one row; rows of members who leave
+// stay. Room codes: ROOM_CODE_LENGTH letters from ROOM_CODE_ALPHABET (no vowels, no I/O, no digits).
+
+export const ROOM_PROTOCOL = 'room.v1' as const;
+/** 20 letters: no vowels (no accidental words), no I / O (look like 1 / 0). */
+export const ROOM_CODE_ALPHABET = 'BCDFGHJKLMNPQRSTVWXZ';
+export const ROOM_CODE_LENGTH = 4;
+export const ROOM_MAX_PLAYERS = 8;
+/** The relay keeps at most this many rooms alive (memory bound). */
+export const ROOM_MAX_ROOMS = 64;
+/** A room nobody has talked in for this long is deleted. */
+export const ROOM_IDLE_EXPIRY_MS = 2 * 60 * 60 * 1000;
+/** Pose cadence a client should use (~15 Hz) and the ceiling the relay enforces per sender. */
+export const ROOM_POSE_INTERVAL_MS = 66;
+export const ROOM_POSE_MAX_HZ = 30;
+/** START → lights: the host sets startAt = serverNow + this. */
+export const ROOM_COUNTDOWN_LEAD_MS = 4000;
+/** The host closes a race this long after the first finisher if someone is still driving. */
+export const ROOM_RESULTS_GRACE_MS = 60_000;
+/** Longest share code accepted as a look / avatar on the wire. */
+export const ROOM_MAX_CODE_LENGTH = 200;
+/** Longest plate text on the wire (A–Z, 0–9, space). */
+export const ROOM_MAX_PLATE = 14;
+
+export type RoomPhase = 'lobby' | 'countdown' | 'racing' | 'results';
+export const ROOM_PHASES: readonly RoomPhase[] = ['lobby', 'countdown', 'racing', 'results'];
+
+export function isRoomPhase(value: unknown): value is RoomPhase {
+  return typeof value === 'string' && (ROOM_PHASES as readonly string[]).includes(value);
+}
+
+/** What a player looks like to the others (cosmetic; physics stays local to each game). */
+export interface RoomIdentity {
+  /** Display name (sanitizeDisplayText; the relay substitutes a default for an empty one). */
+  name: string;
+  /** Car class id (sanitizeId). */
+  carId: string;
+  /** MY RIDE share code (`RIDE1-…`, game/src/ride/shareCode.ts) worn by the car, or null for the stock look. */
+  look: string | null;
+  /** Number plate text, ≤ ROOM_MAX_PLATE of A–Z 0–9 space; '' = the car's default plate. */
+  plate: string;
+  /** Driver share code (`DRV1-…`, game/src/drivers/shareCode.ts) for the avatar, or null. */
+  avatar: string | null;
+}
+
+export interface RoomPlayer extends RoomIdentity {
+  /** The relay client id of this player (also the `id` on its poses). */
+  id: string;
+  ready: boolean;
+  isHost: boolean;
+  /** Round trip to the relay in ms as the player last reported it (room:ping.rtt), or null. */
+  ping: number | null;
+}
+
+export interface RoomResult {
+  id: string;
+  name: string;
+  /** Run time in ms, or null while still driving (or never finished). */
+  finishMs: number | null;
+  falls: number;
+}
+
+export interface RoomRace {
+  phase: RoomPhase;
+  /** Track id everyone drives (the host's selection), or null before the host picked one. */
+  track: string | null;
+  /** Relay-clock ms of GO; null outside 'countdown' / 'racing' / 'results'. */
+  startAt: number | null;
+  results: RoomResult[];
+}
+
+/** One car pose, ~15 Hz. Quantized on the wire (parseMessage): p 1 cm, q 1e-4, s 0.1 km/h, st 0.01, pm 0.1 m. */
+export interface RoomPose {
+  /** Sender's player id. Stamped by the relay on fan-out; ignored when a client sets it. */
+  id: string;
+  /** Sender's relay-clock time of the sample, ms. */
+  t: number;
+  p: [number, number, number];
+  q: [number, number, number, number];
+  /** Speed, km/h. */
+  s: number;
+  /** Steer −1…1. */
+  st: number;
+  /** Index of the last gate passed. */
+  g: number;
+  /** Progress along the race route, m. */
+  pm: number;
+}
+
+// Client → relay
+export interface RoomCreateMessage extends Envelope, RoomIdentity {
+  type: 'room:create';
+}
+export interface RoomJoinMessage extends Envelope, RoomIdentity {
+  type: 'room:join';
+  code: string;
+}
+export interface RoomUpdateMessage extends Envelope, RoomIdentity {
+  type: 'room:update';
+}
+export interface RoomLeaveMessage extends Envelope {
+  type: 'room:leave';
+}
+export interface RoomReadyMessage extends Envelope {
+  type: 'room:ready';
+  ready: boolean;
+}
+/** A client sends a pose without `id`; the relay fans it out with `id` (and `from`) = the sender. */
+export interface RoomPoseMessage extends Envelope, Omit<RoomPose, 'id'> {
+  type: 'room:pose';
+  id?: string;
+}
+/** Host → relay → everyone. The relay overwrites `results` with its own (see the section comment). */
+export interface RoomRaceMessage extends Envelope, RoomRace {
+  type: 'room:race';
+}
+export interface RoomFinishMessage extends Envelope {
+  type: 'room:finish';
+  finishMs: number;
+  falls: number;
+}
+export interface RoomPingMessage extends Envelope {
+  type: 'room:ping';
+  /** Sender's local clock (performance.now() or Date.now()), echoed back. */
+  t: number;
+  /** The sender's last measured round trip, ms (shown to the others as `ping`). */
+  rtt?: number;
+}
+
+export type RoomClientMessage =
+  | RoomCreateMessage
+  | RoomJoinMessage
+  | RoomUpdateMessage
+  | RoomLeaveMessage
+  | RoomReadyMessage
+  | RoomPoseMessage
+  | RoomRaceMessage
+  | RoomFinishMessage
+  | RoomPingMessage;
+
+// Relay → client
+export interface RoomJoinedMessage extends Envelope {
+  type: 'room:joined';
+  code: string;
+  /** The receiver's own player id. */
+  you: string;
+  players: RoomPlayer[];
+  race: RoomRace;
+  /** Relay clock (Date.now()) when this frame was sent. */
+  serverNow: number;
+}
+export interface RoomPlayersMessage extends Envelope {
+  type: 'room:players';
+  players: RoomPlayer[];
+}
+export type RoomLeftReason = 'left' | 'expired' | 'closed';
+export interface RoomLeftMessage extends Envelope {
+  type: 'room:left';
+  reason: RoomLeftReason;
+}
+export type RoomErrorCode =
+  | 'bad_code'
+  | 'not_found'
+  | 'full'
+  | 'rooms_full'
+  | 'already_in_room'
+  | 'not_in_room'
+  | 'not_host'
+  | 'bad_state';
+export const ROOM_ERROR_CODES: readonly RoomErrorCode[] = ['bad_code', 'not_found', 'full', 'rooms_full', 'already_in_room', 'not_in_room', 'not_host', 'bad_state'];
+export interface RoomErrorMessage extends Envelope {
+  type: 'room:error';
+  code: RoomErrorCode;
+  message: string;
+}
+export interface RoomPongMessage extends Envelope {
+  type: 'room:pong';
+  t: number;
+  serverNow: number;
+}
+
+export type RoomServerMessage =
+  | RoomJoinedMessage
+  | RoomPlayersMessage
+  | RoomLeftMessage
+  | RoomErrorMessage
+  | RoomPongMessage
+  // The relay also sends room:pose (fan-out) and room:race (broadcast) — the client shapes above.
+  | RoomPoseMessage
+  | RoomRaceMessage;
+
+export const ROOM_CLIENT_TYPES: readonly RoomClientMessage['type'][] = [
+  'room:create',
+  'room:join',
+  'room:update',
+  'room:leave',
+  'room:ready',
+  'room:pose',
+  'room:race',
+  'room:finish',
+  'room:ping',
+];
 
 /**
  * Server routing table (implemented in server/, documented here so clients agree):
@@ -1380,7 +1608,7 @@ export function parseMessage(raw: unknown): ProtocolMessage | null {
       return { ...env, type: 'server:error', code, message };
     }
     default:
-      return null;
+      return parseRoomMessage(data, env);
   }
 }
 
@@ -1392,8 +1620,220 @@ export function isClientMessage(msg: ProtocolMessage): msg is ClientMessage {
     msg.type === 'physics:set' ||
     msg.type === 'game:state' ||
     msg.type === 'game:telemetry' ||
-    msg.type === 'ping'
+    msg.type === 'ping' ||
+    (ROOM_CLIENT_TYPES as readonly string[]).includes(msg.type)
   );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Rooms: sanitizers and the parser (room.v1)
+// ─────────────────────────────────────────────────────────────────────────────
+
+const ROOM_CODE_PATTERN = new RegExp(`^[${ROOM_CODE_ALPHABET}]{${ROOM_CODE_LENGTH}}$`);
+const SHARE_CODE_PATTERN = /^(RIDE1|DRV1)-[A-Za-z0-9_-]{1,200}$/;
+
+/** A room code typed by a player: trimmed, upper-cased, ROOM_CODE_LENGTH letters of the alphabet; else null. */
+export function sanitizeRoomCode(input: unknown): string | null {
+  if (typeof input !== 'string') return null;
+  const code = input.trim().toUpperCase();
+  return ROOM_CODE_PATTERN.test(code) ? code : null;
+}
+
+/** Deterministic code generation shared by the relay and its tests: `random()` in [0, 1). */
+export function makeRoomCode(random: () => number = Math.random): string {
+  let code = '';
+  for (let i = 0; i < ROOM_CODE_LENGTH; i++) {
+    code += ROOM_CODE_ALPHABET[Math.min(ROOM_CODE_ALPHABET.length - 1, Math.floor(random() * ROOM_CODE_ALPHABET.length))];
+  }
+  return code;
+}
+
+/** A share code as a look / avatar: `RIDE1-…` or `DRV1-…`, ≤ ROOM_MAX_CODE_LENGTH; `prefix` narrows it. */
+export function sanitizeShareCode(input: unknown, prefix: 'RIDE1' | 'DRV1'): string | null {
+  if (typeof input !== 'string') return null;
+  const code = input.trim();
+  if (code.length > ROOM_MAX_CODE_LENGTH || !SHARE_CODE_PATTERN.test(code) || !code.startsWith(`${prefix}-`)) return null;
+  return code;
+}
+
+/** Plate text for the wire: upper-cased, A–Z 0–9 space only, ≤ ROOM_MAX_PLATE; '' when nothing survives. */
+export function sanitizeRoomPlate(input: unknown): string {
+  if (typeof input !== 'string') return '';
+  const text = input.toUpperCase().replace(/[^A-Z0-9 ]/g, '').replace(/\s+/g, ' ').trim();
+  return text.slice(0, ROOM_MAX_PLATE).trim();
+}
+
+/**
+ * The identity fields of room:create / room:join / room:update. Name and carId are required (a
+ * malformed one invalidates the frame); look / plate / avatar fall back to stock / '' / null.
+ */
+export function sanitizeRoomIdentity(input: unknown): RoomIdentity | null {
+  if (!isRecord(input)) return null;
+  const name = sanitizeDisplayText(input.name ?? '');
+  const carId = sanitizeId(input.carId);
+  if (name === null || carId === null) return null;
+  return {
+    name,
+    carId,
+    look: sanitizeShareCode(input.look, 'RIDE1'),
+    plate: sanitizeRoomPlate(input.plate),
+    avatar: sanitizeShareCode(input.avatar, 'DRV1'),
+  };
+}
+
+function sanitizeRoomPlayer(input: unknown): RoomPlayer | null {
+  if (!isRecord(input)) return null;
+  const identity = sanitizeRoomIdentity(input);
+  if (!identity || typeof input.id !== 'string' || input.id.length === 0 || input.id.length > 64) return null;
+  return {
+    id: input.id,
+    ...identity,
+    ready: input.ready === true,
+    isHost: input.isHost === true,
+    ping: isFiniteNumber(input.ping) && input.ping >= 0 ? Math.round(clamp(input.ping, 0, 60_000)) : null,
+  };
+}
+
+export function sanitizeRoomPlayers(input: unknown): RoomPlayer[] | null {
+  if (!Array.isArray(input) || input.length > ROOM_MAX_PLAYERS) return null;
+  const out: RoomPlayer[] = [];
+  for (const entry of input) {
+    const player = sanitizeRoomPlayer(entry);
+    if (!player) return null;
+    out.push(player);
+  }
+  return out;
+}
+
+function sanitizeRoomResult(input: unknown): RoomResult | null {
+  if (!isRecord(input) || typeof input.id !== 'string' || input.id.length === 0 || input.id.length > 64) return null;
+  const name = sanitizeDisplayText(input.name ?? '');
+  if (name === null) return null;
+  let finishMs: number | null = null;
+  if (input.finishMs !== null && input.finishMs !== undefined) {
+    if (!isFiniteNumber(input.finishMs) || input.finishMs < 0) return null;
+    finishMs = Math.round(clamp(input.finishMs, 0, 86_400_000));
+  }
+  const falls = isFiniteNumber(input.falls) ? Math.round(clamp(input.falls, 0, 999)) : 0;
+  return { id: input.id, name, finishMs, falls };
+}
+
+export function sanitizeRoomRace(input: unknown): RoomRace | null {
+  if (!isRecord(input) || !isRoomPhase(input.phase)) return null;
+  let track: string | null = null;
+  if (input.track !== null && input.track !== undefined) {
+    track = sanitizeId(input.track);
+    if (track === null) return null;
+  }
+  let startAt: number | null = null;
+  if (input.startAt !== null && input.startAt !== undefined) {
+    if (!isFiniteNumber(input.startAt) || input.startAt < 0) return null;
+    startAt = Math.round(input.startAt);
+  }
+  const rawResults = input.results === undefined ? [] : input.results;
+  if (!Array.isArray(rawResults) || rawResults.length > ROOM_MAX_PLAYERS * 4) return null;
+  const results: RoomResult[] = [];
+  for (const entry of rawResults) {
+    const result = sanitizeRoomResult(entry);
+    if (!result) return null;
+    results.push(result);
+  }
+  return { phase: input.phase, track, startAt, results };
+}
+
+function roundTo(value: number, decimals: number): number {
+  return Math.round(value * 10 ** decimals) / 10 ** decimals;
+}
+
+/** A pose (without the type): quantized and clamped; null when any field is malformed. */
+export function sanitizeRoomPose(input: unknown): RoomPose | null {
+  if (!isRecord(input)) return null;
+  const { t, p, q, s, st, g, pm } = input;
+  if (!isFiniteNumber(t) || t < 0) return null;
+  if (!Array.isArray(p) || p.length !== 3 || !p.every(isFiniteNumber)) return null;
+  if (!Array.isArray(q) || q.length !== 4 || !q.every(isFiniteNumber)) return null;
+  if (!isFiniteNumber(s) || !isFiniteNumber(st) || !isFiniteNumber(g) || !isFiniteNumber(pm)) return null;
+  const pos = p as number[];
+  const quat = q as number[];
+  return {
+    id: typeof input.id === 'string' && input.id.length <= 64 ? input.id : '',
+    t: Math.round(t),
+    p: [roundTo(clamp(pos[0]!, -1e5, 1e5), 2), roundTo(clamp(pos[1]!, -1e5, 1e5), 2), roundTo(clamp(pos[2]!, -1e5, 1e5), 2)],
+    q: [roundTo(clamp(quat[0]!, -1, 1), 4), roundTo(clamp(quat[1]!, -1, 1), 4), roundTo(clamp(quat[2]!, -1, 1), 4), roundTo(clamp(quat[3]!, -1, 1), 4)],
+    s: roundTo(clamp(s, 0, 2000), 1),
+    st: roundTo(clamp(st, -1, 1), 2),
+    g: Math.round(clamp(g, 0, 9999)),
+    pm: roundTo(clamp(pm, -1e6, 1e6), 1),
+  };
+}
+
+function parseRoomMessage(data: Record<string, unknown>, env: Envelope): ProtocolMessage | null {
+  switch (data.type) {
+    case 'room:create': {
+      const identity = sanitizeRoomIdentity(data);
+      return identity ? { ...env, type: 'room:create', ...identity } : null;
+    }
+    case 'room:join': {
+      const identity = sanitizeRoomIdentity(data);
+      const code = sanitizeRoomCode(data.code);
+      return identity && code ? { ...env, type: 'room:join', code, ...identity } : null;
+    }
+    case 'room:update': {
+      const identity = sanitizeRoomIdentity(data);
+      return identity ? { ...env, type: 'room:update', ...identity } : null;
+    }
+    case 'room:leave':
+      return { ...env, type: 'room:leave' };
+    case 'room:ready':
+      return typeof data.ready === 'boolean' ? { ...env, type: 'room:ready', ready: data.ready } : null;
+    case 'room:pose': {
+      const pose = sanitizeRoomPose(data);
+      return pose ? { ...env, type: 'room:pose', ...pose } : null;
+    }
+    case 'room:race': {
+      const race = sanitizeRoomRace(data);
+      return race ? { ...env, type: 'room:race', ...race } : null;
+    }
+    case 'room:finish': {
+      if (!isFiniteNumber(data.finishMs) || data.finishMs < 0) return null;
+      const falls = isFiniteNumber(data.falls) ? Math.round(clamp(data.falls, 0, 999)) : 0;
+      return { ...env, type: 'room:finish', finishMs: Math.round(clamp(data.finishMs, 0, 86_400_000)), falls };
+    }
+    case 'room:ping': {
+      if (!isFiniteNumber(data.t)) return null;
+      const msg: RoomPingMessage = { ...env, type: 'room:ping', t: data.t };
+      if (isFiniteNumber(data.rtt) && data.rtt >= 0) msg.rtt = Math.round(clamp(data.rtt, 0, 60_000));
+      return msg;
+    }
+    case 'room:joined': {
+      const code = sanitizeRoomCode(data.code);
+      const players = sanitizeRoomPlayers(data.players);
+      const race = sanitizeRoomRace(data.race);
+      if (!code || !players || !race || typeof data.you !== 'string' || !isFiniteNumber(data.serverNow)) return null;
+      return { ...env, type: 'room:joined', code, you: data.you, players, race, serverNow: data.serverNow };
+    }
+    case 'room:players': {
+      const players = sanitizeRoomPlayers(data.players);
+      return players ? { ...env, type: 'room:players', players } : null;
+    }
+    case 'room:left': {
+      const reasons: readonly RoomLeftReason[] = ['left', 'expired', 'closed'];
+      const reason = reasons.find((r) => r === data.reason);
+      return reason ? { ...env, type: 'room:left', reason } : null;
+    }
+    case 'room:error': {
+      const code = ROOM_ERROR_CODES.find((c) => c === data.code);
+      if (!code) return null;
+      const message = typeof data.message === 'string' ? data.message.slice(0, 200) : '';
+      return { ...env, type: 'room:error', code, message };
+    }
+    case 'room:pong': {
+      if (!isFiniteNumber(data.t) || !isFiniteNumber(data.serverNow)) return null;
+      return { ...env, type: 'room:pong', t: data.t, serverNow: data.serverNow };
+    }
+    default:
+      return null;
+  }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

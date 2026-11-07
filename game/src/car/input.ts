@@ -1,10 +1,10 @@
 /**
- * Driver input: keyboard + on-screen touch controls + standard-mapping gamepad, with an optional
- * override used by the debug handle / automated tests. Polled by the car controller every physics
- * step.
+ * Driver input: keyboard + the composed on-screen / tilt / gamepad control (input/inputBus.ts writes
+ * it through setTouchInput), with an optional override used by the debug handle / automated tests.
+ * Polled by the car controller every physics step.
  *
  * Drive lock (start lights, game/countdown.ts): while locked, throttle and brake from the
- * keyboard / touch / gamepad read 0 (steer and handbrake still work, so the player can line up).
+ * keyboard / touch / tilt / gamepad read 0 (steer and handbrake still work, so the player can line up).
  * The debug override is exempt — a scripted driver is never held at the lights.
  */
 import { getQueryParam } from '../config';
@@ -23,7 +23,7 @@ export interface DriverInput {
 const pressed = new Set<string>();
 let override: Partial<DriverInput> | null = null;
 let driveLocked = false;
-/** Written by the on-screen controls (hud/TouchControls.tsx); all zero while nothing is held. */
+/** Written by the input bus (input/inputBus.ts: touch pad, tilt and gamepad composed); all zero while nothing is held. */
 const touch: DriverInput = { throttle: 0, brake: 0, steer: 0, handbrake: 0 };
 
 const THROTTLE_KEYS = ['KeyW', 'ArrowUp'];
@@ -125,24 +125,7 @@ export function getInputOverride(): Partial<DriverInput> | null {
   return override;
 }
 
-const DEADZONE = 0.12;
-const deadzone = (v: number) => (Math.abs(v) < DEADZONE ? 0 : (v - Math.sign(v) * DEADZONE) / (1 - DEADZONE));
 const clamp01 = (v: number) => (v < 0 ? 0 : v > 1 ? 1 : v);
-
-function readGamepad(out: DriverInput): void {
-  if (typeof navigator === 'undefined' || typeof navigator.getGamepads !== 'function') return;
-  for (const pad of navigator.getGamepads()) {
-    if (!pad || !pad.connected || pad.mapping !== 'standard') continue;
-    const rt = pad.buttons[7]?.value ?? 0;
-    const lt = pad.buttons[6]?.value ?? 0;
-    const stick = deadzone(pad.axes[0] ?? 0);
-    out.throttle = Math.max(out.throttle, rt);
-    out.brake = Math.max(out.brake, lt);
-    if (stick !== 0) out.steer = stick;
-    if (pad.buttons[0]?.pressed || pad.buttons[1]?.pressed) out.handbrake = 1;
-    return;
-  }
-}
 
 /** Current driver input, written into `out` (no allocation). */
 export function readDriverInput(out: DriverInput): DriverInput {
@@ -150,12 +133,13 @@ export function readDriverInput(out: DriverInput): DriverInput {
   out.brake = anyPressed(BRAKE_KEYS) ? 1 : 0;
   out.steer = (anyPressed(RIGHT_KEYS) ? 1 : 0) - (anyPressed(LEFT_KEYS) ? 1 : 0);
   out.handbrake = anyPressed(HANDBRAKE_KEYS) ? 1 : 0;
-  // Touch works like a second keyboard: pedals add up, a held steer pad wins over released keys.
+  // The composed touch / tilt / gamepad control works like a second keyboard: pedals add up, a held
+  // steer (pad, tilt or stick, already shaped by the bus) wins over released keys. The gamepad is
+  // read by the bus only (its response curve and buttons), never a second time here.
   out.throttle = Math.max(out.throttle, touch.throttle);
   out.brake = Math.max(out.brake, touch.brake);
   out.handbrake = Math.max(out.handbrake, touch.handbrake);
   if (touch.steer !== 0 && out.steer === 0) out.steer = touch.steer;
-  readGamepad(out);
   if (driveLocked) {
     out.throttle = 0;
     out.brake = 0;

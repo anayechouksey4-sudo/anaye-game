@@ -1,0 +1,81 @@
+/* Input layer (src/input/*): the TILT chip in the thumb area, the HUD notice chip and the SETTINGS → CONTROLS rows. Inherits the HUD tokens from .hud. */
+
+/* Tilt steering on: the ◀ ▶ pad hides (visibility, so every --tc-* layout variable stays as it is) and a
+   read-only TILT indicator takes its place. The pedal cluster does not move. */
+.tc--tilt .tc-steer { visibility: hidden; pointer-events: none; }
+.tc-tilt {
+  --steer: 0;
+  position: absolute;
+  left: var(--tc-edge-l);
+  bottom: var(--hud-b);
+  width: var(--tc-steer-w);
+  height: var(--tc-steer-h);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.24em;
+  color: var(--cyan);
+  background: rgba(8, 10, 18, 0.35);
+  border: 1px dashed var(--line);
+  border-radius: 14px;
+  pointer-events: none;
+  text-shadow: 0 0 10px rgba(0, 240, 255, 0.5), 0 1px 2px rgba(0, 0, 0, 0.9);
+}
+.tc-tilt__bar { position: relative; width: 72%; height: 8px; border-radius: 4px; background: rgba(255, 255, 255, 0.14); }
+.tc-tilt__bar::before { content: ''; position: absolute; top: -3px; bottom: -3px; left: 50%; width: 2px; margin-left: -1px; background: rgba(216, 247, 255, 0.4); }
+.tc-tilt__bar b { position: absolute; top: -4px; bottom: -4px; left: calc(50% + var(--steer) * 50%); width: 6px; margin-left: -3px; border-radius: 3px; background: #fff; box-shadow: 0 0 10px var(--cyan); }
+.tc-tilt.is-left,
+.tc-tilt.is-right { border-style: solid; }
+
+/* Short notice under the top bar: GAMEPAD CONNECTED, TILT NOT ALLOWED, TILT CALIBRATED. Centred, above
+   the thumbs and clear of the minimap column; hidden with the rest of the HUD while the menu is open. */
+.inchip {
+  position: absolute;
+  top: calc(var(--below-bar, 64px) + 4px);
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 8px 14px;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.16em;
+  color: var(--cyan);
+  background: rgba(8, 10, 18, 0.84);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  white-space: nowrap;
+  pointer-events: none;
+  z-index: 3;
+  animation: inchip-in 160ms ease-out;
+}
+@keyframes inchip-in { from { opacity: 0; transform: translate(-50%, -6px); } to { opacity: 1; transform: translate(-50%, 0); } }
+
+/* SETTINGS → CONTROLS (input/InputSettings.tsx). Rows reuse the menu's .gm-seg / .gm-toggle / .gm-btn sizes (≥ 44 px). */
+.ins { display: grid; gap: 8px; margin-bottom: 8px; }
+.ins-row { display: grid; gap: 3px; padding: 2px 2px 0; }
+.ins-row b { font-size: 12px; letter-spacing: 0.16em; }
+.ins-row small { font-size: 10px; line-height: 1.35; color: var(--dim); letter-spacing: 0.04em; }
+.ins-row small.is-warn { color: var(--yellow); }
+.ins-seg--2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.ins-seg button small { display: block; margin-top: 2px; font-size: 9px; font-weight: 600; letter-spacing: 0.1em; opacity: 0.8; }
+.ins-seg button:disabled { opacity: 0.45; cursor: default; }
+.ins .gm-toggle { margin-bottom: 0; }
+.ins-btn { width: 100%; }
+.ins-status {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  min-height: 48px;
+  padding: 8px 14px;
+  background: rgba(8, 10, 18, 0.82);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+}
+.ins-status b { display: block; font-size: 12px; letter-spacing: 0.16em; }
+.ins-status small { display: block; margin-top: 3px; font-size: 10px; color: var(--dim); letter-spacing: 0.04em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ins-status i { font-style: normal; font-size: 10px; letter-spacing: 0.12em; color: var(--dim); }
+.ins-status.is-on i { color: var(--green); }

@@ -6,6 +6,7 @@ import { runClock } from '../game/runClock';
 import { gameState, useGameStore } from '../state/store';
 import { useWorldHud } from '../state/worldRuntime';
 import { formatRaceTime, setFill, setText, toggleClass, useRafLoop } from './hudUtils';
+import { PositionChip, StandingsSheet } from './Positions';
 
 /**
  * Phone HUD (compact): speed, gear, run timer and checkpoints in one slim bar at the top edge, so
@@ -49,39 +50,45 @@ export function TopBar() {
 
   const timerClass = `hud-topbar__timer${finished ? ' is-finished' : started ? ' is-running' : ''}`;
   return (
-    <div className="hud-panel hud-topbar" ref={rootRef} data-testid="top-bar">
-      <div className="hud-topbar__speed">
-        <span className="hud-topbar__value" ref={speedRef} data-testid="hud-speed">
-          0
-        </span>
-        <span className="hud-topbar__side">
-          <span className="hud-topbar__gear" ref={gearRef}>
-            N
+    <>
+      <div className="hud-panel hud-topbar" ref={rootRef} data-testid="top-bar">
+        <div className="hud-topbar__speed">
+          <span className="hud-topbar__value" ref={speedRef} data-testid="hud-speed">
+            0
           </span>
-          <span className="hud-topbar__unit">KM/H</span>
-        </span>
-        <div className="hud-bar hud-bar--speed hud-topbar__bar" ref={barRef} />
-      </div>
-      <div className={`hud-topbar__run${roam ? ' is-roam' : ''}`} data-testid="run-panel">
-        <span className={timerClass} ref={timerRef}>
-          0:00.000
-        </span>
-        <span className="hud-topbar__cp">
-          <label>CP</label>
-          <b data-testid="hud-checkpoint">
-            {checkpoint}/{total}
-          </b>
-        </span>
-        {roam && (
-          <span className="hud-topbar__roam" data-testid="hud-roam">
-            <label>FREE ROAM</label>
-            {/* Names longer than the slot (e.g. PATCHWORK DOWNS) wrap onto two 12 px lines instead of being cut. */}
-            <b data-testid="hud-region" className={region.length > 10 ? 'is-long' : undefined}>
-              {region}
+          <span className="hud-topbar__side">
+            <span className="hud-topbar__gear" ref={gearRef}>
+              N
+            </span>
+            <span className="hud-topbar__unit">KM/H</span>
+          </span>
+          <div className="hud-bar hud-bar--speed hud-topbar__bar" ref={barRef} />
+        </div>
+        <div className={`hud-topbar__run${roam ? ' is-roam' : ''}`} data-testid="run-panel">
+          <span className={timerClass} ref={timerRef}>
+            0:00.000
+          </span>
+          <span className="hud-topbar__cp">
+            <label>CP</label>
+            <b data-testid="hud-checkpoint">
+              {checkpoint}/{total}
             </b>
           </span>
-        )}
+          {roam && (
+            <span className="hud-topbar__roam" data-testid="hud-roam">
+              <label>FREE ROAM</label>
+              {/* Names longer than the slot (e.g. PATCHWORK DOWNS) wrap onto two 12 px lines instead of being cut. */}
+              <b data-testid="hud-region" className={region.length > 10 ? 'is-long' : undefined}>
+                {region}
+              </b>
+            </span>
+          )}
+        </div>
+        {/* Live race position (rivals / friends): only while two or more cars are ranked. */}
+        {!roam && <PositionChip />}
       </div>
-    </div>
+      {/* The tap-to-open standings sheet sits beside the bar (the bar's clip-path would cut it). */}
+      {!roam && <StandingsSheet />}
+    </>
   );
 }

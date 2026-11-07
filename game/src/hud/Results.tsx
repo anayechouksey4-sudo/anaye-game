@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { getCarEntry } from '../car/catalog';
 import { plateFor } from '../car/plates/platePick';
 import { onGameEvent } from '../game/events';
+import FriendsResultLine from '../multiplayer/FriendsResultLine';
 import { activeDriver, profileState } from '../state/profile';
 import { MEDAL_LABEL, medalFor, medalsFor, nextMedal, type Medal } from '../state/records';
 import { selectionState, useSelection } from '../state/selection';
@@ -10,6 +11,8 @@ import { useWorldHud } from '../state/worldRuntime';
 import { TRACK_CATALOG, getTrackEntry, type TrackCatalogEntry } from '../track/catalog';
 import { formatRaceTime } from './hudUtils';
 import { openMenu, useHudUi } from './uiStore';
+import { PLAYER_ID, positionLine, setFinished } from '../rivals/standings';
+import './positions.css';
 
 interface RunResult {
   id: number;
@@ -32,6 +35,8 @@ interface RunResult {
   driverName: string;
   rideName: string | null;
   accent: string;
+  /** Finishing position among rivals / friends (rivals/standings), e.g. "P1 · AHEAD OF VOLT BY 2.3 S"; null when alone. */
+  positionText: string | null;
 }
 
 /** MY RIDE's name when it is mounted on `carId` (the ride's base class), else null. */
@@ -108,6 +113,9 @@ export function Results() {
         // This car's medal times on this map (records.ts: hypercar times scaled per car; none when
         // the car can't clear the map's big jump).
         const medals = track.id === trackId ? medalsFor(trackId, s.carId) : null;
+        // The standings see the player's finish now (RivalsLayer would mark it a few steps later).
+        setFinished(PLAYER_ID, elapsedMs);
+        const position = positionLine();
         setHidden(false);
         setResult({
           id: ++id,
@@ -130,6 +138,7 @@ export function Results() {
           driverName: activeDriver().name,
           rideName: rideNameOn(s.carId),
           accent: track.accent,
+          positionText: position?.text ?? null,
         });
       }),
       onGameEvent('restart', clear),
@@ -186,6 +195,11 @@ export function Results() {
               NEW RECORD{improvedBy !== null && improvedBy > 0 ? ` −${seconds(improvedBy)}` : ''}
             </div>
           )}
+          {r.positionText && (
+            <div className="hud-results__position" data-testid="results-position">
+              {r.positionText}
+            </div>
+          )}
           <div className="hud-results__medal">
             {r.medal ? <MedalBadge medal={r.medal} /> : r.medals ? <span className="hud-dim">NO MEDAL</span> : null}
             {r.next && (
@@ -195,6 +209,8 @@ export function Results() {
             )}
           </div>
         </div>
+        {/* Shared race with friends: "P1 OF 3 FRIENDS" (multiplayer/FriendsResultLine; nothing outside a room). */}
+        <FriendsResultLine />
         <dl className="hud-results__stats">
           <div>
             <dt>BEST</dt>

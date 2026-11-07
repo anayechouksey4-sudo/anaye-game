@@ -8,13 +8,18 @@
  * it*; the steer pad keeps its finger while it slides sideways off the pad (past an edge = full
  * lock) and lets go only on lift or a large vertical exit. Everything is released on
  * pointercancel, window blur, a hidden tab, the ☰ menu opening and unmount; a finger that was down
- * then must lift before it can press again. Feeds car/input.ts (merged with the keyboard); the
- * buttons run the same actions as the hotkeys (game/hotkeys.ts).
+ * then must lift before it can press again. Feeds the input bus (input/inputBus.ts → car/input.ts,
+ * merged with the keyboard); the buttons run the same actions as the hotkeys (game/hotkeys.ts).
+ *
+ * Tilt steering (SETTINGS → CONTROLS): the ◀ ▶ pad is hidden (not removed, so the `--tc-*` layout
+ * variables and the pedal cluster stay exactly where they are) and a read-only TILT indicator
+ * shows the live steer in its place.
  */
 import { useEffect, useRef, useState } from 'react';
-import { clearTouchInput, setTouchInput } from '../car/input';
 import { runHotkeyAction, type HotkeyAction } from '../game/hotkeys';
+import { clearTouchSource, liveSteer, setTouchSource, useInputStatus } from '../input/inputBus';
 import { useSelection } from '../state/selection';
+import '../input/input.css';
 
 type Pedal = 'throttle' | 'brake' | 'handbrake';
 type Action = Extract<HotkeyAction, 'respawn' | 'menu'>;
@@ -74,9 +79,38 @@ const ACTIONS: readonly { action: Action; icon: string; label: string }[] = [
   { action: 'menu', icon: '☰', label: 'MENU' },
 ];
 
+/** Read-only TILT indicator in the steer pad's place: the knob follows the steer the car gets. */
+function TiltIndicator() {
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    let id = 0;
+    const loop = () => {
+      const el = ref.current;
+      if (el) {
+        const s = liveSteer();
+        el.style.setProperty('--steer', s.toFixed(3));
+        el.classList.toggle('is-left', s < 0);
+        el.classList.toggle('is-right', s > 0);
+      }
+      id = requestAnimationFrame(loop);
+    };
+    id = requestAnimationFrame(loop);
+    return () => cancelAnimationFrame(id);
+  }, []);
+  return (
+    <div className="tc-tilt" ref={ref} data-testid="touch-tilt" aria-label="Tilt steering">
+      <span>TILT</span>
+      <i className="tc-tilt__bar">
+        <b />
+      </i>
+    </div>
+  );
+}
+
 export function TouchControls() {
   const rootRef = useRef<HTMLDivElement>(null);
   const steerRef = useRef<HTMLDivElement>(null);
+  const tiltActive = useInputStatus().tiltActive;
 
   useEffect(() => {
     const root = rootRef.current;
@@ -112,7 +146,7 @@ export function TouchControls() {
           pressedActions.add(f.el);
         }
       }
-      setTouchInput({
+      setTouchSource({
         throttle: held.has('throttle') ? 1 : 0,
         brake: held.has('brake') ? 1 : 0,
         handbrake: held.has('handbrake') ? 1 : 0,
@@ -199,17 +233,18 @@ export function TouchControls() {
       document.removeEventListener('visibilitychange', onVisibility);
       document.removeEventListener('contextmenu', noMenu);
       fingers.clear();
-      clearTouchInput();
+      clearTouchSource();
     };
   }, []);
 
   return (
-    <div className="tc" ref={rootRef} data-testid="touch-controls">
-      <div className="tc-steer" ref={steerRef} data-tc="steer" data-testid="touch-steer" aria-label="Steer: slide left or right">
+    <div className={`tc${tiltActive ? ' tc--tilt' : ''}`} ref={rootRef} data-testid="touch-controls" data-steering={tiltActive ? 'tilt' : 'touch'}>
+      <div className="tc-steer" ref={steerRef} data-tc="steer" data-testid="touch-steer" aria-label="Steer: slide left or right" aria-hidden={tiltActive || undefined}>
         <span className="tc-steer__half tc-steer__half--left">◀</span>
         <span className="tc-steer__half tc-steer__half--right">▶</span>
         <i className="tc-steer__knob" />
       </div>
+      {tiltActive && <TiltIndicator />}
       <div className="tc-pedals">
         {PEDALS.map(({ pedal, label, sub }) => (
           <button

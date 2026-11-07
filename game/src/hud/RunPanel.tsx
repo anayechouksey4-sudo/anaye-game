@@ -5,6 +5,7 @@ import { runClock } from '../game/runClock';
 import { useGameStore } from '../state/store';
 import { useWorldHud } from '../state/worldRuntime';
 import { formatRaceTime, setText, useRafLoop } from './hudUtils';
+import { PositionsPanel } from './Positions';
 
 /** Desktop run panel (phones show the timer and checkpoints in TopBar). */
 export function RunPanel() {
@@ -84,6 +85,7 @@ function RacePanel() {
           <b>{run.speedTrapKmh === null ? '—' : `${run.speedTrapKmh.toFixed(0)}`}</b>
         </div>
       </div>
+      <PositionsPanel />
       {hint}
     </div>
   );

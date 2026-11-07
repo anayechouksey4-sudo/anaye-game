@@ -27,6 +27,7 @@ import {
   type SquadControls,
 } from '@shared/protocol';
 import { isNetworkDisabled, resolveServerUrl } from '../config';
+import { installRoomClient, markRoomsOffline } from '../multiplayer/roomClient';
 import { activeDriver, useProfile } from '../state/profile';
 import { gameState, useGameStore } from '../state/store';
 import { bigJumpKmhOf } from '../track/catalog';
@@ -35,8 +36,14 @@ import { buildTelemetry } from './telemetry';
 /** game:state goes out at most this often (and this long after the first change of a burst). */
 const STATE_THROTTLE_MS = 100;
 const PING_INTERVAL_MS = 3000;
-/** No frame at all for this long (despite our pings) ⇒ treat the socket as dead. */
+/** No frame at all for this long (despite our pings) ⇒ the socket is suspect: one probe ping, then dead. */
 const SILENCE_TIMEOUT_MS = 10_000;
+/**
+ * A silent socket gets this long after the probe before it is dropped. A main thread stalled for 10 s+
+ * (a map load on a slow GPU, a background tab) looks exactly like a dead link from inside the page,
+ * but the frames queued behind the stall arrive the moment it ends; the probe tells the two apart.
+ */
+const DEAD_PROBE_MS = 3000;
 /** Give up on a socket stuck in CONNECTING (an attempt started mid-outage can hang for minutes). */
 const CONNECT_TIMEOUT_MS = 8_000;
 const CLIENT_NAME = 'GamerFleet Racer';
@@ -66,11 +73,41 @@ export class SquadLink {
   private unsubscribeStore: (() => void) | null = null;
   private unsubscribeProfile: (() => void) | null = null;
   private lastFrameAt = 0;
+  /** performance.now() when the silence was first noticed (null while frames flow). */
+  private suspectAt: number | null = null;
   private pendingPings = new Map<number, number>();
   private pingNonce = 0;
+  // Taps for the room client (multiplayer/roomClient.ts): room:* frames, socket open and loss.
+  private readonly messageListeners = new Set<(message: ProtocolMessage) => void>();
+  private readonly openListeners = new Set<() => void>();
+  private readonly closeListeners = new Set<() => void>();
 
   /** Counters for diagnostics / tests. */
   readonly stats = { sent: 0, received: 0, rejected: 0, connects: 0 };
+
+  /** Every `room:*` frame the relay sends us (parsed). Returns the unsubscribe function. */
+  onMessage(listener: (message: ProtocolMessage) => void): () => void {
+    this.messageListeners.add(listener);
+    return () => {
+      this.messageListeners.delete(listener);
+    };
+  }
+
+  /** The socket opened (after `hello` went out). */
+  onOpen(listener: () => void): () => void {
+    this.openListeners.add(listener);
+    return () => {
+      this.openListeners.delete(listener);
+    };
+  }
+
+  /** The socket was lost (closed, silent or stuck); a reconnect follows unless stopped. */
+  onClose(listener: () => void): () => void {
+    this.closeListeners.add(listener);
+    return () => {
+      this.closeListeners.delete(listener);
+    };
+  }
 
   constructor(url: string) {
     this.url = url;
@@ -152,17 +189,20 @@ export class SquadLink {
       this.attempt = 0;
       this.stats.connects++;
       this.lastFrameAt = performance.now();
+      this.suspectAt = null;
       this.pendingPings.clear();
       gameState().setLinkStatus('connected');
       gameState().pushUplink('link', `connected · ${this.url}`);
       this.send({ type: 'hello', role: 'game', name: CLIENT_NAME });
       this.telemetryTimer = setInterval(() => this.send({ type: 'game:telemetry', telemetry: buildTelemetry() }), TELEMETRY_INTERVAL_MS);
       this.pingTimer = setInterval(() => this.ping(), PING_INTERVAL_MS);
+      for (const listener of [...this.openListeners]) listener();
     };
 
     ws.onmessage = (event: MessageEvent) => {
       if (this.ws !== ws) return;
       this.lastFrameAt = performance.now();
+      this.suspectAt = null;
       if (typeof event.data !== 'string') return;
       const message = parseMessage(event.data);
       if (!message) {
@@ -179,6 +219,7 @@ export class SquadLink {
       this.clearTimers();
       gameState().setLinkStatus('disconnected');
       gameState().setRtt(null);
+      for (const listener of [...this.closeListeners]) listener();
       this.scheduleReconnect();
     };
 
@@ -187,6 +228,10 @@ export class SquadLink {
   }
 
   private handle(message: ProtocolMessage): void {
+    if (message.type.startsWith('room:')) {
+      for (const listener of [...this.messageListeners]) listener(message);
+      return;
+    }
     const s = gameState();
     switch (message.type) {
       case 'server:welcome': {
@@ -241,9 +286,13 @@ export class SquadLink {
   }
 
   private ping(): void {
-    if (performance.now() - this.lastFrameAt > SILENCE_TIMEOUT_MS) {
-      this.handleDead('relay silent — reconnecting');
-      return;
+    const now = performance.now();
+    if (now - this.lastFrameAt > SILENCE_TIMEOUT_MS) {
+      if (this.suspectAt === null) this.suspectAt = now; // probe below; the next tick decides
+      else if (now - this.suspectAt >= DEAD_PROBE_MS) {
+        this.handleDead('relay silent — reconnecting');
+        return;
+      }
     }
     const nonce = ++this.pingNonce;
     this.pendingPings.set(nonce, performance.now());
@@ -282,6 +331,7 @@ export class SquadLink {
     s.setLinkStatus('disconnected');
     s.setRtt(null);
     s.pushUplink('link', reason);
+    for (const listener of [...this.closeListeners]) listener();
     this.scheduleReconnect();
   }
 
@@ -358,6 +408,7 @@ export function useSquadLink(): void {
     if (isNetworkDisabled()) {
       s.setServerUrl('', 'none');
       s.setLinkStatus('disabled');
+      markRoomsOffline();
       return;
     }
     const { url, source } = resolveServerUrl();
@@ -365,7 +416,10 @@ export function useSquadLink(): void {
     const link = new SquadLink(url);
     activeLink = link;
     link.start();
+    // Rooms ("play with friends") ride on this same socket.
+    const uninstallRooms = installRoomClient(link);
     return () => {
+      uninstallRooms();
       link.stop();
       if (activeLink === link) activeLink = null;
     };

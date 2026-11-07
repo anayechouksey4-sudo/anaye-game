@@ -6,8 +6,8 @@ import { create } from 'zustand';
 import { selectionState } from '../state/selection';
 import { useWorldHud } from '../state/worldRuntime';
 
-export type MenuTab = 'race' | 'garage' | 'drivers' | 'ride' | 'maps' | 'physics' | 'settings' | 'squad';
-/** Eight tabs: two rows of four in portrait (menu.css), a rail in landscape. GARAGE · DRIVERS · MY RIDE sit together. */
+export type MenuTab = 'race' | 'garage' | 'drivers' | 'ride' | 'maps' | 'physics' | 'settings' | 'squad' | 'friends';
+/** Nine tabs: three rows of three in portrait (menu.css), a rail in landscape. GARAGE · DRIVERS · MY RIDE sit together; SQUAD · FRIENDS close the grid. */
 export const MENU_TABS: readonly { id: MenuTab; label: string }[] = [
   { id: 'race', label: 'RACE' },
   { id: 'garage', label: 'GARAGE' },
@@ -17,6 +17,7 @@ export const MENU_TABS: readonly { id: MenuTab; label: string }[] = [
   { id: 'physics', label: 'PHYSICS' },
   { id: 'settings', label: 'SETTINGS' },
   { id: 'squad', label: 'SQUAD' },
+  { id: 'friends', label: 'FRIENDS' },
 ];
 
 interface HudPrefs {

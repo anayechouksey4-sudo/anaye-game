@@ -8,8 +8,10 @@
 //
 // The hosted copy plays offline by default (the game's `?ws=off` mode): an https page cannot open a
 // plain ws:// relay, and there is no relay next to the page anyway. `?ws=wss://…` still works.
+// It is also installable: the build emits manifest.webmanifest, icons/ and a service worker (sw.js)
+// that precaches the whole game, and all of it is copied here along with assets/.
 import { execSync } from 'node:child_process';
-import { cpSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -40,9 +42,15 @@ try {
   if (!html.includes('<script type="module"')) throw new Error('unexpected index.html: no module script');
   html = html.replace('<script type="module"', `${OFFLINE_BY_DEFAULT}\n    <script type="module"`);
 
-  rmSync(path.join(docs, 'assets'), { recursive: true, force: true });
-  cpSync(path.join(out, 'assets'), path.join(docs, 'assets'), { recursive: true });
-  if (existsSync(path.join(out, 'favicon.svg'))) cpSync(path.join(out, 'favicon.svg'), path.join(docs, 'favicon.svg'));
+  // Everything the build emitted goes to docs/: assets/, sw.js (the service worker, whose precache
+  // list names every one of these files), manifest.webmanifest, icons/, favicon.svg. Each entry the
+  // new build has is replaced wholesale (no stale hashed assets or icons left behind); files the
+  // build does not produce (the README pictures) stay.
+  for (const entry of readdirSync(out)) rmSync(path.join(docs, entry), { recursive: true, force: true });
+  cpSync(out, docs, { recursive: true });
+  for (const required of ['sw.js', 'manifest.webmanifest', 'icons']) {
+    if (!existsSync(path.join(docs, required))) throw new Error(`build output has no ${required}`);
+  }
   writeFileSync(path.join(docs, 'index.html'), html);
   // Tell GitHub Pages to serve the files as they are (no Jekyll pass).
   writeFileSync(path.join(docs, '.nojekyll'), '');

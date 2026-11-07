@@ -1,0 +1,11 @@
+/* Rival name tags (DOM, projected from the canvas) and the SETTINGS · RACE card. */
+.rv-tags { position: absolute; inset: 0; overflow: hidden; pointer-events: none; z-index: 1; }
+.rv-tag { --tag: #d8f7ff; position: absolute; left: 0; top: 0; padding: 2px 7px; font-size: 10px; font-weight: 800; letter-spacing: 0.14em; color: var(--tag); background: rgba(8, 10, 18, 0.72); border: 1px solid color-mix(in srgb, var(--tag) 55%, transparent); border-radius: 999px; white-space: nowrap; transform-origin: 50% 100%; will-change: transform; }
+.rv-settings .gm-seg { margin-bottom: 8px; }
+.rv-settings__note { margin: 0 0 8px; color: var(--dim); font-size: 10px; line-height: 1.4; letter-spacing: 0.04em; }
+
+/* Tags stay inside the play area: under the top bar, above the thumb controls, and never over the results
+   card or the menu (the labels are decoration; the card and the menu are what the player is reading). */
+.hud--compact .rv-tags { top: var(--below-bar); }
+.hud--touch .rv-tags { bottom: calc(var(--hud-b) + var(--tc-cluster-h) + 12px); }
+.hud--menu-open .rv-tags, .hud:has(.hud-results) .rv-tags { display: none; }

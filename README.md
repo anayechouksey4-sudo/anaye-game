@@ -11,7 +11,7 @@ A voxel racing game you tune live from your phone.
 
 **https://anayechouksey4-sudo.github.io/anaye-game/**
 
-GitHub Pages serves the game from the [`docs/`](docs/) folder. One-time setup in the repository: Settings → Pages → Build and deployment → Source **Deploy from a branch** → Branch `main`, folder **/docs** (or **/ (root)**: the root `index.html` forwards to `docs/`) → Save, then wait a minute or two. The hosted copy plays offline (an https page can't reach a plain `ws://` relay), so tune the car with ☰ MENU → PHYSICS; `?ws=wss://…` still connects a relay that has TLS. After a game change, rebuild it with `node scripts/build-pages.mjs` and commit `docs/`.
+GitHub Pages serves the game from the [`docs/`](docs/) folder. One-time setup in the repository: Settings → Pages → Build and deployment → Source **Deploy from a branch** → Branch `main`, folder **/docs** (or **/ (root)**: the root `index.html` forwards to `docs/`) → Save, then wait a minute or two. The hosted copy plays offline (an https page can't reach a plain `ws://` relay), so tune the car with ☰ MENU → PHYSICS; `?ws=wss://…` still connects a relay that has TLS. Install it as an app from the browser menu (or ☰ MENU → SETTINGS → APP → INSTALL APP) and it plays offline afterwards. After a game change, rebuild it with `node scripts/build-pages.mjs` and commit `docs/`.
 
 | Folder | What it is | Stack |
 | --- | --- | --- |
@@ -22,6 +22,23 @@ GitHub Pages serves the game from the [`docs/`](docs/) folder. One-time setup in
 | [`scripts/dev-all.mjs`](scripts/dev-all.mjs) | One-command launcher (installs, starts everything, prints the URLs) | Node, concurrently |
 
 - **Cars:** nine original voxel classes in the ☰ GARAGE (Neon Hypercar, Glitch Rally, Bruiser V8, Razorwing, Dune Goblin, Ember Swallowtail — the red rear-engined coupe with plate `UK 07 DW 2400` — Smoke Lantern, Ion Dragonfly, Pixel Gnat), each with its own rear number plate you can retype; five **DRIVERS** (Anaye owns the garage) built from blocks who sit in every car; and **MY RIDE**, a build-your-own look over any class (paint, neon trim, wheels, spoiler, exhaust tips, stance, name, plate) that drives exactly like its base car. Details in [`game/README.md`](game/README.md).
+- **Rivals and your ghost:** every timed race starts with three rivals driving at that car's gold, silver and bronze pace (beat the gold rival and you are P1); the top bar shows your live position (`P2/4`, tap it for the standings), the results card your finishing position and gap, and your best run on each map comes back as a translucent shadow ghost. ☰ MENU → SETTINGS → RACE: 3 / 1 / no rivals, ghost on or off, skid marks on or off (dark tyre marks where the car slides, fading after 20 s).
+- **Controls that fit the device:** keyboard on a PC, thumb controls on a phone, **tilt steering** (☰ MENU → SETTINGS → CONTROLS → TILT, with CALIBRATE and a range of 14–35°), and any standard gamepad the moment it is connected (stick steer, triggers, A handbrake, B respawn, Y restart, Start menu). The ☰ menu has nine tabs: RACE, GARAGE, DRIVERS, MY RIDE, MAPS, PHYSICS, SETTINGS, SQUAD and FRIENDS.
+
+## Play with friends
+
+Rooms run over the same relay the dashboard uses: everyone drives their own car on their own phone, the others
+appear as ghost cars (no collisions), the host picks the map and starts the race, and the lights go out for
+everyone at the same moment on the relay's clock.
+
+**Same Wi-Fi or hotspot, in three steps:** (1) on one computer or phone run `npm run dev:all` and read the
+`http://<ip>:5173` line it prints; (2) everyone opens that link; (3) one player taps ☰ MENU → **FRIENDS** →
+**HOST A ROOM** and reads out the 4-letter code (or taps COPY and sends the link); the others JOIN with the code,
+tap READY, and the host taps START. Results (position, time, gap) land in the FRIENDS tab and on the results card.
+
+**Over the internet:** host the relay once ([`server/README.md`](server/README.md#host-the-relay-online):
+`render.yaml` + `server/Dockerfile`, free tier), then open the public game link with
+`?ws=wss://<your-relay>`; the room link the host copies carries `ws=` and `room=` for the friends.
 
 ## Run everything with one command
 

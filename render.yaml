@@ -1,0 +1,16 @@
+# Render blueprint: the relay (server/) as one free web service, reachable as wss://<name>.onrender.com.
+# Deploy: Render dashboard → New → Blueprint → this repository. Render sets PORT; the relay listens on it.
+# Then open the game with ?ws=wss://<name>.onrender.com (and &room=CODE to join a friend's room).
+services:
+  - type: web
+    name: gamerfleet-relay
+    runtime: docker
+    plan: free
+    region: frankfurt
+    dockerfilePath: ./server/Dockerfile
+    dockerContext: .
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      - key: NODE_ENV
+        value: production

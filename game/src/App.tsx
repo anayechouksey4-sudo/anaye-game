@@ -11,7 +11,9 @@ import { PHYSICS_DT, isPhysicsDebug } from './config';
 import { RacerDebugHandle } from './debug/racerHandle';
 import { useGlobalHotkeys } from './game/hotkeys';
 import { RunController } from './game/RunController';
+import { RivalsLayer } from './rivals/RivalsLayer';
 import { HUD } from './hud/HUD';
+import RemotePlayersLayer from './multiplayer/RemotePlayersLayer';
 import { useSquadLink } from './net/squadLink';
 import { Environment } from './scene/Environment';
 import { useSelection } from './state/selection';
@@ -89,7 +91,9 @@ export function App() {
             <Track />
             <PlayerCar />
             <RunController />
+            <RivalsLayer />
             <RacerDebugHandle />
+            <RemotePlayersLayer />
           </PausablePhysics>
           <ChaseCamera />
           {TOUCH_DEVICE && <TouchShadowBudget />}

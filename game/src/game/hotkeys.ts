@@ -1,14 +1,15 @@
 import { useEffect } from 'react';
 import { isEditableTarget } from '../car/input';
+import { startInputBus } from '../input/inputBus';
 import { selectionState } from '../state/selection';
 import { gameState } from '../state/store';
 
-/** Discrete actions behind the hotkeys; the on-screen buttons and the ☰ menu run the same ones. */
+/** Discrete actions behind the hotkeys; the on-screen buttons, the gamepad and the ☰ menu run the same ones. */
 export type HotkeyAction = 'respawn' | 'restart' | 'camera' | 'physics' | 'help' | 'menu';
 
 /**
  * R respawn, Backspace/T restart, C camera, P physics panel, H help (the HUD extras on touch
- * devices), Esc / M the ☰ menu (pause).
+ * devices), Esc / M the ☰ menu (pause). Gamepad: B respawn, Y restart, Start menu (input/inputBus.ts).
  */
 const KEY_ACTIONS: Readonly<Record<string, HotkeyAction>> = {
   KeyR: 'respawn',
@@ -45,7 +46,11 @@ export function runHotkeyAction(action: HotkeyAction): void {
   }
 }
 
-/** Discrete hotkeys (see KEY_ACTIONS). While the ☰ menu is open only Esc / M work (they close it). */
+/**
+ * Discrete hotkeys (see KEY_ACTIONS). While the ☰ menu is open only Esc / M work (they close it).
+ * Also owns the lifetime of the input bus (gamepad polling, tilt steering), which runs on every
+ * device for as long as the app is mounted.
+ */
 export function useGlobalHotkeys(): void {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -59,6 +64,10 @@ export function useGlobalHotkeys(): void {
       runHotkeyAction(action);
     };
     window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
+    const stopInputBus = startInputBus();
+    return () => {
+      window.removeEventListener('keydown', onKey);
+      stopInputBus();
+    };
   }, []);
 }

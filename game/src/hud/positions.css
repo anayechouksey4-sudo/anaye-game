@@ -1,0 +1,24 @@
+/* Live race position: the P n/N chip in the phone top bar, its 3-second standings sheet, the desktop lines. */
+.hud-topbar__pos { display: flex; flex-direction: column; justify-content: center; align-items: center; min-width: 44px; min-height: 44px; margin-left: 9px; padding: 0 2px 0 10px; border-left: 1px solid var(--line); background: none; border-top: 0; border-right: 0; border-bottom: 0; color: var(--text); font: inherit; line-height: 1; cursor: pointer; pointer-events: auto; touch-action: manipulation; }
+.hud-topbar__pos label { font-size: 9px; letter-spacing: 0.16em; color: var(--cyan); pointer-events: none; }
+.hud-topbar__pos b { margin-top: 3px; font-size: 15px; font-weight: 800; color: var(--yellow); font-variant-numeric: tabular-nums; pointer-events: none; white-space: nowrap; }
+.hud-topbar__pos b small { font-size: 10px; font-weight: 700; color: var(--dim); }
+.hud-topbar__pos.is-p1 b { color: var(--green); text-shadow: 0 0 8px rgba(57, 255, 20, 0.6); }
+.hud-topbar__pos:active { background: rgba(0, 240, 255, 0.14); }
+
+/* The sheet drops under the top bar, a sibling of the bar inside .hud-top (never over the thumbs: the callout band). */
+.hud-pos-sheet { position: absolute; top: calc(var(--bar-h, 50px) + 8px); left: 0; z-index: 3; display: grid; gap: 3px; min-width: 190px; max-width: min(300px, calc(100vw - 2 * var(--hud-l, 10px))); padding: 8px 10px; pointer-events: auto; }
+@media (orientation: landscape) { .hud--compact .hud-pos-sheet { left: 50%; transform: translateX(-50%); } }
+.hud-pos-row { display: grid; grid-template-columns: 2.6ch minmax(0, 1fr) auto; gap: 8px; align-items: baseline; font-size: 12px; letter-spacing: 0.08em; white-space: nowrap; }
+.hud-pos-row i { font-style: normal; font-weight: 800; color: var(--dim); font-variant-numeric: tabular-nums; }
+.hud-pos-row b { overflow: hidden; text-overflow: ellipsis; font-weight: 700; color: var(--row, var(--text)); }
+.hud-pos-row span { color: var(--dim); font-variant-numeric: tabular-nums; }
+.hud-pos-row.is-you i, .hud-pos-row.is-you b, .hud-pos-row.is-you span { color: var(--yellow); }
+.hud-pos-row.is-done span { color: var(--green); }
+
+/* Desktop run panel: the lines under the stats. */
+.hud-run__pos { display: grid; gap: 2px; margin: 8px 0 0; padding: 6px 0 0; border-top: 1px solid var(--line); list-style: none; }
+.hud-run__pos .hud-pos-row { font-size: 11px; }
+
+/* Results card: the finishing position line above the medal row. */
+.hud-results__position { margin: 2px 0 6px; font-size: 12px; font-weight: 800; letter-spacing: 0.14em; color: var(--cyan); text-shadow: 0 0 8px rgba(0, 240, 255, 0.5); }

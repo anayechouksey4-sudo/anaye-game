@@ -64,8 +64,8 @@
 .gm__close:hover,
 .gm__close:focus-visible { background: rgba(0, 240, 255, 0.2); color: #fff; outline: none; }
 
-/* Eight tabs: two rows of four (RACE GARAGE DRIVERS MY RIDE / MAPS PHYSICS SETTINGS SQUAD), 79 px wide at 360 px. */
-.gm__tabs { grid-area: tabs; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; }
+/* Nine tabs: three rows of three (RACE GARAGE DRIVERS / MY RIDE MAPS PHYSICS / SETTINGS SQUAD FRIENDS), 108 px wide at 360 px. */
+.gm__tabs { grid-area: tabs; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
 .gm__tabs button {
   min-height: 44px;
   padding: 0 2px;
@@ -119,11 +119,20 @@
   .gm__panel { gap: 6px; padding-top: 6px; padding-bottom: 6px; }
   .gm__head { min-height: 46px; }
   .gm__close { width: 52px; height: 46px; }
-  /* Phone landscape (≤ 420 px tall): eight 40 px rail buttons would scroll, so the rail is two columns of four. */
+  /* Phone landscape (≤ 420 px tall): nine 44 px rail buttons in one column (444 px) would scroll, so the
+     rail is two columns of five (240 px: fits the ~296 px under the header at 360 px tall). */
   .gm__panel { grid-template-columns: 164px minmax(0, 1fr); }
   .gm__tabs { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 5px; }
   .gm__tabs button { min-height: 44px; font-size: 10px; letter-spacing: 0.1em; }
   .gm-btn { min-height: 46px; }
+}
+/* Short landscape (≤ 300 px tall: 740×280, 800×264): two columns of five (240 px) are taller than the
+   ~200 px left under the header, so the rail widens to three columns of three (142 px). The rail keeps
+   `overflow-y: auto` from the landscape rule, so a still shorter screen scrolls it instead of clipping. */
+@media (orientation: landscape) and (max-height: 300px) {
+  .gm__panel { grid-template-columns: 204px minmax(0, 1fr); }
+  .gm__tabs { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 4px; }
+  .gm__tabs button { padding: 0 1px; font-size: 10px; letter-spacing: 0.06em; }
 }
 /* Desktop-sized windows: a centred window instead of a full-screen sheet. */
 @media (min-width: 901px) and (min-height: 521px) {
