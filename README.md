@@ -41,7 +41,7 @@ tap READY, and the host taps START. Results (position, time, gap) land in the FR
 `render.yaml` + `server/Dockerfile`, free tier), then open the public game link with
 `?ws=wss://<your-relay>`; the room link the host copies carries `ws=` and `room=` for the friends.
 
-On a phone the easy way is the FRIENDS tab itself: ☰ MENU → FRIENDS → type the relay address (the `wss://…onrender.com` address Render gave you) → CONNECT. The address is remembered on that device, so the installed app reconnects to it every time it starts; FORGET RELAY in the same tab goes back to offline play.
+The public copy and the app installed from it connect to the owner's relay on their own (the `DEFAULT_RELAY` line at the top of `scripts/build-pages.mjs`; empty means offline by default), so ☰ MENU → FRIENDS opens straight on HOST A ROOM. A relay named in a friend's room link, or typed into FRIENDS → CONNECT, is remembered on that device instead; FORGET RELAY in the same tab switches that device to offline play until you connect again.
 
 ## Run everything with one command
 

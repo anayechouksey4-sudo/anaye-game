@@ -20,17 +20,19 @@ import { isHost, positionOf, sortedResults, useRoom, type RoomState } from './ro
 /** The relay address typed in CONNECT, remembered so the installed app reconnects to it on the next start
  *  (the hosted copy's start-up script reads it; see scripts/build-pages.mjs). */
 export const SAVED_RELAY_KEY = 'gamerfleet.relay.v1';
+/** The saved relay address, or '' when none is saved or the player chose offline ('off'). */
 export function savedRelay(): string {
   try {
-    return localStorage.getItem(SAVED_RELAY_KEY) ?? '';
+    const v = localStorage.getItem(SAVED_RELAY_KEY) ?? '';
+    return v === 'off' ? '' : v;
   } catch {
     return '';
   }
 }
+/** `null` records the player's choice to play offline ('off'): the hosted copy then skips its default relay. */
 function rememberRelay(value: string | null): void {
   try {
-    if (value) localStorage.setItem(SAVED_RELAY_KEY, value);
-    else localStorage.removeItem(SAVED_RELAY_KEY);
+    localStorage.setItem(SAVED_RELAY_KEY, value || 'off');
   } catch {
     /* private mode: the address still works for this visit */
   }

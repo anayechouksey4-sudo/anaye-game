@@ -20,16 +20,22 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const docs = path.join(root, 'docs');
 const out = mkdtempSync(path.join(tmpdir(), 'squadhq-pages-'));
 
+// The relay the hosted copy (and the app installed from it) connects to when the address names none and the
+// player saved none: the owner's own relay, hosted as server/README.md "Host the relay online" describes.
+// An empty string means "play offline unless a relay is given in the address or saved in FRIENDS".
+const DEFAULT_RELAY = 'wss://gamerfleet-relay.onrender.com';
+
 const OFFLINE_BY_DEFAULT = `<script>
-      // Hosted copy: play offline unless the address names a relay (?ws=…) or one was saved in FRIENDS. ☰ MENU → PHYSICS tunes the car.
+      // Hosted copy: connect to the saved or default relay unless the address names one (?ws=…); ?ws=off plays offline.
       (function () {
         try {
           if (/[?&]ws=/.test(location.search)) return;
-          // A relay address saved by ☰ MENU → FRIENDS → CONNECT (gamerfleet.relay.v1) is used on every start.
+          // Relay for this start: the address saved by ☰ MENU → FRIENDS → CONNECT or by a friend's room link
+          // (gamerfleet.relay.v1; 'off' = the player chose offline there), else the site's default relay, else offline.
           var saved = null;
           try { saved = localStorage.getItem('gamerfleet.relay.v1'); } catch (e) { /* no storage */ }
           var url = new URL(location.href);
-          url.searchParams.set('ws', saved || 'off');
+          url.searchParams.set('ws', saved || ${JSON.stringify(DEFAULT_RELAY)} || 'off');
           history.replaceState(null, '', url.toString());
         } catch (e) {
           /* no history access: the game shows OFFLINE MODE and keeps playing */

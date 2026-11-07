@@ -29,15 +29,15 @@ export default function InstallCard() {
     status = import.meta.env.PROD ? 'OFFLINE PLAY NOT AVAILABLE HERE' : 'DEV SERVER · NO OFFLINE CACHE';
     hint = import.meta.env.PROD ? 'This browser or frame has no service workers; the game still plays online.' : 'The production build registers the service worker.';
   } else if (pwa.standalone || pwa.installed) {
-    status = 'INSTALLED · PLAYS OFFLINE';
+    status = 'INSTALLED · ONLINE WITH FRIENDS, OFFLINE ANYWHERE';
   } else if (pwa.canInstall) {
-    status = 'INSTALL FOR OFFLINE PLAY';
-    hint = 'Adds GF Racer to your home screen or desktop; it opens full screen and works without a network.';
+    status = 'INSTALL THE APP';
+    hint = 'Adds GF Racer to your home screen or desktop: full screen, online rooms with your friends, and it still plays without a network.';
   } else if (pwa.ios) {
     status = 'ADD TO HOME SCREEN';
-    hint = 'iPhone / iPad: tap Share, then Add to Home Screen. It then opens full screen and plays offline.';
+    hint = 'iPhone / iPad: tap Share, then Add to Home Screen. It then opens full screen, plays online with friends and offline anywhere.';
   } else {
-    status = 'PLAYS OFFLINE IN THIS BROWSER';
+    status = 'PLAYS HERE, ONLINE AND OFFLINE';
     hint = 'To install: browser menu → Install app (or Add to Home screen).';
   }
 
