@@ -4,8 +4,10 @@
 .rv-settings .gm-seg { margin-bottom: 8px; }
 .rv-settings__note { margin: 0 0 8px; color: var(--dim); font-size: 10px; line-height: 1.4; letter-spacing: 0.04em; }
 
-/* Tags stay inside the play area: under the top bar, above the thumb controls, and never over the results
-   card or the menu (the labels are decoration; the card and the menu are what the player is reading). */
+/* Tags stay inside the play area: under the top bar, clear of the thumb controls (NameTags reports the layer's
+   box and the thumbs' boxes to the layout, which hides a pill that would touch them, in every touch state:
+   start gate, lights, run), and never over the results card or the menu (the labels are decoration; the card
+   and the menu are what the player is reading). */
 .hud--compact .rv-tags { top: var(--below-bar); }
-.hud--touch .rv-tags { bottom: calc(var(--hud-b) + var(--tc-cluster-h) + 12px); }
+.hud--touch .rv-tags { bottom: var(--hud-b); }
 .hud--menu-open .rv-tags, .hud:has(.hud-results) .rv-tags { display: none; }

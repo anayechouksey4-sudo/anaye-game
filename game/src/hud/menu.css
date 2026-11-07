@@ -437,8 +437,8 @@
 /* Short landscape (e.g. 740×280, 800×264): the card sits between the thumbs and 2 × 2 buttons don't fit
    its height, so the four open-world buttons stay on one row and their labels wrap onto two lines. */
 @media (orientation: landscape) and (max-height: 300px) {
-  /* Every map: the time shares its row with NEW RECORD and the medal (the plate and driver in the
-     header take a line here), so the buttons stay inside the card. */
+  /* Every map: the time shares its row with NEW RECORD and the medal, so the buttons stay inside the
+     card (the header is one ellipsized line here: see the short-screen block at the end). */
   .hud--compact .hud-results__time { flex-basis: auto; font-size: 26px; }
   .hud--compact .hud-results__actions--world { grid-template-columns: repeat(4, minmax(0, 1fr)); }
   .hud--compact .hud-results__actions--world .gm-btn { font-size: 9px; letter-spacing: 0.03em; }
@@ -454,6 +454,36 @@
 @container results-card (max-width: 267px) {
   .hud--compact .hud-results__head { flex-direction: column; align-items: flex-start; gap: 0; }
   .hud--compact .hud-results__time { font-size: 24px; }
+}
+
+/* Short screens (Results.tsx `useShortCard`: landscape ≤ 400 px tall, portrait ≤ 700 px tall): the
+   BEST / CHECKPOINTS / FALLS grid becomes one row of chips between the time and the buttons, so RETRY /
+   NEXT MAP / GARAGE stay inside the card without scrolling (e.g. 863×360, 780×360, 360×640). */
+.hud-results__statrow { display: flex; flex-wrap: wrap; gap: 4px 6px; margin: 0; }
+.hud-results__statrow > span { display: inline-flex; align-items: baseline; gap: 5px; padding: 4px 8px; background: rgba(0, 0, 0, 0.35); border-radius: 8px; white-space: nowrap; }
+.hud-results__statrow small { color: var(--dim); font-size: 9px; letter-spacing: 0.16em; }
+.hud-results__statrow b { font-size: 12px; font-weight: 700; color: var(--yellow); font-variant-numeric: tabular-nums; }
+.hud-results__statrow b.is-bad { color: var(--magenta); }
+@media (orientation: landscape) and (max-height: 400px) {
+  .hud--compact .hud-results__card { gap: 5px; padding: 8px 12px 10px; }
+  .hud--compact .hud-results__time { font-size: 26px; }
+  .hud--compact .hud-results__actions .gm-btn { min-height: 44px; }
+}
+/* 740×280 / 800×264 leave the card 208 / 192 px: FINISH and the map · car line share one ellipsized row
+   (the map name leads, so it is what survives), the time 24 px, no extra margins. */
+@media (orientation: landscape) and (max-height: 300px) {
+  .hud--compact .hud-results__card { gap: 3px; padding: 5px 10px 6px; }
+  .hud--compact .hud-results__head { flex-direction: row; align-items: baseline; gap: 8px; }
+  .hud--compact .hud-results__sub { display: block; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .hud--compact .hud-results__sub > span { display: inline; max-width: none; overflow: visible; }
+  .hud--compact .hud-results__time { font-size: 24px; }
+  .hud--compact .hud-results__position { margin: 0; }
+  .hud--compact .hud-results__statrow > span { padding: 2px 7px; }
+}
+/* Short portrait (360×640): the classic card tightens the way the open-world one already does. */
+@media (orientation: portrait) and (max-height: 700px) {
+  .hud--compact .hud-results__card { gap: 7px; padding: 10px 12px 12px; }
+  .hud--compact .hud-results__time { font-size: 32px; }
 }
 
 /* ── Start gate (StartGate.tsx, touch devices: the tap that unlocks sound) ── */

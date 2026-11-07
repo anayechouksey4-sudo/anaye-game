@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { getCarEntry } from '../car/catalog';
 import { plateFor } from '../car/plates/platePick';
 import { onGameEvent } from '../game/events';
@@ -70,6 +70,25 @@ function seconds(ms: number): string {
   return `${(ms / 1000).toFixed(3)} s`;
 }
 
+/**
+ * Screens where the full card (BEST / CHECKPOINTS / FALLS as a grid under the buttons) does not fit
+ * between the top bar and the thumbs: landscape phones and short portrait ones. The card then shows
+ * the stats as one row of chips between the time and the buttons (menu.css tightens the rest under
+ * the same media queries).
+ */
+const SHORT_CARD_QUERY = '(orientation: landscape) and (max-height: 400px), (orientation: portrait) and (max-height: 700px)';
+const shortCardQuery = (): MediaQueryList | null =>
+  typeof window !== 'undefined' && typeof window.matchMedia === 'function' ? window.matchMedia(SHORT_CARD_QUERY) : null;
+function subscribeShortCard(onChange: () => void): () => void {
+  const mq = shortCardQuery();
+  mq?.addEventListener('change', onChange);
+  return () => mq?.removeEventListener('change', onChange);
+}
+const isShortCard = (): boolean => shortCardQuery()?.matches ?? false;
+export function useShortCard(): boolean {
+  return useSyncExternalStore(subscribeShortCard, isShortCard, () => false);
+}
+
 export function MedalBadge({ medal, small = false }: { medal: Medal | null; small?: boolean }) {
   if (!medal) return null;
   return (
@@ -90,6 +109,7 @@ export function Results() {
   const [result, setResult] = useState<RunResult | null>(null);
   const [hidden, setHidden] = useState(false);
   const menuOpen = useSelection((s) => s.menuOpen);
+  const shortCard = useShortCard();
   // Best time before this finish (the store already holds the new one when 'finish' fires).
   const previousBest = useRef<number | null>(null);
   const runBest = useGameStore((s) => s.run.bestMs);
@@ -211,28 +231,54 @@ export function Results() {
         </div>
         {/* Shared race with friends: "P1 OF 3 FRIENDS" (multiplayer/FriendsResultLine; nothing outside a room). */}
         <FriendsResultLine />
-        <dl className="hud-results__stats">
-          <div>
-            <dt>BEST</dt>
-            <dd data-testid="results-best">{formatRaceTime(r.bestMs)}</dd>
+        {shortCard ? (
+          /* Short screens: BEST · CP · FALLS (· LIP) as one row of chips between the time and the buttons. */
+          <div className="hud-results__statrow" data-testid="results-statrow">
+            <span>
+              <small>BEST</small>
+              <b data-testid="results-best">{formatRaceTime(r.bestMs)}</b>
+            </span>
+            <span>
+              <small>CP</small>
+              <b>
+                {r.checkpoints}/{r.totalCheckpoints}
+              </b>
+            </span>
+            <span>
+              <small>FALLS</small>
+              <b className={r.falls > 0 ? 'is-bad' : undefined}>{r.falls}</b>
+            </span>
+            {r.speedTrapKmh !== null && (
+              <span>
+                <small>LIP</small>
+                <b>{r.speedTrapKmh.toFixed(0)} km/h</b>
+              </span>
+            )}
           </div>
-          <div>
-            <dt>CHECKPOINTS</dt>
-            <dd>
-              {r.checkpoints}/{r.totalCheckpoints}
-            </dd>
-          </div>
-          <div>
-            <dt>FALLS</dt>
-            <dd className={r.falls > 0 ? 'is-bad' : undefined}>{r.falls}</dd>
-          </div>
-          {r.speedTrapKmh !== null && (
+        ) : (
+          <dl className="hud-results__stats">
             <div>
-              <dt>JUMP LIP</dt>
-              <dd>{r.speedTrapKmh.toFixed(0)} km/h</dd>
+              <dt>BEST</dt>
+              <dd data-testid="results-best">{formatRaceTime(r.bestMs)}</dd>
             </div>
-          )}
-        </dl>
+            <div>
+              <dt>CHECKPOINTS</dt>
+              <dd>
+                {r.checkpoints}/{r.totalCheckpoints}
+              </dd>
+            </div>
+            <div>
+              <dt>FALLS</dt>
+              <dd className={r.falls > 0 ? 'is-bad' : undefined}>{r.falls}</dd>
+            </div>
+            {r.speedTrapKmh !== null && (
+              <div>
+                <dt>JUMP LIP</dt>
+                <dd>{r.speedTrapKmh.toFixed(0)} km/h</dd>
+              </div>
+            )}
+          </dl>
+        )}
         <div className={`hud-results__actions${worldRace ? ' hud-results__actions--world' : ''}`}>
           <button type="button" className="gm-btn gm-btn--primary" onClick={() => gameState().restart()} data-testid="results-retry">
             ⟲ RETRY

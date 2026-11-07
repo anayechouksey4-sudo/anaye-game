@@ -32,7 +32,10 @@
 .tc-tilt.is-right { border-style: solid; }
 
 /* Short notice under the top bar: GAMEPAD CONNECTED, TILT NOT ALLOWED, TILT CALIBRATED. Centred, above
-   the thumbs and clear of the minimap column; hidden with the rest of the HUD while the menu is open. */
+   the thumbs and clear of the minimap column; hidden with the rest of the HUD while the menu is open.
+   While the start lights show, InputChip.tsx sets an inline `top` just under their measured box
+   (`.inchip--under-lights`) before the chip's first paint, so the notice never sits in the lights'
+   band (no transition on `top`: a slide would cross it). */
 .inchip {
   position: absolute;
   top: calc(var(--below-bar, 64px) + 4px);
@@ -51,7 +54,8 @@
   z-index: 3;
   animation: inchip-in 160ms ease-out;
 }
-@keyframes inchip-in { from { opacity: 0; transform: translate(-50%, -6px); } to { opacity: 1; transform: translate(-50%, 0); } }
+/* The entry rises from 6 px below its place, so the chip is never nearer the bar or the lights than at rest. */
+@keyframes inchip-in { from { opacity: 0; transform: translate(-50%, 6px); } to { opacity: 1; transform: translate(-50%, 0); } }
 
 /* SETTINGS → CONTROLS (input/InputSettings.tsx). Rows reuse the menu's .gm-seg / .gm-toggle / .gm-btn sizes (≥ 44 px). */
 .ins { display: grid; gap: 8px; margin-bottom: 8px; }
