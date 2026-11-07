@@ -3,7 +3,7 @@
  * START (host), LEAVE, the share link and the results table. Offline / unlinked it explains how to
  * reach a relay. Every control is ≥ 44 px (menu.css buttons, 46 px fields); fits 360×640 and 740×280.
  */
-import { useEffect, useState, type FormEvent } from 'react';
+import { useEffect, useState, type FormEvent, type ReactNode } from 'react';
 import { ROOM_CODE_LENGTH, type RoomPlayer, type RoomRace } from '@shared/protocol';
 import { getCarEntry, resolveCarId } from '../car/catalog';
 import { portraitDataUrl } from '../drivers/portrait';
@@ -14,6 +14,7 @@ import { useGameStore } from '../state/store';
 import { getTrackEntry } from '../track/catalog';
 import { decodePlayer } from './identity';
 import { relayNow, roomActions } from './roomClient';
+import { promptInstall, usePwa } from '../pwa/register';
 import { isHost, positionOf, sortedResults, useRoom, type RoomState } from './roomStore';
 
 /** The relay address typed in CONNECT, remembered so the installed app reconnects to it on the next start
@@ -32,6 +33,16 @@ function rememberRelay(value: string | null): void {
     else localStorage.removeItem(SAVED_RELAY_KEY);
   } catch {
     /* private mode: the address still works for this visit */
+  }
+}
+/** A relay named in the address (`?ws=…`, e.g. from a friend's copied room link) is remembered like one typed
+ *  in CONNECT, so the installed app comes back online on its own. `off` and empty values are ignored. */
+export function rememberRelayFromUrl(): void {
+  try {
+    const ws = new URLSearchParams(window.location.search).get('ws');
+    if (ws && ws !== 'off' && ws !== '0' && ws !== 'false') rememberRelay(ws.trim());
+  } catch {
+    /* no URL access */
   }
 }
 function reloadWithRelay(value: string): void {
@@ -74,6 +85,58 @@ export default function FriendsTab() {
         </p>
       )}
       {linkStatus !== 'connected' ? <ConnectHelp linkStatus={linkStatus} /> : room.status === 'in-room' ? <InRoom room={room} /> : <Entry room={room} />}
+      <GetTheGame />
+    </div>
+  );
+}
+
+/** Friends who arrived by a room link can install the game from here and pass the game link on. */
+function GetTheGame() {
+  const pwa = usePwa();
+  const [copied, setCopied] = useState(false);
+  const gameLink = (() => {
+    try {
+      const u = new URL(window.location.href);
+      return `${u.origin}${u.pathname}`;
+    } catch {
+      return '';
+    }
+  })();
+  const copyLink = async () => {
+    try {
+      await navigator.clipboard.writeText(gameLink);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      window.prompt('Game link', gameLink);
+    }
+  };
+  let install: ReactNode;
+  if (pwa.standalone || pwa.installed) {
+    install = <span className="fr__got" data-testid="friends-installed">INSTALLED ON THIS DEVICE</span>;
+  } else if (pwa.canInstall) {
+    install = (
+      <button type="button" className="gm-btn gm-btn--primary fr__btn fr__btn--fit" onClick={() => void promptInstall()} data-testid="friends-install">
+        INSTALL THE GAME
+      </button>
+    );
+  } else if (pwa.ios) {
+    install = <span className="fr__got">iPhone / iPad: Share → Add to Home Screen</span>;
+  } else {
+    install = <span className="fr__got">Install: browser menu → Install app</span>;
+  }
+  return (
+    <div className="fr__get" data-testid="friends-get">
+      <b className="fr__get-title">GET THE GAME</b>
+      <div className="fr__row fr__row--wrap">
+        {install}
+        {gameLink && (
+          <button type="button" className="gm-btn fr__btn fr__btn--fit" onClick={() => void copyLink()} data-testid="friends-copy-game">
+            {copied ? 'LINK COPIED' : 'COPY GAME LINK'}
+          </button>
+        )}
+      </div>
+      <p className="fr__hint">Installs free from the browser, plays offline, and opens straight into your relay once you have connected once.</p>
     </div>
   );
 }
