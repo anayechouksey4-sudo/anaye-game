@@ -64,8 +64,8 @@
 .gm__close:hover,
 .gm__close:focus-visible { background: rgba(0, 240, 255, 0.2); color: #fff; outline: none; }
 
-/* Nine tabs: three rows of three (RACE GARAGE DRIVERS / MY RIDE MAPS PHYSICS / SETTINGS SQUAD FRIENDS), 108 px wide at 360 px. */
-.gm__tabs { grid-area: tabs; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
+/* Ten tabs: rows of four (RACE CAREER GARAGE DRIVERS / MY RIDE MAPS PHYSICS SETTINGS / SQUAD FRIENDS), 80 px wide at 360 px. */
+.gm__tabs { grid-area: tabs; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; }
 .gm__tabs button {
   min-height: 44px;
   padding: 0 2px;

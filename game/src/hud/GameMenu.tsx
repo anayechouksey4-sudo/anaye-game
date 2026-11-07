@@ -12,6 +12,7 @@ import { useWornPlate } from '../car/plates/platePick';
 import { SkidToggle } from '../car/skid/SkidSettings';
 import InputSettings from '../input/InputSettings';
 import FriendsTab from '../multiplayer/FriendsTab';
+import { CareerTab } from '../career';
 import InstallCard from '../pwa/InstallCard';
 import RivalsSettings from '../rivals/RivalsSettings';
 import type { RideConfig } from '../ride/config';
@@ -570,6 +571,7 @@ const TAB_BODY: Record<MenuTab, (props: { goTo: (tab: MenuTab) => void }) => Rea
   settings: SettingsTab,
   squad: SquadTab,
   friends: FriendsTab,
+  career: CareerTab,
 };
 
 export function GameMenu() {

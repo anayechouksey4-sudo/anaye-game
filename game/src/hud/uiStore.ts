@@ -6,10 +6,11 @@ import { create } from 'zustand';
 import { selectionState } from '../state/selection';
 import { useWorldHud } from '../state/worldRuntime';
 
-export type MenuTab = 'race' | 'garage' | 'drivers' | 'ride' | 'maps' | 'physics' | 'settings' | 'squad' | 'friends';
+export type MenuTab = 'race' | 'career' | 'garage' | 'drivers' | 'ride' | 'maps' | 'physics' | 'settings' | 'squad' | 'friends';
 /** Nine tabs: three rows of three in portrait (menu.css), a rail in landscape. GARAGE · DRIVERS · MY RIDE sit together; SQUAD · FRIENDS close the grid. */
 export const MENU_TABS: readonly { id: MenuTab; label: string }[] = [
   { id: 'race', label: 'RACE' },
+  { id: 'career', label: 'CAREER' },
   { id: 'garage', label: 'GARAGE' },
   { id: 'drivers', label: 'DRIVERS' },
   { id: 'ride', label: 'MY RIDE' },

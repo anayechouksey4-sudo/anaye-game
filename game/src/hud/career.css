@@ -1,0 +1,93 @@
+/* CAREER tab (hud/CareerTab.tsx) and the TROPHY toast (career/TrophyToast.tsx). Inherits the HUD tokens. */
+.cr { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.cr-section { margin-top: 12px; }
+
+/* ── Header strip ── */
+.cr-strip { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; }
+.cr-tile { min-width: 0; padding: 8px 8px; background: rgba(8, 10, 18, 0.7); border: 1px solid rgba(0, 240, 255, 0.18); border-radius: 10px; }
+.cr-tile b { display: block; margin-top: 3px; font-size: 14px; font-weight: 700; color: var(--yellow); font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cr-tile__medals { display: flex !important; align-items: center; gap: 2px 3px; font-size: 12px !important; }
+.cr-dot { flex: none; width: 9px; height: 9px; margin-left: 3px; border-radius: 50%; background: currentColor; box-shadow: 0 0 5px currentColor; }
+.cr-dot:first-child { margin-left: 0; }
+.cr-dot--gold { color: #ffd23f; }
+.cr-dot--silver { color: #dfe7f0; }
+.cr-dot--bronze { color: #e8955c; }
+@media (max-width: 379px) {
+  .cr-strip { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+/* ── Trophy grid: 44 px+ cells, locked ones dimmed ── */
+.cr-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(72px, 1fr)); gap: 6px; }
+.cr-trophy {
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px;
+  min-width: 44px; min-height: 64px; padding: 6px 2px;
+  font: inherit; font-size: 8px; font-weight: 800; letter-spacing: 0.08em; color: var(--yellow);
+  background: rgba(8, 10, 18, 0.82); border: 1px solid rgba(245, 230, 99, 0.5); border-radius: 10px;
+  cursor: pointer; touch-action: manipulation; -webkit-tap-highlight-color: transparent;
+}
+.cr-trophy.is-won { box-shadow: 0 0 10px rgba(245, 230, 99, 0.25); }
+.cr-trophy.is-locked { color: rgba(216, 247, 255, 0.38); background: rgba(8, 10, 18, 0.9); border-color: rgba(216, 247, 255, 0.14); }
+.cr-trophy.is-picked { border-color: var(--cyan); box-shadow: 0 0 0 2px var(--cyan); }
+.cr-trophy:focus-visible { outline: none; border-color: var(--cyan); }
+.cr-trophy__glyph { width: 24px; height: 24px; }
+.cr-trophy__name { display: block; max-width: 100%; line-height: 1.15; text-align: center; overflow-wrap: anywhere; }
+.cr-detail { margin: 8px 0 0; padding: 8px 10px; font-size: 11px; line-height: 1.45; color: var(--text); background: rgba(0, 240, 255, 0.08); border: 1px solid rgba(0, 240, 255, 0.3); border-radius: 10px; overflow-wrap: anywhere; }
+.cr-detail b { color: #fff; letter-spacing: 0.08em; }
+.cr-detail__won { color: var(--green); font-size: 10px; letter-spacing: 0.12em; }
+.cr-detail__locked { color: var(--dim); font-size: 10px; letter-spacing: 0.12em; }
+
+/* ── Medal matrix: scrolls sideways inside the tab, never the body ── */
+.cr-scroll { max-width: 100%; overflow-x: auto; overflow-y: hidden; overscroll-behavior-x: contain; touch-action: pan-x pan-y; -webkit-overflow-scrolling: touch; border: 1px solid rgba(0, 240, 255, 0.16); border-radius: 10px; background: rgba(8, 10, 18, 0.6); }
+.cr-matrix { border-collapse: separate; border-spacing: 2px; font-variant-numeric: tabular-nums; }
+.cr-matrix th { padding: 0 4px; font-size: 9px; font-weight: 700; letter-spacing: 0.1em; color: var(--dim); white-space: nowrap; text-align: center; }
+.cr-matrix thead th { height: 28px; }
+.cr-matrix tbody th { position: sticky; left: 0; z-index: 1; text-align: left; background: rgb(8, 10, 18); }
+.cr-matrix td { padding: 0; }
+.cr-cell {
+  display: block; width: 44px; height: 44px; margin: 0; padding: 0;
+  font: inherit; font-size: 13px; font-weight: 800; color: var(--dim);
+  background: rgba(255, 255, 255, 0.04); border: 1px solid rgba(216, 247, 255, 0.1); border-radius: 8px;
+  cursor: pointer; touch-action: manipulation; -webkit-tap-highlight-color: transparent;
+}
+.cr-cell--run { color: var(--text); border-color: rgba(216, 247, 255, 0.25); }
+.cr-cell--gold { color: #1a1200; background: #ffd23f; border-color: #ffd23f; box-shadow: 0 0 8px rgba(255, 210, 63, 0.5); }
+.cr-cell--silver { color: #10151c; background: #dfe7f0; border-color: #dfe7f0; }
+.cr-cell--bronze { color: #1d0e05; background: #e8955c; border-color: #e8955c; }
+.cr-cell.is-picked { outline: 2px solid var(--cyan); outline-offset: -1px; }
+.cr-cell:focus-visible { outline: 2px solid var(--cyan); outline-offset: -1px; }
+
+/* ── Stats ── */
+.cr-stats { margin: 0; display: grid; gap: 4px; }
+.cr-stats div { display: grid; grid-template-columns: minmax(96px, 0.8fr) minmax(0, 1.2fr); gap: 10px; align-items: baseline; padding: 6px 10px; background: rgba(8, 10, 18, 0.6); border: 1px solid rgba(0, 240, 255, 0.12); border-radius: 8px; }
+.cr-stats dt { font-size: 9px; letter-spacing: 0.18em; color: var(--dim); }
+.cr-stats dd { margin: 0; font-size: 12px; font-weight: 700; color: var(--yellow); font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+
+/* ── Reset, two taps ── */
+.cr-reset { display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; margin-top: 16px; }
+.cr-reset:has(.cr-reset__cancel) { grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); }
+.cr-reset__btn { min-height: 48px; color: var(--magenta); border-color: rgba(255, 42, 109, 0.55); white-space: normal; line-height: 1.2; }
+.cr-reset__btn.is-armed { color: #fff; background: var(--magenta); border-color: var(--magenta); box-shadow: 0 0 16px rgba(255, 42, 109, 0.5); }
+.cr-reset__cancel { min-height: 48px; }
+
+/* ── TROPHY toast ── */
+.cr-toast {
+  position: absolute; top: 96px; left: 50%; z-index: 12; transform: translateX(-50%);
+  display: flex; align-items: center; gap: 10px; max-width: calc(100vw - 32px); padding: 8px 14px 8px 10px;
+  color: var(--yellow); background: rgba(8, 10, 18, 0.9); border: 1px solid rgba(245, 230, 99, 0.7); border-radius: 12px;
+  box-shadow: 0 0 22px rgba(245, 230, 99, 0.35); pointer-events: none;
+  animation: cr-toast-in 260ms ease-out both;
+}
+.cr-toast__glyph { flex: none; width: 24px; height: 24px; }
+.cr-toast__text { display: flex; flex-direction: column; min-width: 0; }
+.cr-toast__text small { font-size: 9px; letter-spacing: 0.24em; color: var(--dim); }
+.cr-toast__text b { font-size: 13px; letter-spacing: 0.18em; color: #fff; text-shadow: 0 0 10px rgba(245, 230, 99, 0.7); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+@keyframes cr-toast-in { from { opacity: 0; transform: translateX(-50%) translateY(-8px); } to { opacity: 1; transform: translateX(-50%) translateY(0); } }
+/* Compact HUD: under the top bar; beside the minimap disc when it shows (portrait: disc at the right, landscape: at the left). */
+.hud--compact .cr-toast { top: calc(var(--below-bar) + 44px); }
+@media (orientation: portrait) {
+  .hud--compact.hud--minimap .cr-toast { left: var(--hud-l); transform: none; max-width: calc(100vw - var(--hud-l) - var(--hud-r) - var(--mm) - 12px); animation-name: cr-toast-in-flat; }
+}
+@media (orientation: landscape) {
+  .hud--compact.hud--minimap .cr-toast { left: calc(var(--hud-l) + var(--mm) + 12px); transform: none; max-width: calc(100vw - 2 * (var(--hud-l) + var(--mm) + 12px)); animation-name: cr-toast-in-flat; }
+}
+@keyframes cr-toast-in-flat { from { opacity: 0; transform: translateY(-8px); } to { opacity: 1; transform: none; } }

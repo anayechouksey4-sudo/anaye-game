@@ -3,6 +3,7 @@ import './menu.css';
 import { lazy, Suspense, useEffect } from 'react';
 import { useAutoPause } from './autoPause';
 import InputChip from '../input/InputChip';
+import { TrophyToast } from '../career';
 import { NameTags } from '../rivals/NameTags';
 import { useSelection } from '../state/selection';
 import { useGameStore } from '../state/store';
@@ -127,6 +128,8 @@ export function HUD() {
       <InputChip />
       <LoadingVeil />
       <Banners />
+      {/* Trophy unlock notice (career/TrophyToast): under the top bar, beside the minimap, never over the thumbs. */}
+      <TrophyToast />
       <Countdown />
       {TOUCH_CONTROLS && <TouchControls />}
       <Results />

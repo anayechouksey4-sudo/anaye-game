@@ -56,6 +56,7 @@ check, written on change, wrapped in try/catch so a blocked store only costs the
 | `gamerfleet.rivals.v1` | RIVALS 3 / 1 / OFF, GHOST | `rivals/store.ts` |
 | `gamerfleet.ghost.v1.<track>.<car>` + `gamerfleet.ghost.v1.index` | shadow-ghost tapes (≤ 64 KB each, LRU at 1.5 MB) | `rivals/ghost.ts` |
 | `gamerfleet.skid.v1` | SKID MARKS switch | `car/skid/skidStore.ts` |
+| `gamerfleet.career.v1` | career: records per map × car, totals, trophies with unlock times | `career/store.ts` |
 | `tessera.air.v1`, `tessera.trap.v1` | the island's Kite Launcher air time and speed-trap bests per car | `track/world/physics/records.ts` |
 
 The service worker's caches are named `gf-racer-<version>`; rooms (FRIENDS) keep nothing locally.
@@ -701,6 +702,29 @@ game/test/rivals.test.ts` (routes of all ten timed entries, the speed plan for e
 every medal slot, standings math and the results line, the ghost tape round trip, the triangle budget).
 Debug handle `window.__RIVALS__`: `rivals()`, `standings()`, `participants()`, `route()`, `raceMs()`,
 `castDown(x, z)`, `ghost()`, `settings()` / `setSettings({ rivals, ghost })`.
+
+## Career (`src/career/`)
+
+The ☰ **CAREER** tab is the player's record book. It is fed only by the event bus and the stores (`career/tracking.ts`
+listens to `finish`, `respawn` and `restart`, the rivals standings at the finish instant, the room phase for friends
+races, the island's region label and AIR records, and a 10 Hz sampler of `carRuntime.speedKmh` for distance, time
+played and top speed), so it has no physics footprint and the replay goldens are unchanged.
+
+- **Records** per (map, car): best time, medal (via `records.medalsFor`), best finishing position against the rivals,
+  runs, falls, clean runs. Shown as a MAPS × CARS matrix of 44 px cells; tap a cell for the detail.
+- **Totals:** races finished, wins and podiums against the rivals, friends races hosted / played / won, kilometres
+  driven (and per map), top speed with its map and car, longest air time and leap, time played, finishes on tilt
+  steering, the biggest improvement on a personal best.
+- **Trophies** (`career/trophies.ts`, 24, each a pure rule over the career data): FIRST LIGHTS, TEN UP, BRONZE AGE,
+  SILVER LINING, GOLD RUSH, FULL SET (gold on every classic map with one car), ISLANDER (all four island races gold),
+  NINE LIVES (a medal with every car), CLEAN SHEET, FRONT ROW, PODIUM REGULAR, GRID KING (P1 in ten races),
+  ROOM SERVICE (host a friends race), PACK LEADER (win a friends race with three or more players), TILTED,
+  NIGHT SHIFT (30 minutes), ODOMETER, LONG HAUL, BIG AIR, HANG TIME, GHOSTBUSTER (beat your own best by 2 s),
+  WAYFARER (island regions), SPEED MARK, GARAGE TOUR (finish with five different cars). An unlock shows a
+  3-second notice under the top bar (`career/TrophyToast.tsx`, one at a time, never over the minimap or the thumbs).
+- **Reset:** RESET CAREER arms for 5 s and needs a second tap; KEEP cancels.
+- Storage: `gamerfleet.career.v1` (versioned, sanitised on load). Tests: `game/test/career.test.ts` (34: reducers,
+  persistence, every trophy rule, the toast queue).
 
 ## Play with friends (`src/multiplayer/`)
 
