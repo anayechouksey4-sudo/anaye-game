@@ -134,13 +134,16 @@ export function installRaceFlow(ctx: RaceFlowContext): () => void {
   offs.push(
     useRoom.subscribe((s, prev) => {
       if (s.status !== 'in-room') {
-        if (prev.status === 'in-room') {
+        // A link blip keeps our record of this race (the seat comes back with the same results row):
+        // no restart into a race we are already driving, and our own clock still times it.
+        if (prev.status === 'in-room' && s.left !== 'link') {
           clearArm();
           clearClose();
           armedFor = null;
           armedSerial = null;
           goFor = null;
         }
+        if (prev.status === 'in-room') clearClose();
         return;
       }
       if (s.race !== prev.race || s.status !== prev.status) {

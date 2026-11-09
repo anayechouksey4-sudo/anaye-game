@@ -8,28 +8,36 @@
  *   relayNow()               — the relay's clock as this page estimates it (race timing)
  *
  * `?room=CODE` in the URL joins that room as soon as the socket is open (the profile is already
- * loaded: the stores read localStorage synchronously). A socket loss drops the room (the relay
- * forgets us on disconnect); when the socket is back we re-join the same code automatically.
+ * loaded: the stores read localStorage synchronously). A socket loss drops the room locally; when the
+ * socket is back we re-join the same code automatically with this device's player token
+ * (friendsProfile.ts), and a relay with seats gives us back the same seat (room:joined {restored}):
+ * same member id, host role and results row. An old relay just adds us as a new member.
+ * A reload (Android discards a background tab while the host shares the link) does the same: the
+ * room this tab was seated in is kept (friendsProfile.ts rememberSeat) and re-joined when the page
+ * comes back within the relay's seat grace, so the host is still the host.
  */
 import {
   ROOM_COUNTDOWN_LEAD_MS,
+  ROOM_SEAT_GRACE_MS,
   isCarClassId,
   sanitizeRoomCode,
   type OutgoingMessage,
   type ProtocolMessage,
+  type RoomLeftReason,
   type RoomPlayer,
   type RoomRace,
 } from '@shared/protocol';
 import { carRuntime } from '../car/runtime';
 import { getQueryParam } from '../config';
 import type { SquadLink } from '../net/squadLink';
-import { registerParticipant, resetProgress, routeProgressOf, setFinished, setProgress, standingsRoute } from '../rivals/standings';
+import { registerParticipant, resetProgress, routeProgressOf, setFinished, setProgress, setReportedSpeed, standingsRoute } from '../rivals/standings';
 import { useProfile } from '../state/profile';
 import { selectionState, useSelection } from '../state/selection';
 import { gameState } from '../state/store';
 import { getTrackEntry } from '../track/catalog';
 import { resolveTrackId } from '../track/registry';
 import { ClockSync } from './clockSync';
+import { forgetSeat, friendsProfile, rememberSeat, seatToRestore, useFriendsProfile } from './friendsProfile';
 import { decodePlayer, identityKey, localIdentity } from './identity';
 import { createPoseSender, type PoseSender } from './poseSender';
 import { installRaceFlow } from './raceFlow';
@@ -42,6 +50,8 @@ const PING_BURST_GAP_MS = 150;
 const PING_INTERVAL_MS = 5000;
 const JOIN_TIMEOUT_MS = 8000;
 const IDENTITY_THROTTLE_MS = 300;
+/** How often the saved seat's "last alive in the room" time is refreshed while seated. */
+const SEAT_REFRESH_MS = 2000;
 
 export class RoomClient {
   readonly clock = new ClockSync();
@@ -56,6 +66,10 @@ export class RoomClient {
   private readonly participants = new Map<string, { key: string; off: () => void }>();
   private readonly finishedSeen = new Set<string>();
   private rejoinCode: string | null = null;
+  private restoreTimer: ReturnType<typeof setTimeout> | null = null;
+  /** The room code this tab is asking the other tabs about on start (seat restore), until they answer. */
+  private askingSeat: string | null = null;
+  private seatSavedAt = 0;
   readonly poses: PoseSender;
   readonly link: SquadLink;
 
@@ -71,12 +85,59 @@ export class RoomClient {
   install(): () => void {
     const store = useRoom.getState();
     const fromUrl = sanitizeRoomCode(getQueryParam('room'));
-    store.set({ status: 'offline', pendingCode: fromUrl });
+    // A reload while seated (no ?room= in the host's own address): take the seat back like a link blip.
+    const restore = fromUrl ? null : seatToRestore(ROOM_SEAT_GRACE_MS);
+    const restoreCode = restore ? sanitizeRoomCode(restore.code) : null;
+    store.set({ status: 'offline', pendingCode: fromUrl, ...(restoreCode ? { rejoining: restoreCode } : {}) });
+    this.offs.push(this.answerSeatQueries());
+    if (restore && restoreCode) {
+      // A duplicated tab (Chrome's Duplicate, window.open) inherits this tab's saved seat: ask the other
+      // live tabs first and only take the seat back when none of them holds it.
+      this.askingSeat = restoreCode;
+      void askTabsForSeat(restoreCode).then((held) => {
+        this.askingSeat = null;
+        if (roomState().rejoining !== restoreCode) return;
+        if (held) {
+          forgetSeat(true);
+          roomState().set({ rejoining: null });
+          return;
+        }
+        this.rejoinCode = restoreCode;
+        if (this.link.connected && roomState().status === 'idle') this.join(restoreCode);
+      });
+      // The relay frees the seat after its grace; stop waiting for it then (rooms mode ends, AI rivals may return).
+      // Cleared the moment we are seated again (room:joined), so a later link blip still re-joins.
+      this.restoreTimer = setTimeout(() => {
+        this.restoreTimer = null;
+        const now = roomState();
+        if (now.status !== 'in-room' && now.rejoining === restoreCode) {
+          this.rejoinCode = null;
+          now.set({ rejoining: null });
+          forgetSeat();
+        }
+      }, restore.leftMs);
+    }
+    const saveSeat = () => {
+      const now = roomState();
+      if (now.status === 'in-room' && now.code) rememberSeat(now.code);
+    };
+    const onHide = () => {
+      if (document.visibilityState === 'hidden') saveSeat();
+    };
+    if (typeof window !== 'undefined') {
+      window.addEventListener('pagehide', saveSeat);
+      document.addEventListener('visibilitychange', onHide);
+      this.offs.push(() => {
+        window.removeEventListener('pagehide', saveSeat);
+        document.removeEventListener('visibilitychange', onHide);
+      });
+    }
     this.offs.push(this.link.onOpen(() => this.onOpen()));
     this.offs.push(this.link.onClose(() => this.onClose()));
     this.offs.push(this.link.onMessage((m) => this.onMessage(m)));
     const identityChanged = () => this.scheduleIdentity();
     this.offs.push(useProfile.subscribe(identityChanged));
+    this.offs.push(useFriendsProfile.subscribe((s, prev) => (s.name !== prev.name ? identityChanged() : undefined)));
     this.offs.push(useSelection.subscribe((s, prev) => (s.carId !== prev.carId || s.plates !== prev.plates ? identityChanged() : undefined)));
     this.offs.push(
       installRaceFlow({
@@ -89,6 +150,7 @@ export class RoomClient {
     if (this.link.connected) this.onOpen();
     return () => {
       for (const off of this.offs.splice(0)) off();
+      this.clearRestoreTimer();
       this.stopTimers();
       this.poses.stop();
       this.dropRoom('idle', null);
@@ -98,11 +160,12 @@ export class RoomClient {
 
   // ── Actions ──────────────────────────────────────────────────────────────
 
-  host(): boolean {
+  /** Open a room of `size` seats (FRIENDS · ROOM SIZE; the last pick by default). */
+  host(size: number = friendsProfile().size): boolean {
     if (!this.canAct()) return false;
-    useRoom.getState().set({ status: 'joining', error: null, left: null });
+    useRoom.getState().set({ status: 'joining', error: null, left: null, rejoining: null });
     this.armJoinTimeout();
-    return this.send({ type: 'room:create', ...localIdentity() });
+    return this.send({ type: 'room:create', ...localIdentity(), token: friendsProfile().token, size });
   }
 
   join(codeInput: string): boolean {
@@ -112,15 +175,41 @@ export class RoomClient {
       return false;
     }
     if (!this.canAct()) return false;
-    useRoom.getState().set({ status: 'joining', error: null, left: null, pendingCode: null });
+    // `lastCode` refills ROOM CODE if this join fails (ROOM FULL: try again once a seat frees).
+    useRoom.getState().set({ status: 'joining', error: null, left: null, pendingCode: null, lastCode: code });
     this.armJoinTimeout();
-    return this.send({ type: 'room:join', code, ...localIdentity() });
+    return this.send({ type: 'room:join', code, ...localIdentity(), token: friendsProfile().token });
   }
 
-  leave(): void {
+  /** LEAVE. A host hands the room to `to` (the FRIENDS confirm names who); the relay falls back to the earliest present member. */
+  leave(to?: string): void {
     this.rejoinCode = null;
-    if (roomState().status === 'in-room') this.send({ type: 'room:leave' });
+    this.clearRestoreTimer();
+    forgetSeat();
+    if (roomState().status === 'in-room') this.send(to ? { type: 'room:leave', to } : { type: 'room:leave' });
     this.dropRoom('idle', 'left');
+    useRoom.getState().set({ rejoining: null });
+  }
+
+  /** Host: change the room size (the relay refuses below the seats taken). */
+  setSize(size: number): boolean {
+    const s = roomState();
+    if (s.status !== 'in-room' || !isHost(s) || !s.seats) return false;
+    return this.send({ type: 'room:size', size });
+  }
+
+  /** Host: remove a player (they cannot come back into this room). */
+  remove(id: string): boolean {
+    const s = roomState();
+    if (s.status !== 'in-room' || !isHost(s) || !s.seats || id === s.you) return false;
+    return this.send({ type: 'room:remove', id });
+  }
+
+  /** Host: hand the host role to a present player. */
+  makeHost(id: string): boolean {
+    const s = roomState();
+    if (s.status !== 'in-room' || !isHost(s) || !s.seats || id === s.you) return false;
+    return this.send({ type: 'room:host', id });
   }
 
   ready(on: boolean): boolean {
@@ -175,8 +264,11 @@ export class RoomClient {
   private onClose(): void {
     this.stopTimers();
     const s = roomState();
-    if (s.status === 'in-room' && s.code) this.rejoinCode = s.code;
-    this.dropRoom('offline', s.status === 'in-room' ? 'link' : null);
+    const code = s.status === 'in-room' ? s.code : s.rejoining;
+    if (code) this.rejoinCode = code;
+    this.dropRoom('offline', s.status === 'in-room' ? 'link' : s.left);
+    // Rooms mode holds while we get back in (no AI rivals popping in during a blip).
+    useRoom.getState().set({ rejoining: code });
   }
 
   private onMessage(message: ProtocolMessage): void {
@@ -185,10 +277,16 @@ export class RoomClient {
       case 'room:pong': {
         this.clock.addSample(message.t, performance.now(), message.serverNow);
         store.set({ clock: { offsetMs: this.clock.offsetMs, rttMs: this.clock.rttMs, samples: this.clock.count } });
+        const now = roomState();
+        if (now.status === 'in-room' && now.code && Date.now() - this.seatSavedAt >= SEAT_REFRESH_MS) {
+          this.seatSavedAt = Date.now();
+          rememberSeat(now.code);
+        }
         return;
       }
       case 'room:joined': {
         this.clearJoinTimeout();
+        this.clearRestoreTimer();
         // One more clock sample for free: the join answer carries the relay's clock.
         if (!this.clock.synced) this.clock.addSample(performance.now() - (this.clock.rttMs ?? 40), performance.now(), message.serverNow);
         store.set({
@@ -201,9 +299,16 @@ export class RoomClient {
           error: null,
           left: null,
           pendingCode: null,
-          goAt: null,
+          // A restored seat keeps the race's lights-out we already saw (raceFlow keeps its own record).
+          goAt: message.restored ? store.goAt : null,
+          size: message.size ?? null,
+          seats: message.size !== undefined,
+          rejoining: null,
+          restores: store.restores + (message.restored ? 1 : 0),
         });
         this.lastIdentityKey = identityKey(localIdentity());
+        this.seatSavedAt = Date.now();
+        rememberSeat(message.code);
         this.finishedSeen.clear();
         this.syncParticipants(message.players, message.you);
         this.applyFinishes(message.race);
@@ -212,14 +317,17 @@ export class RoomClient {
       }
       case 'room:players': {
         if (roomState().status !== 'in-room') return;
-        store.set({ players: message.players });
+        store.set(message.size !== undefined ? { players: message.players, size: message.size } : { players: message.players });
         this.syncParticipants(message.players, roomState().you);
         return;
       }
       case 'room:pose': {
         if (roomState().status !== 'in-room' || !message.id) return;
         const r = pushPose({ ...message, id: message.id }, approxBytes(message));
-        if (this.participants.has(message.id)) setProgress(message.id, r.progressM);
+        if (this.participants.has(message.id)) {
+          setProgress(message.id, r.progressM);
+          setReportedSpeed(message.id, message.s / 3.6);
+        }
         return;
       }
       case 'room:race': {
@@ -239,14 +347,25 @@ export class RoomClient {
       }
       case 'room:left': {
         this.rejoinCode = null;
+        // 'replaced': another tab or device took the seat; its own saved seat is left alone.
+        forgetSeat(message.reason === 'replaced');
         this.dropRoom('idle', message.reason);
+        store.set({ rejoining: null });
         if (message.reason === 'expired') store.set({ error: { code: 'not_found', message: 'The room expired (2 h idle)', at: Date.now() } });
+        if (message.reason === 'removed') store.set({ error: { code: 'removed', message: 'You were removed from the room', at: Date.now() } });
+        if (message.reason === 'replaced') store.set({ error: { code: 'already_in_room', message: 'This room is open on another tab or device', at: Date.now() } });
         return;
       }
       case 'room:error': {
         this.clearJoinTimeout();
-        const patch: Partial<ReturnType<typeof roomState>> = { error: { code: message.code, message: message.message, at: Date.now() } };
-        if (roomState().status === 'joining') patch.status = 'idle';
+        const text = message.code === 'removed' ? 'You were removed from the room' : message.code === 'not_found' && roomState().rejoining ? 'That room is gone' : message.message;
+        const patch: Partial<ReturnType<typeof roomState>> = { error: { code: message.code, message: text, at: Date.now() } };
+        if (roomState().status === 'joining') {
+          patch.status = 'idle';
+          // A failed re-join (room gone, full, removed) ends rooms mode.
+          patch.rejoining = null;
+          forgetSeat();
+        }
         store.set(patch);
         return;
       }
@@ -256,6 +375,27 @@ export class RoomClient {
   }
 
   // ── Internals ────────────────────────────────────────────────────────────
+
+  private clearRestoreTimer(): void {
+    if (this.restoreTimer) clearTimeout(this.restoreTimer);
+    this.restoreTimer = null;
+  }
+
+  /** Answer another tab of this game asking whether we hold a room's seat (see askTabsForSeat). */
+  private answerSeatQueries(): () => void {
+    const channel = openSeatChannel();
+    if (!channel) return () => undefined;
+    channel.onmessage = (event: MessageEvent) => {
+      const data = event.data as { ask?: unknown; nonce?: unknown } | null;
+      if (!data || typeof data.ask !== 'string') return;
+      const s = roomState();
+      // A tab still asking (this one, mid-restore) does not count as holding the seat.
+      const holding = (s.status === 'in-room' && s.code === data.ask) || (s.rejoining === data.ask && this.askingSeat !== data.ask);
+      if (holding) channel.postMessage({ held: data.ask, nonce: data.nonce });
+    };
+    return () => channel.close();
+  }
+
 
   private canAct(): boolean {
     const s = roomState();
@@ -341,7 +481,7 @@ export class RoomClient {
     }
   }
 
-  private dropRoom(status: 'idle' | 'offline', left: 'left' | 'expired' | 'closed' | 'link' | null): void {
+  private dropRoom(status: 'idle' | 'offline', left: RoomLeftReason | 'link' | null): void {
     this.clearJoinTimeout();
     this.poses.stop();
     for (const entry of this.participants.values()) entry.off();
@@ -391,7 +531,8 @@ export class RoomClient {
     this.joinTimer = setTimeout(() => {
       this.joinTimer = null;
       if (roomState().status === 'joining') {
-        useRoom.getState().set({ status: 'idle', error: { code: 'timeout', message: 'The relay did not answer (is it this version?)', at: Date.now() } });
+        forgetSeat();
+        useRoom.getState().set({ status: 'idle', rejoining: null, error: { code: 'timeout', message: 'The relay did not answer (is it this version?)', at: Date.now() } });
       }
     }, JOIN_TIMEOUT_MS);
   }
@@ -429,10 +570,46 @@ export const relayNow = (): number => active?.clock.now() ?? performance.now();
 
 /** What the FRIENDS tab calls. Every action is a no-op (returning false) without a link. */
 export const roomActions = {
-  host: (): boolean => active?.host() ?? false,
+  host: (size?: number): boolean => active?.host(size) ?? false,
   join: (code: string): boolean => active?.join(code) ?? false,
-  leave: (): void => active?.leave(),
+  leave: (to?: string): void => active?.leave(to),
+  setSize: (size: number): boolean => active?.setSize(size) ?? false,
+  remove: (id: string): boolean => active?.remove(id) ?? false,
+  makeHost: (id: string): boolean => active?.makeHost(id) ?? false,
   ready: (on: boolean): boolean => active?.ready(on) ?? false,
   start: (): boolean => active?.start() ?? false,
   shareUrl: (): string | null => active?.shareUrl() ?? null,
 };
+
+// ── Tabs of this game on this device ─────────────────────────────────────────
+
+const SEAT_CHANNEL = 'gamerfleet.room';
+const SEAT_ASK_MS = 350;
+
+function openSeatChannel(): BroadcastChannel | null {
+  try {
+    return typeof BroadcastChannel === 'function' ? new BroadcastChannel(SEAT_CHANNEL) : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Does another live tab of this game hold room `code`? Resolves false after a short wait (or without BroadcastChannel). */
+export function askTabsForSeat(code: string, waitMs: number = SEAT_ASK_MS): Promise<boolean> {
+  const channel = openSeatChannel();
+  if (!channel) return Promise.resolve(false);
+  const nonce = Math.random().toString(36).slice(2);
+  return new Promise((resolve) => {
+    const done = (held: boolean) => {
+      clearTimeout(timer);
+      channel.close();
+      resolve(held);
+    };
+    const timer = setTimeout(() => done(false), waitMs);
+    channel.onmessage = (event: MessageEvent) => {
+      const data = event.data as { held?: unknown; nonce?: unknown } | null;
+      if (data && data.held === code && data.nonce === nonce) done(true);
+    };
+    channel.postMessage({ ask: code, nonce });
+  });
+}

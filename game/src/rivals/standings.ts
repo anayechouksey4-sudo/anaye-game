@@ -34,8 +34,10 @@ export interface Participant {
    * estimate from their pace (`etaMs` is refreshed by setProgress when a speed is known).
    */
   etaMs: number | null;
-  /** Route speed estimate, m/s (from progress deltas), for gap estimates of participants with no plan. */
+  /** Route speed estimate, m/s (from progress deltas, or the speed a remote car reports), for gap estimates of participants with no plan. */
   speedMps: number;
+  /** speedMps comes from setReportedSpeed (a friend's pose carries its speed); progress deltas are not used then. */
+  reportedSpeed: boolean;
   /** Race clock (ms) of the last progress update. */
   lastAtMs: number;
   registeredAt: number;
@@ -97,6 +99,7 @@ export function registerParticipant(p: { id: string; name: string; carId: CarCla
     finishMs: null,
     etaMs: null,
     speedMps: 0,
+    reportedSpeed: false,
     lastAtMs: raceMs,
     registeredAt: registrations++,
   };
@@ -115,13 +118,28 @@ export function setProgress(id: string, progressM: number, etaMs?: number): void
   const p = participants.get(id);
   if (!p || p.finished || !Number.isFinite(progressM)) return;
   const dt = (raceMs - p.lastAtMs) / 1000;
-  if (dt > 0.05) {
+  if (dt > 0.05 && !p.reportedSpeed) {
     const v = (progressM - p.progressM) / dt;
-    if (v >= 0) p.speedMps += (v - p.speedMps) * Math.min(1, dt * 2);
-    p.lastAtMs = raceMs;
+    // A sample behind the best progress so far (projection noise) is skipped without moving the
+    // reference time, so the next forward sample is measured over the whole interval.
+    if (v >= 0) {
+      p.speedMps += (v - p.speedMps) * Math.min(1, dt * 2);
+      p.lastAtMs = raceMs;
+    }
   }
   if (progressM > p.progressM) p.progressM = progressM;
   if (etaMs !== undefined) p.etaMs = etaMs;
+}
+
+/**
+ * The speed a participant reports (a friend's pose carries its car's speed): smoother and truer than
+ * progress deltas, which arrive at the network's rhythm and read 0 between bursts.
+ */
+export function setReportedSpeed(id: string, mps: number): void {
+  const p = participants.get(id);
+  if (!p || p.finished || !Number.isFinite(mps) || mps < 0) return;
+  p.speedMps = p.reportedSpeed ? p.speedMps + (mps - p.speedMps) * 0.3 : mps;
+  p.reportedSpeed = true;
 }
 
 /** Progress allowed to go backwards (the player respawned to an earlier checkpoint). */

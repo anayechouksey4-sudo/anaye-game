@@ -4,7 +4,7 @@
  * codes the DRIVERS / MY RIDE tabs already produce (`RIDE1-…`, `DRV1-…`), so the wire rule is the
  * share-code rule and a corrupt code just means the stock look.
  */
-import { sanitizeDisplayText, sanitizeRoomPlate, type RoomIdentity, type RoomPlayer } from '@shared/protocol';
+import { sanitizeRoomPlate, type RoomIdentity, type RoomPlayer } from '@shared/protocol';
 import { getCarEntry, resolveCarId } from '../car/catalog';
 import { plateFor } from '../car/plates/platePick';
 import type { AvatarConfig } from '../drivers/avatar';
@@ -14,6 +14,7 @@ import { decodeRide, encodeRide } from '../ride/shareCode';
 import type { RideLook } from '../rivals/KinematicCar';
 import { activeDriver, profileState } from '../state/profile';
 import { selectionState } from '../state/selection';
+import { roomName } from './friendsProfile';
 
 /** Colours for players whose avatar carries no usable signature colour, by join order. */
 const FALLBACK_COLORS = ['#00f0ff', '#ff3d9a', '#f5e663', '#39ff14', '#ff9a1f', '#9b5cff', '#2ef2c8', '#4d7cff'];
@@ -24,7 +25,8 @@ export function localIdentity(): RoomIdentity {
   const driver = activeDriver(profile);
   const rideOn = profile.rideActive && profile.ride.base === carId;
   return {
-    name: sanitizeDisplayText(driver.name) || 'Racer',
+    // YOUR NAME (FRIENDS) when set, else the selected driver's name.
+    name: roomName(profile),
     carId,
     look: rideOn ? encodeRide(profile.ride) : null,
     plate: sanitizeRoomPlate(plateFor(carId)),

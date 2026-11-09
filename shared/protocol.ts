@@ -1066,11 +1066,29 @@ export type OutgoingMessage<M extends ProtocolMessage = ProtocolMessage> = M ext
 //   room:race   {phase, track, startAt, results}    → host only; the relay owns `results` (see below)
 //   room:finish {finishMs, falls}                   → recorded in race.results; room:race to everyone
 //   room:ping   {t, rtt?}                           → room:pong {t, serverNow} to the sender only
-//   room:leave                                      → room:left to the sender, room:players to the rest
+//   room:leave  {to?}                               → room:left to the sender, room:players to the rest
 //   relay → room:error {code, message} to the offender; room:left {reason} when a room ends.
 //
-// Host = the creator; when the host leaves, the member who joined earliest becomes host (the relay
-// broadcasts room:players with the new isHost flags). Results are owned by the relay so every
+// Seats (additive, "room.v1 seats"; every field below is optional on the wire, so old clients and the
+// old relay simply ignore it):
+//   room:create / room:join carry `token` (a random per-device id, never shown) and room:create `size`
+//   (2…ROOM_MAX_PLAYERS; a room created without one has ROOM_MAX_PLAYERS seats). The relay keys a
+//   tokened member by its token: a socket that drops leaves the seat `away` for ROOM_SEAT_GRACE_MS
+//   (host role, member id and results row kept); a join with the same token takes the seat back
+//   (room:joined {restored: true}, same `you`), and a second socket with the same token replaces the
+//   first (room:left {reason: 'replaced'} to the old one) — never a duplicate member. An untokened
+//   member (an old client) keeps the old behaviour: gone the moment its socket closes.
+//   room:joined and room:players carry `size`; a player in grace carries `away: true`.
+//   room:size   {size}  → host only; never below the seats taken; room:players to everyone
+//   room:remove {id}    → host only; the removed device gets room:left {reason: 'removed'} ('closed'
+//                         for an untokened one) and cannot come back into that room by token or code
+//   room:host   {id}    → host only; hands the host role to a present member
+//   The host role moves only on room:host, on the host's room:leave (to `to` when given and present,
+//   else the earliest present member) or when the host's seat expires. Names are de-duplicated inside
+//   a room ("Anaye", "Anaye 2"). A full room answers room:error {code: 'full', message: 'ROOM FULL (2/2)'}.
+//
+// Host = the creator; when the host leaves, the member who joined earliest (and is present) becomes
+// host (the relay broadcasts room:players with the new isHost flags). Results are owned by the relay so every
 // member shows the same table: a host's `room:race` with phase 'countdown' resets them to every
 // present member with finishMs null; each `room:finish` fills one row; rows of members who leave
 // stay. Room codes: ROOM_CODE_LENGTH letters from ROOM_CODE_ALPHABET (no vowels, no I/O, no digits).
@@ -1095,6 +1113,14 @@ export const ROOM_RESULTS_GRACE_MS = 60_000;
 export const ROOM_MAX_CODE_LENGTH = 200;
 /** Longest plate text on the wire (A–Z, 0–9, space). */
 export const ROOM_MAX_PLATE = 14;
+/** A tokened member whose socket dropped keeps its seat (host role, member id, results row) this long. */
+export const ROOM_SEAT_GRACE_MS = 120_000;
+/** Room sizes the HOST A ROOM picker offers (the relay accepts any 2…ROOM_MAX_PLAYERS). */
+export const ROOM_SIZES: readonly number[] = [2, 3, 4, 6, 8];
+/** Size the FRIENDS tab picks by default: you + 1 friend. */
+export const ROOM_DEFAULT_SIZE = 2;
+/** Longest player name in a room (the de-duplicated "Name 2" fits in it). */
+export const ROOM_MAX_NAME = 16;
 
 export type RoomPhase = 'lobby' | 'countdown' | 'racing' | 'results';
 export const ROOM_PHASES: readonly RoomPhase[] = ['lobby', 'countdown', 'racing', 'results'];
@@ -1118,12 +1144,14 @@ export interface RoomIdentity {
 }
 
 export interface RoomPlayer extends RoomIdentity {
-  /** The relay client id of this player (also the `id` on its poses). */
+  /** The member id of this player (also the `id` on its poses; stays the same across reconnects). */
   id: string;
   ready: boolean;
   isHost: boolean;
   /** Round trip to the relay in ms as the player last reported it (room:ping.rtt), or null. */
   ping: number | null;
+  /** Seats: the socket dropped and the seat is held for ROOM_SEAT_GRACE_MS (absent = connected). */
+  away?: true;
 }
 
 export interface RoomResult {
@@ -1164,16 +1192,38 @@ export interface RoomPose {
 // Client → relay
 export interface RoomCreateMessage extends Envelope, RoomIdentity {
   type: 'room:create';
+  /** Seats: the device's player token (sanitizeRoomToken); absent = an untokened (old) client. */
+  token?: string;
+  /** Seats: how many players the room takes, 2…ROOM_MAX_PLAYERS (absent = ROOM_MAX_PLAYERS). */
+  size?: number;
 }
 export interface RoomJoinMessage extends Envelope, RoomIdentity {
   type: 'room:join';
   code: string;
+  token?: string;
 }
 export interface RoomUpdateMessage extends Envelope, RoomIdentity {
   type: 'room:update';
 }
 export interface RoomLeaveMessage extends Envelope {
   type: 'room:leave';
+  /** Seats: the host leaving hands the room to this member (when present); else the earliest present. */
+  to?: string;
+}
+/** Seats: host only — change the room size (never below the seats taken). */
+export interface RoomSizeMessage extends Envelope {
+  type: 'room:size';
+  size: number;
+}
+/** Seats: host only — remove a player; they cannot come back into this room. */
+export interface RoomRemoveMessage extends Envelope {
+  type: 'room:remove';
+  id: string;
+}
+/** Seats: host only — hand the host role to a present member. */
+export interface RoomHostMessage extends Envelope {
+  type: 'room:host';
+  id: string;
 }
 export interface RoomReadyMessage extends Envelope {
   type: 'room:ready';
@@ -1210,7 +1260,10 @@ export type RoomClientMessage =
   | RoomPoseMessage
   | RoomRaceMessage
   | RoomFinishMessage
-  | RoomPingMessage;
+  | RoomPingMessage
+  | RoomSizeMessage
+  | RoomRemoveMessage
+  | RoomHostMessage;
 
 // Relay → client
 export interface RoomJoinedMessage extends Envelope {
@@ -1222,12 +1275,19 @@ export interface RoomJoinedMessage extends Envelope {
   race: RoomRace;
   /** Relay clock (Date.now()) when this frame was sent. */
   serverNow: number;
+  /** Seats: the room size (absent from a relay that predates seats). */
+  size?: number;
+  /** Seats: this join took back the device's own seat (same `you`, host role and results row). */
+  restored?: true;
 }
 export interface RoomPlayersMessage extends Envelope {
   type: 'room:players';
   players: RoomPlayer[];
+  /** Seats: the room size (absent from a relay that predates seats). */
+  size?: number;
 }
-export type RoomLeftReason = 'left' | 'expired' | 'closed';
+/** 'removed' / 'replaced' go to tokened (seat-aware) clients only; an old client gets 'closed'. */
+export type RoomLeftReason = 'left' | 'expired' | 'closed' | 'removed' | 'replaced';
 export interface RoomLeftMessage extends Envelope {
   type: 'room:left';
   reason: RoomLeftReason;
@@ -1240,8 +1300,10 @@ export type RoomErrorCode =
   | 'already_in_room'
   | 'not_in_room'
   | 'not_host'
-  | 'bad_state';
-export const ROOM_ERROR_CODES: readonly RoomErrorCode[] = ['bad_code', 'not_found', 'full', 'rooms_full', 'already_in_room', 'not_in_room', 'not_host', 'bad_state'];
+  | 'bad_state'
+  /** Seats: this device was removed from the room (sent to tokened clients only). */
+  | 'removed';
+export const ROOM_ERROR_CODES: readonly RoomErrorCode[] = ['bad_code', 'not_found', 'full', 'rooms_full', 'already_in_room', 'not_in_room', 'not_host', 'bad_state', 'removed'];
 export interface RoomErrorMessage extends Envelope {
   type: 'room:error';
   code: RoomErrorCode;
@@ -1273,6 +1335,9 @@ export const ROOM_CLIENT_TYPES: readonly RoomClientMessage['type'][] = [
   'room:race',
   'room:finish',
   'room:ping',
+  'room:size',
+  'room:remove',
+  'room:host',
 ];
 
 /**
@@ -1663,13 +1728,32 @@ export function sanitizeRoomPlate(input: unknown): string {
   return text.slice(0, ROOM_MAX_PLATE).trim();
 }
 
+/** A player name in a room: the display-text rule, ≤ ROOM_MAX_NAME code points ('' when nothing survives; null for a non-string). */
+export function sanitizeRoomName(input: unknown): string | null {
+  if (typeof input !== 'string') return null;
+  const s = input.normalize('NFKC').replace(DISPLAY_TEXT_BAD, '').replace(/\s+/g, ' ').trim();
+  return [...s].slice(0, ROOM_MAX_NAME).join('').trim();
+}
+
+/** A device's player token: 16–64 of A–Z a–z 0–9 _ -; anything else is dropped (the client counts as untokened). */
+export function sanitizeRoomToken(input: unknown): string | null {
+  return typeof input === 'string' && /^[A-Za-z0-9_-]{16,64}$/.test(input) ? input : null;
+}
+
+/** A room size: an integer 2…ROOM_MAX_PLAYERS, else null. */
+export function sanitizeRoomSize(input: unknown): number | null {
+  return isFiniteNumber(input) && Number.isInteger(input) && input >= 2 && input <= ROOM_MAX_PLAYERS ? input : null;
+}
+
+const MEMBER_ID_PATTERN = /^[A-Za-z0-9_-]{1,64}$/;
+
 /**
  * The identity fields of room:create / room:join / room:update. Name and carId are required (a
  * malformed one invalidates the frame); look / plate / avatar fall back to stock / '' / null.
  */
 export function sanitizeRoomIdentity(input: unknown): RoomIdentity | null {
   if (!isRecord(input)) return null;
-  const name = sanitizeDisplayText(input.name ?? '');
+  const name = sanitizeRoomName(input.name ?? '');
   const carId = sanitizeId(input.carId);
   if (name === null || carId === null) return null;
   return {
@@ -1691,6 +1775,7 @@ function sanitizeRoomPlayer(input: unknown): RoomPlayer | null {
     ready: input.ready === true,
     isHost: input.isHost === true,
     ping: isFiniteNumber(input.ping) && input.ping >= 0 ? Math.round(clamp(input.ping, 0, 60_000)) : null,
+    ...(input.away === true ? { away: true as const } : {}),
   };
 }
 
@@ -1707,7 +1792,7 @@ export function sanitizeRoomPlayers(input: unknown): RoomPlayer[] | null {
 
 function sanitizeRoomResult(input: unknown): RoomResult | null {
   if (!isRecord(input) || typeof input.id !== 'string' || input.id.length === 0 || input.id.length > 64) return null;
-  const name = sanitizeDisplayText(input.name ?? '');
+  const name = sanitizeRoomName(input.name ?? '');
   if (name === null) return null;
   let finishMs: number | null = null;
   if (input.finishMs !== null && input.finishMs !== undefined) {
@@ -1771,19 +1856,41 @@ function parseRoomMessage(data: Record<string, unknown>, env: Envelope): Protoco
   switch (data.type) {
     case 'room:create': {
       const identity = sanitizeRoomIdentity(data);
-      return identity ? { ...env, type: 'room:create', ...identity } : null;
+      if (!identity) return null;
+      const msg: RoomCreateMessage = { ...env, type: 'room:create', ...identity };
+      const token = sanitizeRoomToken(data.token);
+      const size = sanitizeRoomSize(data.size);
+      if (token) msg.token = token;
+      if (size !== null) msg.size = size;
+      return msg;
     }
     case 'room:join': {
       const identity = sanitizeRoomIdentity(data);
       const code = sanitizeRoomCode(data.code);
-      return identity && code ? { ...env, type: 'room:join', code, ...identity } : null;
+      if (!identity || !code) return null;
+      const msg: RoomJoinMessage = { ...env, type: 'room:join', code, ...identity };
+      const token = sanitizeRoomToken(data.token);
+      if (token) msg.token = token;
+      return msg;
+    }
+    case 'room:size': {
+      const size = sanitizeRoomSize(data.size);
+      return size === null ? null : { ...env, type: 'room:size', size };
+    }
+    case 'room:remove':
+    case 'room:host': {
+      if (typeof data.id !== 'string' || !MEMBER_ID_PATTERN.test(data.id)) return null;
+      return data.type === 'room:remove' ? { ...env, type: 'room:remove', id: data.id } : { ...env, type: 'room:host', id: data.id };
     }
     case 'room:update': {
       const identity = sanitizeRoomIdentity(data);
       return identity ? { ...env, type: 'room:update', ...identity } : null;
     }
-    case 'room:leave':
-      return { ...env, type: 'room:leave' };
+    case 'room:leave': {
+      const msg: RoomLeaveMessage = { ...env, type: 'room:leave' };
+      if (typeof data.to === 'string' && MEMBER_ID_PATTERN.test(data.to)) msg.to = data.to;
+      return msg;
+    }
     case 'room:ready':
       return typeof data.ready === 'boolean' ? { ...env, type: 'room:ready', ready: data.ready } : null;
     case 'room:pose': {
@@ -1810,14 +1917,22 @@ function parseRoomMessage(data: Record<string, unknown>, env: Envelope): Protoco
       const players = sanitizeRoomPlayers(data.players);
       const race = sanitizeRoomRace(data.race);
       if (!code || !players || !race || typeof data.you !== 'string' || !isFiniteNumber(data.serverNow)) return null;
-      return { ...env, type: 'room:joined', code, you: data.you, players, race, serverNow: data.serverNow };
+      const msg: RoomJoinedMessage = { ...env, type: 'room:joined', code, you: data.you, players, race, serverNow: data.serverNow };
+      const size = sanitizeRoomSize(data.size);
+      if (size !== null) msg.size = size;
+      if (data.restored === true) msg.restored = true;
+      return msg;
     }
     case 'room:players': {
       const players = sanitizeRoomPlayers(data.players);
-      return players ? { ...env, type: 'room:players', players } : null;
+      if (!players) return null;
+      const msg: RoomPlayersMessage = { ...env, type: 'room:players', players };
+      const size = sanitizeRoomSize(data.size);
+      if (size !== null) msg.size = size;
+      return msg;
     }
     case 'room:left': {
-      const reasons: readonly RoomLeftReason[] = ['left', 'expired', 'closed'];
+      const reasons: readonly RoomLeftReason[] = ['left', 'expired', 'closed', 'removed', 'replaced'];
       const reason = reasons.find((r) => r === data.reason);
       return reason ? { ...env, type: 'room:left', reason } : null;
     }

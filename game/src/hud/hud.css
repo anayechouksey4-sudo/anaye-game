@@ -336,6 +336,19 @@
   /* Between the steer pad and the pedal cluster (each reaches ~232 px in from its side edge). */
   .hud--compact .hud-countdown__note { max-width: min(40vw, calc(100vw - 480px)); }
 }
+/* Compact HUD without touch controls (a narrow desktop window, `?touch=0`): ☰ is a 56 px square like the
+   touch layout's, so the 275 px top bar and its P n/N chip stay clear of it down to 360 px wide. */
+.hud--compact:not(.hud--touch) .hud-corner-tr .hud-menu-btn { width: var(--btn); flex-direction: column; justify-content: center; gap: 3px; padding: 0; }
+.hud--compact:not(.hud--touch) .hud-menu-btn small { font-size: 9px; letter-spacing: 0.1em; }
+@media (orientation: landscape) and (max-width: 599px) {
+  /* Too narrow to centre the bar between the chips and ☰: the portrait arrangement (bar left, chips under it). */
+  .hud--compact:not(.hud--touch) .hud-top--bar { left: var(--hud-l); transform: none; align-items: flex-start; }
+  .hud--compact:not(.hud--touch) .hud-corner-tl { top: var(--below-bar); max-height: calc(100% - var(--below-bar) - var(--hud-b) - var(--hud-reserve-b)); max-width: calc(100vw - var(--hud-l) - var(--hud-r) - var(--btn) - 10px); }
+  /* Callouts, the event prompt and the start lights queue under the two chips; no thumbs to keep the note between. */
+  .hud--compact:not(.hud--touch):not(.hud--physics-open) .hud-banners { top: calc(var(--below-bar) + 82px); }
+  .hud--compact:not(.hud--touch):not(.hud--physics-open) .hud-countdown { top: calc(var(--below-bar) + 86px); }
+  .hud--compact:not(.hud--touch) .hud-countdown__note { max-width: calc(100vw - var(--hud-l) - var(--hud-r)); }
+}
 
 /* ── Touch controls ─────────────────────────────────── */
 .hud--touch {

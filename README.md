@@ -29,13 +29,25 @@ GitHub Pages serves the game from the [`docs/`](docs/) folder. One-time setup in
 ## Play with friends
 
 Rooms run over the same relay the dashboard uses: everyone drives their own car on their own phone, the others
-appear as ghost cars (no collisions), the host picks the map and starts the race, and the lights go out for
+appear as pass-through cars (no collisions), the host picks the map and starts the race, and the lights go out for
 everyone at the same moment on the relay's clock.
 
 **Same Wi-Fi or hotspot, in three steps:** (1) on one computer or phone run `npm run dev:all` and read the
 `http://<ip>:5173` line it prints; (2) everyone opens that link; (3) one player taps ☰ MENU → **FRIENDS** →
 **HOST A ROOM** and reads out the 4-letter code (or taps COPY and sends the link); the others JOIN with the code,
 tap READY, and the host taps START. Results (position, time, gap) land in the FRIENDS tab and on the results card.
+
+**Private rooms:** pick the ROOM SIZE before HOST A ROOM (2 = you + 1 friend, up to 8; the host can raise or lower it
+in the lobby) and nobody else gets in (`ROOM FULL (2/2)`). Rooms are humans only: the AI rivals and your shadow
+ghost are off while you are in a room (solo races keep SETTINGS · RIVALS / GHOST). The host stays the host even if
+their phone drops the connection for a while (sharing the link on a chat app, a network switch, or the browser
+reloading the page after it was in the background): the seat is kept for 2 minutes and the game takes it back on
+its own when it is back within that time, and a friend who reconnects never shows up twice. A seat that is
+RECONNECTING… still counts toward the size; a friend who opens the link again in another browser is told so, and
+the host can REMOVE the old seat. Only the
+host starts races, picks the map, changes the size, REMOVEs a player (they cannot come back into that room) or
+hands the room over (MAKE HOST, or LEAVE, which asks who gets it). Set YOUR NAME in FRIENDS so two phones with the
+default driver do not both say "Anaye" (the relay adds "2" if they still match).
 
 **Over the internet:** host the relay once ([`server/README.md`](server/README.md#host-the-relay-online):
 `render.yaml` + `server/Dockerfile`, free tier), then open the public game link with

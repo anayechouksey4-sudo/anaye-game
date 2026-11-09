@@ -433,6 +433,10 @@
   .hud--compact .hud-results__card:has(.hud-results__actions--world) .hud-results__actions { order: 3; gap: 6px; }
   .hud--compact .hud-results__card:has(.hud-results__actions--world) .hud-results__actions .gm-btn { min-height: 46px; }
   .hud--compact .hud-results__card:has(.hud-results__actions--world) .hud-results__stats { order: 4; }
+  /* The one-row BEST · CP · FALLS chips (short card) sit above the buttons, so the 2 × 2 grid's second row was
+     cut at 360×640: the four buttons share one row, labels wrapping as in short landscape. */
+  .hud--compact .hud-results__actions--world { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  .hud--compact .hud-results__actions--world .gm-btn { font-size: 9px; letter-spacing: 0.03em; }
 }
 /* Short landscape (e.g. 740×280, 800×264): the card sits between the thumbs and 2 × 2 buttons don't fit
    its height, so the four open-world buttons stay on one row and their labels wrap onto two lines. */
@@ -468,6 +472,12 @@
   .hud--compact .hud-results__card { gap: 5px; padding: 8px 12px 10px; }
   .hud--compact .hud-results__time { font-size: 26px; }
   .hud--compact .hud-results__actions .gm-btn { min-height: 44px; }
+  /* Open-world races (RETRY · FREE ROAM · NEXT EVENT · GARAGE): one row here too, a 2 × 2 grid pushes
+     the second row past the bottom of a 360 px screen (863×360, 780×360). */
+  .hud--compact .hud-results__actions--world { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  .hud--compact .hud-results__actions--world .gm-btn { font-size: 9px; letter-spacing: 0.03em; }
+  /* "P1 · AHEAD OF PIXEL RAE BY 51.9 S" on one line of the card (it wrapped and pushed the buttons out at 800×264). */
+  .hud--compact .hud-results__position { font-size: 11px; letter-spacing: 0.08em; }
 }
 /* 740×280 / 800×264 leave the card 208 / 192 px: FINISH and the map · car line share one ellipsized row
    (the map name leads, so it is what survives), the time 24 px, no extra margins. */

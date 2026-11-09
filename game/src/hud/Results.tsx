@@ -3,6 +3,7 @@ import { getCarEntry } from '../car/catalog';
 import { plateFor } from '../car/plates/platePick';
 import { onGameEvent } from '../game/events';
 import FriendsResultLine from '../multiplayer/FriendsResultLine';
+import { roomPositionLine, roomState, useRoom } from '../multiplayer/roomStore';
 import { activeDriver, profileState } from '../state/profile';
 import { MEDAL_LABEL, medalFor, medalsFor, nextMedal, type Medal } from '../state/records';
 import { selectionState, useSelection } from '../state/selection';
@@ -35,8 +36,20 @@ interface RunResult {
   driverName: string;
   rideName: string | null;
   accent: string;
-  /** Finishing position among rivals / friends (rivals/standings), e.g. "P1 · AHEAD OF VOLT BY 2.3 S"; null when alone. */
+  /** Finishing position among rivals (rivals/standings), e.g. "P1 · AHEAD OF VOLT BY 2.3 S"; null when alone. */
   positionText: string | null;
+  /** A room race: the line comes from the relay's times and follows them while the card is up (a friend finishing later). */
+  room: { startAt: number | null } | null;
+}
+
+/** The position line: in a room, from the relay's results of the race we finished (live); else the standings line from the finish. */
+function usePositionText(r: RunResult | null): string | null {
+  const race = useRoom((s) => s.race);
+  const you = useRoom((s) => s.you);
+  if (!r) return null;
+  if (!r.room) return r.positionText;
+  if (!race || race.startAt !== r.room.startAt) return r.positionText;
+  return roomPositionLine(race, you, r.elapsedMs);
 }
 
 /** MY RIDE's name when it is mounted on `carId` (the ride's base class), else null. */
@@ -113,6 +126,7 @@ export function Results() {
   // Best time before this finish (the store already holds the new one when 'finish' fires).
   const previousBest = useRef<number | null>(null);
   const runBest = useGameStore((s) => s.run.bestMs);
+  const positionText = usePositionText(result);
   const finished = useGameStore((s) => s.run.finished);
   if (!finished) previousBest.current = runBest;
   // The minimap steps aside while the card is up (✕ brings it back).
@@ -135,7 +149,10 @@ export function Results() {
         const medals = track.id === trackId ? medalsFor(trackId, s.carId) : null;
         // The standings see the player's finish now (RivalsLayer would mark it a few steps later).
         setFinished(PLAYER_ID, elapsedMs);
-        const position = positionLine();
+        const room = roomState();
+        // In a room the standings only hold estimates for friends still driving: use the relay's times.
+        const inRoom = room.status === 'in-room' && room.race !== null && room.race.results.some((row) => row.id === room.you);
+        const position = inRoom ? null : positionLine();
         setHidden(false);
         setResult({
           id: ++id,
@@ -158,7 +175,8 @@ export function Results() {
           driverName: activeDriver().name,
           rideName: rideNameOn(s.carId),
           accent: track.accent,
-          positionText: position?.text ?? null,
+          positionText: inRoom ? roomPositionLine(room.race, room.you, elapsedMs) : (position?.text ?? null),
+          room: inRoom ? { startAt: room.race!.startAt } : null,
         });
       }),
       onGameEvent('restart', clear),
@@ -173,7 +191,7 @@ export function Results() {
   }, []);
 
   if (!result || hidden || menuOpen) return null;
-  const r = result;
+  const r = { ...result, positionText };
   const improvedBy = r.isBest && r.previousBestMs !== null ? r.previousBestMs - r.elapsedMs : null;
   const nextId = nextTrackId(r.trackId);
   const nextEntry = getTrackEntry(nextId);

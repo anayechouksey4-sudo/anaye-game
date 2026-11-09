@@ -33,12 +33,25 @@ export interface RoomState {
   clock: { offsetMs: number; rttMs: number | null; samples: number };
   /** `?room=CODE` waiting for the link (null once attempted). */
   pendingCode: string | null;
+  /** The code of the last join attempt (refills ROOM CODE after ROOM FULL and the like). */
+  lastCode: string | null;
   /** Relay-clock ms of our lights-out on the current shared race (debug / tests). */
   goAt: number | null;
   /** Relay-clock ms when our lights were armed (startAt − 3 lights nominal; debug / tests). */
   armAt: number | null;
   /** Our role in the current race: a row in results = racing with everyone; else untimed. */
   participant: boolean;
+  /** Seats: the room size (null from a relay that predates seats). */
+  size: number | null;
+  /** The relay keeps seats (sizes, REMOVE, MAKE HOST, reconnect grace); false on a relay that predates them. */
+  seats: boolean;
+  /**
+   * The room we are getting back into after the link dropped (null otherwise). Rooms mode (no AI rivals,
+   * no ghost) holds through the blip; cleared when we are back in, give up, or leave.
+   */
+  rejoining: string | null;
+  /** How many times this page took its seat back after a reconnect (debug / tests). */
+  restores: number;
   set: (patch: Partial<Omit<RoomState, 'set' | 'reset'>>) => void;
   reset: (status: RoomStatus, left?: RoomLeftReason | 'link' | null) => void;
 }
@@ -51,6 +64,8 @@ const EMPTY = {
   participant: false,
   goAt: null,
   armAt: null,
+  size: null,
+  seats: false,
 };
 
 export const useRoom = create<RoomState>()((set) => ({
@@ -61,11 +76,22 @@ export const useRoom = create<RoomState>()((set) => ({
   left: null,
   clock: { offsetMs: 0, rttMs: null, samples: 0 },
   pendingCode: null,
+  lastCode: null,
+  rejoining: null,
+  restores: 0,
   set: (patch) => set(patch),
   reset: (status, left = null) => set({ status, ...EMPTY, left }),
 }));
 
 export const roomState = (): RoomState => useRoom.getState();
+
+/** In a room, or getting back into one after a link blip: friends races have no AI rivals and no ghost. */
+export const inRoomMode = (s: Pick<RoomState, 'status' | 'rejoining'>): boolean => s.status === 'in-room' || s.rejoining !== null;
+
+/** The member who would get the room if the host left now: the earliest present member other than `you`. */
+export function nextHost(state: Pick<RoomState, 'players' | 'you'>): RoomPlayer | null {
+  return state.players.find((p) => p.id !== state.you && !p.away) ?? null;
+}
 
 /** The player entry for `id` (or null). */
 export function playerById(state: Pick<RoomState, 'players'>, id: string | null): RoomPlayer | null {
@@ -94,4 +120,27 @@ export function positionOf(race: RoomRace | null, id: string | null): number | n
   const index = rows.findIndex((r) => r.id === id);
   if (index < 0 || rows[index]!.finishMs === null) return null;
   return index + 1;
+}
+
+/**
+ * The results-card position line in a room, from the relay's times, so both phones say the same:
+ * "P1 · AHEAD OF ANAYE 2 BY 0.2 S" once the nearest friend has a time, "P1 · AHEAD OF ANAYE 2" while
+ * every friend is still driving (no guessed seconds). `myFinishMs` stands in for our own row until the
+ * relay echoes it. Null when we have no row in this race or raced alone.
+ */
+export function roomPositionLine(race: RoomRace | null, you: string | null, myFinishMs: number): string | null {
+  if (!race || you === null) return null;
+  const mine = race.results.find((r) => r.id === you);
+  if (!mine) return null;
+  const myMs = mine.finishMs ?? myFinishMs;
+  const others = race.results.filter((r) => r.id !== you);
+  if (others.length === 0) return null;
+  const done = others.filter((r): r is RoomRace['results'][number] & { finishMs: number } => r.finishMs !== null);
+  const position = 1 + done.filter((r) => r.finishMs < myMs).length;
+  if (done.length === 0) return `P${position} · AHEAD OF ${others[0]!.name.toUpperCase()}`;
+  const nearest = done.reduce((best, r) => (Math.abs(r.finishMs - myMs) < Math.abs(best.finishMs - myMs) ? r : best));
+  const gapMs = nearest.finishMs - myMs;
+  const secs = `${(Math.abs(gapMs) / 1000).toFixed(1)} S`;
+  const name = nearest.name.toUpperCase();
+  return gapMs < 0 ? `P${position} · ${secs} BEHIND ${name}` : `P${position} · AHEAD OF ${name} BY ${secs}`;
 }

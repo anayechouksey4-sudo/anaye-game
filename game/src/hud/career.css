@@ -91,3 +91,16 @@
   .hud--compact.hud--minimap .cr-toast { left: calc(var(--hud-l) + var(--mm) + 12px); transform: none; max-width: calc(100vw - 2 * (var(--hud-l) + var(--mm) + 12px)); animation-name: cr-toast-in-flat; }
 }
 @keyframes cr-toast-in-flat { from { opacity: 0; transform: translateY(-8px); } to { opacity: 1; transform: none; } }
+/* With the results card up (most trophies unlock at the finish) the toast must not sit under the card (z 20):
+   it is drawn above it, and on phones it moves to free space — portrait: the band between the top bar and the
+   card; landscape: the top-left corner beside the centred bar (after the minimap disc when it shows). */
+.hud:has(.hud-results) .cr-toast { z-index: 21; }
+@media (orientation: portrait) {
+  .hud--touch:has(.hud-results) .cr-toast { top: var(--below-bar); }
+}
+@media (orientation: landscape) {
+  .hud--touch:has(.hud-results) .cr-toast { top: var(--hud-t); left: var(--hud-l); transform: none; max-width: calc(50vw - 140px - var(--hud-l) - 8px); animation-name: cr-toast-in-flat; }
+  .hud--touch.hud--minimap:has(.hud-results) .cr-toast { left: calc(var(--hud-l) + var(--mm) + 10px); max-width: calc(50vw - 140px - var(--hud-l) - var(--mm) - 18px); }
+  /* The status chips there step aside for the 3 s the toast shows (portrait hides them under the card anyway). */
+  .hud--touch:has(.hud-results):has(.cr-toast) .hud-corner-tl { visibility: hidden; }
+}

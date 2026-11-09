@@ -3,6 +3,8 @@
  * App.tsx after <RunController/> inside <Physics>, so it pauses with the menu and its after-step
  * callbacks run after the car's (same-step pose). Everything is keyed by the registered layout:
  * free roam (mode 'roam') and maps without medals get no rivals; a map switch unmounts them.
+ * In a FRIENDS room (any phase, any map, and through a reconnect) only humans race: no rivals and
+ * no ghost are spawned, drawn or ranked; solo play keeps SETTINGS · RIVALS / GHOST.
  *
  * Zero physics: rivals are poses on the route polyline (rivals/route.ts) driven by a speed plan
  * (speedPlan.ts) against the race clock (steps since GO × PHYSICS_DT, so the menu pause freezes
@@ -23,6 +25,7 @@ import { onGameEvent } from '../game/events';
 import { activeDriver, useProfile } from '../state/profile';
 import { useSelection } from '../state/selection';
 import { gameState, useGameStore } from '../state/store';
+import { inRoomMode, useRoom } from '../multiplayer/roomStore';
 import type { TrackLayout } from '../track/types';
 import { worldEngine } from '../track/world/engine';
 import { heightAt } from '../track/world/gen/heightAt';
@@ -240,11 +243,11 @@ function RivalPack({ layout, count }: { layout: TrackLayout; count: 1 | 3 }) {
   });
 
   return (
-    <>
+    <group name="rivals">
       {rivals.map((r) => (
         <KinematicCar key={r.spec.id} carId={r.spec.carId} look={r.spec.look} plate={r.spec.plate} label={r.spec.name} labelColor={r.spec.color} pose={r.pose} fade={r.fade} />
       ))}
-    </>
+    </group>
   );
 }
 
@@ -388,14 +391,16 @@ export function RivalsLayer() {
   const carId = useSelection((s) => s.carId);
   const count = useRivalSettings((s) => s.rivals);
   const ghost = useRivalSettings((s) => s.ghost);
+  // Friends rooms are humans only (the owner's report: "I want to race only with my friend").
+  const inRoom = useRoom(inRoomMode);
   const timed = layout !== null && layout.mode !== 'roam';
   return (
     <>
       <TagProjector />
       <RaceClock />
       {timed && <GhostRecorderDriver />}
-      {timed && count !== 0 && <RivalPack key={`${layout.id}:${carId}`} layout={layout} count={count} />}
-      {timed && ghost && <GhostCar key={`ghost:${layout.id}:${carId}`} layout={layout} />}
+      {timed && !inRoom && count !== 0 && <RivalPack key={`${layout.id}:${carId}`} layout={layout} count={count} />}
+      {timed && !inRoom && ghost && <GhostCar key={`ghost:${layout.id}:${carId}`} layout={layout} />}
       <RivalsDebugHandle />
     </>
   );

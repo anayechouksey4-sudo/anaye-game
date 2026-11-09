@@ -29,7 +29,7 @@ import {
 } from '../../shared/protocol';
 import { formatControls, formatPeers, formatPhysics, formatSession } from './format';
 import { displayHost } from './network';
-import { RoomManager, type Room, type RoomManagerOptions, type RoomStats } from './rooms';
+import { RoomManager, type LeaveResult, type Room, type RoomFail, type RoomManagerOptions, type RoomMember, type RoomStats, type SeatRelease } from './rooms';
 import { createThrottledLog } from './throttled-log';
 
 export interface RelayLogger {
@@ -63,6 +63,8 @@ export interface RelayServerOptions {
   rooms?: RoomManagerOptions;
   /** How often idle rooms are swept (ROOM_IDLE_EXPIRY_MS decides what is idle). Default 60 s. */
   roomSweepMs?: number;
+  /** How often seats left away past ROOM_SEAT_GRACE_MS are freed. Default 2 s. */
+  seatSweepMs?: number;
 }
 
 export interface RelayCounters {
@@ -103,7 +105,11 @@ export interface RelayServer {
   /** Closes every client with 1001, then the HTTP server. Idempotent. */
   close(): Promise<void>;
   stats(): RelayStats;
-  /** Deletes rooms idle for ROOM_IDLE_EXPIRY_MS (per the rooms clock) and tells their members. Also runs every `roomSweepMs`. */
+  /**
+   * Frees seats away for longer than ROOM_SEAT_GRACE_MS, then deletes rooms idle for ROOM_IDLE_EXPIRY_MS
+   * (per the rooms clock) and tells their members; returns the number of idle rooms deleted. Also runs
+   * every `seatSweepMs` / `roomSweepMs`.
+   */
   sweepRooms(): number;
   /** The rooms a client id is in (for tests and the info page). */
   roomOf(clientId: string): Room | undefined;
@@ -121,6 +127,7 @@ const CLOSE_GRACE_MS = 1000;
 const RATE_LIMIT_ERROR_INTERVAL_MS = 1000;
 const LOG_THROTTLE_MS = 1000;
 const ROOM_SWEEP_MS = 60_000;
+const SEAT_SWEEP_MS = 2_000;
 /** room:players goes out for a ping update at most this often per room (membership changes always go out). */
 const ROOM_PING_BROADCAST_MS = 4000;
 
@@ -258,63 +265,98 @@ export async function createRelayServer(options: RelayServerOptions = {}): Promi
 
   // ── Rooms ────────────────────────────────────────────────────────────────
 
+  /** The sockets of a room's present seats. */
   const roomClients = (room: Room): Client[] => {
     const out: Client[] = [];
-    for (const id of room.members.keys()) {
-      const member = clientsById.get(id);
+    for (const m of room.members.values()) {
+      const member = m.clientId === null ? undefined : clientsById.get(m.clientId);
       if (member) out.push(member);
     }
     return out;
   };
 
-  const sendRoomPlayers = (room: Room): void => {
-    const players: RoomPlayer[] = rooms.players(room);
-    const frame = encodeMessage({ type: 'room:players', players });
-    for (const member of roomClients(room)) sendFrame(member, frame);
+  const playersFrame = (room: Room): string => encodeMessage({ type: 'room:players', players: rooms.players(room), size: room.size });
+
+  const sendRoomPlayers = (room: Room, except?: Client): void => {
+    const frame = playersFrame(room);
+    for (const member of roomClients(room)) if (member !== except) sendFrame(member, frame);
   };
 
-  const sendRoomRace = (room: Room, from: Client): void => {
+  const sendRoomRace = (room: Room, fromId: string): void => {
     const race: RoomRace = room.race;
-    const frame = encodeMessage({ type: 'room:race', ...race, results: race.results.map((r) => ({ ...r })), from: from.id });
+    const frame = encodeMessage({ type: 'room:race', ...race, results: race.results.map((r) => ({ ...r })), from: fromId });
     for (const member of roomClients(room)) sendFrame(member, frame);
   };
 
-  const sendRoomJoined = (c: Client, room: Room): void => {
+  const sendRoomJoined = (c: Client, room: Room, member: RoomMember, restored: boolean): void => {
     send(c, {
       type: 'room:joined',
       code: room.code,
-      you: c.id,
+      you: member.id,
       players: rooms.players(room),
       race: { ...room.race, results: room.race.results.map((r) => ({ ...r })) },
       serverNow: roomNow(),
+      size: room.size,
+      ...(restored ? { restored: true as const } : {}),
     });
   };
 
-  const roomError = (c: Client, result: { ok: false; code: 'bad_code' | 'not_found' | 'full' | 'rooms_full' | 'already_in_room' | 'not_in_room' | 'not_host' | 'bad_state'; message: string }): void => {
+  const roomError = (c: Client, result: RoomFail): void => {
     send(c, { type: 'room:error', code: result.code, message: result.message });
   };
 
-  /** Removes a client from its room (a leave or a disconnect) and tells the others. */
-  const leaveRoom = (c: Client, notifySelf: boolean): void => {
-    const left = rooms.leave(c.id);
-    if (!left) {
-      if (notifySelf) roomError(c, { ok: false, code: 'not_in_room', message: 'not in a room' });
+  const memberIdOf = (c: Client): string => rooms.memberOfClient(c.id)?.id ?? c.id;
+
+  /** Tell the rest of a room that a seat went (a leave, an expiry, a seat given up elsewhere). */
+  const announceLeave = (left: LeaveResult | SeatRelease, why: string): void => {
+    if (left.closed) {
+      logger.info(`room ${left.room.code} closed (last player ${left.member.id} ${why})`);
       return;
     }
-    if (notifySelf) send(c, { type: 'room:left', reason: 'left' });
-    if (left.closed) {
-      logger.info(`room ${left.room.code} closed (last player ${c.id} left)`);
+    if (rooms.rooms.get(left.room.code) !== left.room) {
+      // Several seats went in one sweep and a later one closed the room: nobody is left to tell.
+      logger.info(`room ${left.room.code}: ${left.member.id} ${why}`);
       return;
     }
     sendRoomPlayers(left.room);
-    logger.info(`room ${left.room.code}: ${c.id} left (${left.room.members.size} left)${left.newHostId ? `; ${left.newHostId} is host now` : ''}`);
+    logger.info(`room ${left.room.code}: ${left.member.id} ${why} (${left.room.members.size} left)${left.newHostId ? `; ${left.newHostId} is host now` : ''}`);
+  };
+
+  /** An explicit room:leave. */
+  const leaveRoom = (c: Client, to?: string): void => {
+    const left = rooms.leave(c.id, to);
+    if (!left) {
+      roomError(c, { ok: false, code: 'not_in_room', message: 'not in a room' });
+      return;
+    }
+    send(c, { type: 'room:left', reason: 'left' });
+    announceLeave(left, 'left');
+  };
+
+  /** The socket closed: a tokened seat waits ROOM_SEAT_GRACE_MS for its device; an old client is gone at once. */
+  const disconnectRoom = (c: Client): void => {
+    const result = rooms.disconnect(c.id);
+    if (!result) return;
+    if (result.kind === 'left') {
+      announceLeave(result, 'disconnected');
+      return;
+    }
+    sendRoomPlayers(result.room);
+    logger.info(`room ${result.room.code}: ${result.member.id} is away (socket ${c.id} closed); seat held`);
+  };
+
+  const sweepSeats = (): number => {
+    const gone = rooms.expireSeats();
+    for (const left of gone) announceLeave(left, 'did not come back (seat expired)');
+    return gone.length;
   };
 
   const sweepRooms = (): number => {
+    sweepSeats();
     const gone = rooms.sweep();
-    for (const { code, memberIds } of gone) {
+    for (const { code, clientIds } of gone) {
       logger.info(`room ${code} expired (idle)`);
-      for (const id of memberIds) {
+      for (const id of clientIds) {
         const member = clientsById.get(id);
         if (member) send(member, { type: 'room:left', reason: 'expired' });
       }
@@ -382,27 +424,67 @@ export async function createRelayServer(options: RelayServerOptions = {}): Promi
       }
       case 'room:create': {
         const { name, carId, look, plate, avatar } = message;
-        const result = rooms.create(c.id, { name, carId, look, plate, avatar });
+        const result = rooms.create(c.id, { name, carId, look, plate, avatar }, { token: message.token ?? null, size: message.size ?? null });
         if (!result.ok) {
           roomError(c, result);
           return;
         }
-        sendRoomJoined(c, result.room);
-        logger.info(`room ${result.room.code} created by ${c.id} "${name}" (${rooms.rooms.size} rooms)`);
+        for (const released of result.released) announceLeave(released, 'opened another room');
+        sendRoomJoined(c, result.room, result.member, false);
+        logger.info(`room ${result.room.code} created by ${c.id} "${result.member.identity.name}" (size ${result.room.size}${result.member.token ? '' : ', untokened'}; ${rooms.rooms.size} rooms)`);
         return;
       }
       case 'room:join': {
         const { code, name, carId, look, plate, avatar } = message;
-        const result = rooms.join(c.id, code, { name, carId, look, plate, avatar });
+        const result = rooms.join(c.id, code, { name, carId, look, plate, avatar }, message.token ?? null);
         if (!result.ok) {
           roomError(c, result);
           return;
         }
-        sendRoomJoined(c, result.room);
+        for (const released of result.released) announceLeave(released, 'joined another room');
+        if (result.replacedClientId !== null && result.replacedClientId !== c.id) {
+          // The same device on a newer socket: the old one is out of the room (no duplicate seat).
+          const old = clientsById.get(result.replacedClientId);
+          if (old) send(old, { type: 'room:left', reason: 'replaced' });
+        }
+        sendRoomJoined(c, result.room, result.member, result.restored);
         // The newcomer already has the list in room:joined; the others learn about it here.
-        const frame = encodeMessage({ type: 'room:players', players: rooms.players(result.room) });
-        for (const member of roomClients(result.room)) if (member !== c) sendFrame(member, frame);
-        logger.info(`room ${code}: ${c.id} "${name}" joined (${result.room.members.size} players)`);
+        sendRoomPlayers(result.room, c);
+        logger.info(
+          `room ${code}: ${c.id} "${result.member.identity.name}" ${result.restored ? `took back seat ${result.member.id}${result.replacedClientId ? ` (replacing ${result.replacedClientId})` : ''}` : 'joined'} (${result.room.members.size}/${result.room.size} players)`,
+        );
+        return;
+      }
+      case 'room:size': {
+        const result = rooms.setSize(c.id, message.size);
+        if (!result.ok) {
+          roomError(c, result);
+          return;
+        }
+        if (result.changed) sendRoomPlayers(result.room);
+        logger.info(`room ${result.room.code}: size ${result.room.size}`);
+        return;
+      }
+      case 'room:remove': {
+        const result = rooms.removeMember(c.id, message.id);
+        if (!result.ok) {
+          roomError(c, result);
+          return;
+        }
+        const gone = result.targetClientId === null ? undefined : clientsById.get(result.targetClientId);
+        if (gone) send(gone, { type: 'room:left', reason: result.target.token ? 'removed' : 'closed' });
+        sendRoomPlayers(result.room);
+        logger.info(`room ${result.room.code}: host removed ${result.target.id} "${result.target.identity.name}"`);
+        return;
+      }
+      case 'room:host': {
+        const result = rooms.setHost(c.id, message.id);
+        if (!result.ok) {
+          roomError(c, result);
+          return;
+        }
+        if (result.changed) sendRoomPlayers(result.room);
+        logger.info(`room ${result.room.code}: ${message.id} is host now (handed over)`);
         return;
       }
       case 'room:update': {
@@ -412,11 +494,17 @@ export async function createRelayServer(options: RelayServerOptions = {}): Promi
           roomError(c, result);
           return;
         }
-        if (result.changed) sendRoomPlayers(result.room);
+        if (result.changed) {
+          sendRoomPlayers(result.room);
+          // A rename also renames this player's results row: send the race too, so the live table and the
+          // results line follow the new name at once.
+          const id = memberIdOf(c);
+          if (result.room.race.results.some((r) => r.id === id)) sendRoomRace(result.room, id);
+        }
         return;
       }
       case 'room:leave':
-        leaveRoom(c, true);
+        leaveRoom(c, message.to);
         return;
       case 'room:ready': {
         const result = rooms.setReady(c.id, message.ready);
@@ -435,8 +523,9 @@ export async function createRelayServer(options: RelayServerOptions = {}): Promi
         }
         if (verdict === 'dropped') return;
         const room = rooms.roomOf(c.id)!;
+        const id = memberIdOf(c);
         const { t, p, q, s, st, g, pm } = message;
-        const frame = encodeMessage({ type: 'room:pose', id: c.id, t, p, q, s, st, g, pm, from: c.id });
+        const frame = encodeMessage({ type: 'room:pose', id, t, p, q, s, st, g, pm, from: id });
         for (const member of roomClients(room)) {
           if (member === c) continue;
           if (member.ws.bufferedAmount > backpressureBytes) continue;
@@ -450,7 +539,7 @@ export async function createRelayServer(options: RelayServerOptions = {}): Promi
           roomError(c, result);
           return;
         }
-        sendRoomRace(result.room, c);
+        sendRoomRace(result.room, memberIdOf(c));
         if (message.phase === 'countdown' || message.phase === 'results' || message.phase === 'lobby') sendRoomPlayers(result.room);
         logger.info(`room ${result.room.code}: race ${message.phase}${result.room.race.track ? ` on ${result.room.race.track}` : ''}${message.startAt !== null ? ` startAt ${message.startAt}` : ''}`);
         return;
@@ -462,8 +551,8 @@ export async function createRelayServer(options: RelayServerOptions = {}): Promi
           return;
         }
         if (result.changed) {
-          sendRoomRace(result.room, c);
-          logger.info(`room ${result.room.code}: ${c.id} finished in ${message.finishMs} ms`);
+          sendRoomRace(result.room, memberIdOf(c));
+          logger.info(`room ${result.room.code}: ${memberIdOf(c)} finished in ${message.finishMs} ms`);
         }
         return;
       }
@@ -550,7 +639,7 @@ export async function createRelayServer(options: RelayServerOptions = {}): Promi
     ws.on('close', (code, reason) => {
       clients.delete(ws);
       clientsById.delete(c.id);
-      if (!shuttingDown) leaveRoom(c, false);
+      if (!shuttingDown) disconnectRoom(c);
       broadcastPresence();
       const why = reason.length > 0 ? ` ${reason.toString('utf8')}` : '';
       logger.info(`- ${describe(c)} disconnected (${code}${why}) (${formatPeers(peerCounts())})`);
@@ -576,6 +665,8 @@ export async function createRelayServer(options: RelayServerOptions = {}): Promi
   heartbeat.unref();
   const roomSweeper = setInterval(sweepRooms, options.roomSweepMs ?? ROOM_SWEEP_MS);
   roomSweeper.unref();
+  const seatSweeper = setInterval(sweepSeats, options.seatSweepMs ?? SEAT_SWEEP_MS);
+  seatSweeper.unref();
 
   // ── HTTP ─────────────────────────────────────────────────────────────────
 
@@ -626,6 +717,7 @@ export async function createRelayServer(options: RelayServerOptions = {}): Promi
   } catch (err) {
     clearInterval(heartbeat);
     clearInterval(roomSweeper);
+    clearInterval(seatSweeper);
     wss.close();
     throw err;
   }
@@ -638,6 +730,7 @@ export async function createRelayServer(options: RelayServerOptions = {}): Promi
       shuttingDown = true;
       clearInterval(heartbeat);
       clearInterval(roomSweeper);
+      clearInterval(seatSweeper);
       for (const log of [controlsLog, physicsLog, stateLog, badFrameLog]) log.cancel();
 
       const open = [...clients.values()];

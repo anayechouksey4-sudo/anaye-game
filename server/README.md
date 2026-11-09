@@ -113,20 +113,38 @@ bookkeeping is `src/rooms.ts`, the routing `src/relay.ts`.
 
 | Frame | Sent by | Relay action |
 | --- | --- | --- |
-| `room:create {name, carId, look, plate, avatar}` | game | New room (4-letter code from `BCDFGHJKLMNPQRSTVWXZ`), sender is host → `room:joined {code, you, players, race, serverNow}` |
-| `room:join {code, …identity}` | game | Adds the sender (≤ 8 players) → `room:joined` to it, `room:players` to the others; `room:error` `not_found` / `full` / `already_in_room` |
+| `room:create {name, carId, look, plate, avatar, token?, size?}` | game | New room (4-letter code from `BCDFGHJKLMNPQRSTVWXZ`) of `size` seats (2–8; 8 without one), sender is host → `room:joined {code, you, players, race, serverNow, size}` |
+| `room:join {code, …identity, token?}` | game | Adds the sender → `room:joined` to it, `room:players` to the others; the same `token` as a seat in the room takes that seat back (`room:joined {restored: true}`, same `you`); `room:error` `not_found` / `full` (`ROOM FULL (2/2)`; with away seats `ROOM FULL (2/2) · 1 RECONNECTING: ask the host to REMOVE that seat, or try again in 2 min`) / `removed` / `already_in_room` |
+| `room:size {size}` | host only | New size (never below the seats taken) → `room:players {…, size}` |
+| `room:remove {id}` | host only | Frees that seat; the device gets `room:left {reason: 'removed'}` (`'closed'` for an old, untokened client) and its token / socket cannot come back into this room |
+| `room:host {id}` | host only | Hands the host role to a present member → `room:players` |
 | `room:update {…identity}` / `room:ready {ready}` | game | `room:players` to everyone in the room (only when something changed) |
 | `room:pose {t, p, q, s, st, g, pm}` | game, 15 Hz | Fanned out to the **other** members with `id` + `from` = sender; dropped above 30 Hz per sender (token bucket, burst 6) |
 | `room:race {phase, track, startAt}` | host only | Stored and broadcast; `results` are the relay's own: `countdown` resets them to the present members, `room:finish` fills a row |
 | `room:finish {finishMs, falls}` | game | Fills the sender's results row → `room:race` to everyone (ignored without a row: late joiners race next time) |
 | `room:ping {t, rtt?}` | game | `room:pong {t, serverNow}` to the sender (the relay clock every member times its start lights to); the reported `rtt` shows as `ping` in `room:players` (≤ one broadcast per 4 s) |
-| `room:leave` | game | `room:left {reason: 'left'}` to the sender, `room:players` to the rest; a disconnect does the same silently |
-| `room:left {reason: 'expired'}` | relay | The room was idle for 2 h (swept every 60 s) |
+| `room:leave {to?}` | game | `room:left {reason: 'left'}` to the sender, `room:players` to the rest; a host hands the room to `to` (when present) or the earliest present member |
+| `room:left {reason}` | relay | `expired` (idle 2 h, swept every 60 s), `removed` (the host removed you), `replaced` (the same device opened the room on a newer socket) |
 
-Rules: a client is in at most one room; the creator is host and the earliest-joined member takes over when the
-host leaves; an empty room is deleted at once; at most 64 rooms per relay (`rooms_full`); `/health` reports
-`rooms: {rooms, players, posesIn, posesDropped, expired}` and `memory`. Tests: `test/rooms.test.ts` (18 cases:
-codes, identities, poses and fan-out, the rate limit with an injected clock, host migration, race ordering, expiry).
+**Seats.** The game sends a random per-device `token` (never shown). The relay keys that member by it: when its
+socket drops (a phone switching apps to share the link, a Wi-Fi → data switch) the seat stays for **120 s**
+(`ROOM_SEAT_GRACE_MS`), shown as `away: true` in `room:players` (FRIENDS: RECONNECTING…, car hidden), with its host
+role, member id and results row; the device's automatic re-join takes it back. A second socket with the same token
+replaces the first, so a device never shows up twice. The host role moves only on the host's LEAVE, `room:host`, or
+when the host's seat expires. Names are de-duplicated per room (`Anaye`, `Anaye 2`; ≤ 16 characters).
+
+**Old clients** (no `token`, no `size`) keep the old behaviour: they create rooms of 8, join any room with a free
+seat, are removed the moment their socket closes (the earliest present member takes over if they were host), and
+only receive error codes and leave reasons the previous parser knows. A game that predates seats ignores the new
+optional fields; a new game on a relay that predates seats sees no `size` in `room:joined` and hides sizes, REMOVE
+and MAKE HOST.
+
+Rules: a socket is in at most one room and a token holds one seat; an empty room is deleted at once; at most 64
+rooms per relay (`rooms_full`); `/health` reports `rooms: {rooms, players, away, posesIn, posesDropped, expired,
+seatsExpired, seatsRestored}` and `memory`. Tests: `test/rooms.test.ts` (18 cases: codes, identities, poses and
+fan-out, the rate limit with an injected clock, host migration, race ordering, expiry) and `test/seats.test.ts`
+(15 cases: token seats, grace restore, duplicate-socket replace, host kept through the grace, LEAVE / MAKE HOST /
+expiry hand-over, size limits and changes, REMOVE with no way back, name de-dup, old clients, bounded memory).
 
 ## Host the relay online
 

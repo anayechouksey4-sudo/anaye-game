@@ -58,9 +58,12 @@ check, written on change, wrapped in try/catch so a blocked store only costs the
 | `gamerfleet.skid.v1` | SKID MARKS switch | `car/skid/skidStore.ts` |
 | `gamerfleet.career.v1` | career: records per map × car, totals, trophies with unlock times | `career/store.ts` |
 | `gamerfleet.relay.v1` | relay address typed in FRIENDS → CONNECT; the hosted copy's start-up script uses it when the address has no `?ws=` | `multiplayer/FriendsTab.tsx`, `scripts/build-pages.mjs` |
+| `gamerfleet.friends.v1` | rooms: this device's player token (random, never shown), YOUR NAME, the last ROOM SIZE, whether the name card was answered | `multiplayer/friendsProfile.ts` |
+| `gamerfleet.room.v1` | rooms: the room this page is seated in and when it was last alive there (`{code, at}`), so a reload within the 120 s seat grace takes the seat back; in `sessionStorage` (this tab) and, for the installed app, `localStorage` | `multiplayer/friendsProfile.ts` |
+| `gamerfleet.camera.v1` | SETTINGS · CAMERA (CHASE / ORBIT / HOOD; nothing stored = CHASE) | `state/store.ts` |
 | `tessera.air.v1`, `tessera.trap.v1` | the island's Kite Launcher air time and speed-trap bests per car | `track/world/physics/records.ts` |
 
-The service worker's caches are named `gf-racer-<version>`; rooms (FRIENDS) keep nothing locally.
+The service worker's caches are named `gf-racer-<version>`; rooms (FRIENDS) keep only `gamerfleet.friends.v1` and `gamerfleet.room.v1` locally.
 
 ## Install as an app
 
@@ -225,7 +228,7 @@ doesn't, `pagehide` pauses, Android back closes it, no pause after the finish.
 | DRIVERS · MY RIDE | The five block-built drivers and the build-your-own look ([Drivers and MY RIDE](#drivers-and-my-ride-srcdrivers-srcride-srcstateprofilets)) |
 | SETTINGS | Grouped: **CONTROLS** (STEERING TOUCH / TILT, TILT RANGE, INVERT TILT, CALIBRATE, GAMEPAD · AUTO status — `src/input/InputSettings.tsx`), **RACE** (RIVALS 3 / 1 / OFF, GHOST, SKID MARKS — `src/rivals/RivalsSettings.tsx`, `src/car/skid/SkidSettings.tsx`), **DISPLAY** (HUD: status chips on phones, help panel on desktop; TELEMETRY; MINIMAP; FULLSCREEN), **CAMERA**, **SOUND & FEEL** (SOUND + VOLUME, VIBRATION — `useSelection().settings`, persisted), **APP** (install / offline / update card — `src/pwa/InstallCard.tsx`). Every control is a 44 px+ button or switch |
 | SQUAD | Link status, relay URL, dashboards online, round trip, last update, the squad's Front Wing Aero / Engine Tier / Chassis Balance, the big-jump verdict for this car on this map, the uplink feed |
-| FRIENDS | Rooms over the relay ([Play with friends](#play-with-friends-srcmultiplayer)): HOST A ROOM / JOIN by code, the room code and share link, the player list with READY, START (host) and LEAVE, the results table |
+| FRIENDS | Rooms over the relay ([Play with friends](#play-with-friends-srcmultiplayer)): YOUR NAME, ROOM SIZE + HOST A ROOM / JOIN by code, the room code and share link with `n/size`, the player list (RECONNECTING… rows) with READY, START, REMOVE and MAKE HOST (host) and LEAVE, the results table |
 
 **Start lights.** Every new run (first load, restart, map or car change, RETRY / NEXT MAP; never a
 respawn) begins with 3 · 2 · 1 · GO, one light every 0.8 s of simulated time
@@ -734,12 +737,39 @@ Rooms ride on the relay socket the game already keeps for the dashboard (`net/sq
 dashboard still tunes every car in the room). Protocol `room.v1` in `shared/protocol.ts`, relay side in
 `server/src/rooms.ts` ([server/README.md](../server/README.md#rooms--play-with-friends-roomv1)).
 
-- **Rooms.** ☰ MENU → **FRIENDS** → HOST A ROOM gives a 4-letter code (20-letter alphabet, no vowels, no
-  0/O/1/I; 2 h idle expiry, 8 players, 64 rooms per relay) and a share link `…/?room=CODE` (with `ws=` when
-  the page named a relay) that joins on load once the socket is open. The creator is host; when the host
-  leaves, the earliest member takes over. A lost socket drops the room and re-joins the same code when the
-  link is back. Identity (name, car, MY RIDE look, plate, avatar) follows the DRIVERS / GARAGE / MY RIDE
-  choices live (`identity.ts`, throttled to one `room:update` per 300 ms).
+- **Rooms.** ☰ MENU → **FRIENDS** → ROOM SIZE (2 · 3 · 4 · 6 · 8, default 2 = "you + 1 friend") → HOST A ROOM
+  gives a 4-letter code (20-letter alphabet, no vowels, no 0/O/1/I; 2 h idle expiry, 64 rooms per relay) and a
+  share link `…/?room=CODE` (with `ws=` when the page named a relay) that joins on load once the socket is open.
+  The code, the link and the player list show `n/size`; a join beyond the size gets `ROOM FULL (2/2)`. The host
+  can change the size in the lobby (never below the players in it), REMOVE a player (tap twice; that device gets
+  "You were removed from the room" and cannot come back by link or code) and MAKE HOST; LEAVE asks "Leave and
+  hand the room to <name>?". Members cannot start, change the size, remove or pick the map.
+- **Seats and reconnects.** `friendsProfile.ts` keeps a random player token per device (never shown) and sends
+  it on create / join. A lost socket drops the room locally and re-joins the same code when the link is back;
+  the relay gives the same seat back (`room:joined {restored}`: same member id, host role, results row; the race
+  in progress keeps its start, `raceFlow.ts`), so the host stays the host through a 20 s blip and a friend who
+  reconnects never appears twice. Meanwhile the others see that player as RECONNECTING… (car hidden) for up to
+  120 s. A reload (Android discards a background tab while the host shares the link; the host's own address has no
+  `?room=`) re-joins too: the page keeps `gamerfleet.room.v1` `{code, at}` while seated (refreshed every few
+  seconds, on hide and on pagehide) and, when it loads within the grace, re-joins that code with the token
+  (FRIENDS: "GETTING BACK INTO ROOM …"). It is kept per tab (`sessionStorage`, so a second tab does not steal the
+  seat) and, for the installed app, in `localStorage`; LEAVE, REMOVE and a failed re-join clear it. Away seats
+  count toward the size, so a join then gets `ROOM FULL (2/2) · 1 RECONNECTING: ask the host to REMOVE that seat,
+  or try again in 2 min`, and the host sees the same hint above the player list. Against a relay that predates
+  seats the room still works, without sizes, grace or host controls.
+- **Humans only.** While the player is in a room (any phase, any map, and while re-joining after a blip)
+  `rivals/RivalsLayer.tsx` mounts no AI rivals and no shadow ghost, so the standings and the `P n/N` chip count
+  room members only and the results line names the nearest friend. That line uses the relay's finish times (the
+  same on every phone) and follows them while the card is up: "P1 · AHEAD OF ANAYE 2" while the friend is still
+  driving, then "… BY 0.2 S" once their time arrives. Friends' pace in the live standings comes from the speed
+  their poses carry. Solo play keeps SETTINGS · RIVALS / GHOST.
+  The FRIENDS tab says "AI rivals and your ghost are off in rooms".
+- **Names.** YOUR NAME (FRIENDS, ≤ 16, prefilled from the selected driver, saved per device) is the name friends
+  see. A device that still carries the owner's default driver "Anaye" with the stock look is asked once ("WHAT
+  SHOULD FRIENDS CALL YOU?", OK or SKIP) before HOST / JOIN, or at the top of the room for a friend who joined by
+  link before seeing it; the relay de-duplicates names per room ("Anaye 2").
+  Identity (name, car, MY RIDE look, plate, avatar) follows the FRIENDS / DRIVERS / GARAGE / MY RIDE choices live
+  (`identity.ts`, throttled to one `room:update` per 300 ms).
 - **Shared race.** The host's MAPS pick goes out as `room:race {phase: 'lobby', track}` and every member's
   selection store follows it (the normal map switch). Members tap READY, the host taps START → `startAt =
   relayNow + 4 s`; each client restarts its run `3 × 0.8 s` before `startAt` on the relay clock (`clockSync.ts`:
@@ -755,11 +785,16 @@ dashboard still tunes every car in the room). Protocol `room.v1` in `shared/prot
   0.3 m; nothing heard for 3 s dims the car. `RemotePlayersLayer.tsx` (mounted in `App.tsx` inside
   `<Physics>`) draws each one with `rivals/KinematicCar` (their class, look, plate, name tag in their colour),
   and `roomClient` ranks them through `rivals/standings` as `remote`, so the `P n/N` chip and the results
-  line count friends and rivals together (the line names the nearest human when one is present) and the
-  results card adds `P1 OF 3 FRIENDS` (`FriendsResultLine.tsx`).
-- Debug handle `window.__ROOM__`: `state()`, `host()`, `join(code)`, `leave()`, `ready(on)`, `start()`,
-  `shareUrl()`, `relayNow()`, `clock()`, `remotes()`, `stats()`, `waitFor(predicate)`. No localStorage: the
-  room lives on the relay; the URL (`?room=`) is the only thing that outlives a reload.
+  line count the room's players (the line names the nearest friend) and the results card adds
+  `P1 OF 3 FRIENDS` (`FriendsResultLine.tsx`).
+- Debug handle `window.__ROOM__`: `state()`, `host(size?)`, `join(code)`, `leave(to?)`, `ready(on)`, `start()`,
+  `setSize(n)`, `remove(id)`, `makeHost(id)`, `shareUrl()`, `relayNow()`, `clock()`, `remotes()`, `stats()`,
+  `sceneCars()` (every car in the scene graph: `friend` / `rival` / `ghost`), `waitFor(predicate)`. The room lives
+  on the relay; the device keeps only `gamerfleet.friends.v1` (token, YOUR NAME, last size), `gamerfleet.room.v1`
+  (the seat to take back after a reload) and the URL (`?room=`).
+- **Waking the hosted relay.** A free hosted relay sleeps when idle. While FRIENDS waits for a `wss://` relay it
+  shows "WAKING THE ONLINE SERVER… (up to 30 s the first time)" with a seconds counter from 3 s, and from 45 s
+  also "NO RELAY REACHED" with a RETRY button (it restarts the link; a LAN `ws://` relay keeps the plain wording).
 
 ## Sound and haptics
 
@@ -1345,7 +1380,8 @@ src/rivals/                    RivalsLayer.tsx (rivals, race clock, name-tag pro
                                RivalsSettings.tsx (SETTINGS · RACE)
 src/multiplayer/               roomClient.ts (rooms on the relay socket), roomStore.ts, raceFlow.ts (shared start / finish),
                                clockSync.ts, poseSender.ts, remotePlayers.ts (interpolation), RemotePlayersLayer.tsx,
-                               identity.ts, FriendsTab.tsx (☰ FRIENDS), FriendsResultLine.tsx, roomDebug.ts (window.__ROOM__)
+                               identity.ts, friendsProfile.ts (device token, YOUR NAME), sceneProbe.ts,
+                               FriendsTab.tsx (☰ FRIENDS), FriendsResultLine.tsx, roomDebug.ts (window.__ROOM__)
 src/audio/                     GameAudio.tsx + audioSystem.ts (WebAudio engine/tyres/wind/sfx), gearbox.ts,
                                presets.ts (per car), haptics.ts, engineReadout.ts (gear for the HUD), README.md
 src/track/catalog.ts           map cards (TRACK_CATALOG: difficulty, medals, tips), bigJumpKmhOf(layout)

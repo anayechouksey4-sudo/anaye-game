@@ -3,14 +3,21 @@
  * the remote cars' live positions and the pose counters. Installed by the room client.
  */
 import { remoteList, remoteStats } from './remotePlayers';
+import { sceneProbe } from './sceneProbe';
 import type { RoomClient } from './roomClient';
 import { roomState, useRoom, type RoomState } from './roomStore';
 
 export interface RoomDebugHandle {
   state(): Omit<RoomState, 'set' | 'reset'>;
-  host(): boolean;
+  host(size?: number): boolean;
   join(code: string): boolean;
-  leave(): void;
+  leave(to?: string): void;
+  /** Host: room size / remove a player / hand the host role over. */
+  setSize(size: number): boolean;
+  remove(id: string): boolean;
+  makeHost(id: string): boolean;
+  /** Every car drawn in the scene graph right now (KinematicCar groups: rivals, ghost, friends) with its name tag text. */
+  sceneCars(): { kind: string; label: string; visible: boolean }[];
   ready(on: boolean): boolean;
   start(): boolean;
   shareUrl(): string | null;
@@ -35,9 +42,33 @@ export function installRoomDebug(client: RoomClient): () => void {
       const { set: _set, reset: _reset, ...rest } = roomState();
       return rest;
     },
-    host: () => client.host(),
+    host: (size) => client.host(size),
     join: (code) => client.join(code),
-    leave: () => client.leave(),
+    leave: (to) => client.leave(to),
+    setSize: (size) => client.setSize(size),
+    remove: (id) => client.remove(id),
+    makeHost: (id) => client.makeHost(id),
+    sceneCars: () => {
+      const out: { kind: string; label: string; visible: boolean }[] = [];
+      sceneProbe.scene?.traverse((o) => {
+        if (o.name !== 'kinematic-car') return;
+        // Rivals sit under <group name="rivals">, the ghost under "ghost", friends under "friend:<name>" (remote-players).
+        let kind = 'other';
+        let label = '';
+        for (let p = o.parent; p; p = p.parent) {
+          if (p.name === 'rivals') kind = 'rival';
+          else if (p.name === 'ghost') kind = 'ghost';
+          else if (p.name.startsWith('friend:')) {
+            kind = 'friend';
+            label = p.name.slice(7);
+          }
+        }
+        let visible = true;
+        for (let p: typeof o | null = o; p; p = p.parent) if (!p.visible) visible = false;
+        out.push({ kind, label, visible });
+      });
+      return out;
+    },
     ready: (on) => client.ready(on),
     start: () => client.start(),
     shareUrl: () => client.shareUrl(),

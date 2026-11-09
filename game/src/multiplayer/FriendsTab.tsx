@@ -1,21 +1,26 @@
 /**
- * FRIENDS tab of the ☰ menu (mounted by GameMenu): host a room, join by code, see who is in, READY,
- * START (host), LEAVE, the share link and the results table. Offline / unlinked it explains how to
- * reach a relay. Every control is ≥ 44 px (menu.css buttons, 46 px fields); fits 360×640 and 740×280.
+ * FRIENDS tab of the ☰ menu (mounted by GameMenu): YOUR NAME, host a room of a chosen size, join by
+ * code, see who is in (RECONNECTING… while a friend's link is down), READY, START (host), REMOVE /
+ * MAKE HOST (host), LEAVE (the host confirms who gets the room), the share link and the results
+ * table. Offline / unlinked it explains how to reach a relay. Rooms are humans only: no AI rivals, no
+ * ghost. Every control is ≥ 44 px (menu.css buttons, 46 px fields); fits 360×640 and 740×280.
  */
 import { useEffect, useState, type FormEvent, type ReactNode } from 'react';
-import { ROOM_CODE_LENGTH, type RoomPlayer, type RoomRace } from '@shared/protocol';
+import { ROOM_CODE_LENGTH, ROOM_MAX_NAME, ROOM_SIZES, type RoomPlayer, type RoomRace } from '@shared/protocol';
 import { getCarEntry, resolveCarId } from '../car/catalog';
 import { portraitDataUrl } from '../drivers/portrait';
 import { LinkStatusBadge } from '../hud/LinkPanel';
 import { formatRaceTime } from '../hud/hudUtils';
 import { useHudUi } from '../hud/uiStore';
-import { useGameStore } from '../state/store';
+import { useGameStore, type LinkStatus } from '../state/store';
+import { getActiveLink } from '../net/squadLink';
 import { getTrackEntry } from '../track/catalog';
+import { cleanName, needsNamePrompt, roomName, useFriendsProfile } from './friendsProfile';
 import { decodePlayer } from './identity';
 import { relayNow, roomActions } from './roomClient';
 import { isFramed, PUBLIC_GAME_URL, promptInstall, usePwa } from '../pwa/register';
-import { isHost, positionOf, sortedResults, useRoom, type RoomState } from './roomStore';
+import { useProfile } from '../state/profile';
+import { isHost, nextHost, positionOf, sortedResults, useRoom, type RoomState } from './roomStore';
 
 /** The relay address typed in CONNECT, remembered so the installed app reconnects to it on the next start
  *  (the hosted copy's start-up script reads it; see scripts/build-pages.mjs). */
@@ -54,7 +59,39 @@ function reloadWithRelay(value: string): void {
 }
 import './friends.css';
 
+/**
+ * performance.now() when this page started trying to reach the relay (since load, or since the link
+ * was last connected); null while connected or offline. Tracked from page load (this module loads with
+ * the game), so the waking counter is right whenever FRIENDS is opened. The 8 s connect timeout flips
+ * the status to 'disconnected' between attempts; both count as still trying.
+ */
+let wakeStartedAt: number | null = null;
+/** An attempt failed since wakeStartedAt (a LAN relay then reads NO RELAY REACHED until it answers, without flicker). */
+let wakeFailed = false;
+function trackWake(status: LinkStatus): void {
+  if (status === 'connected' || status === 'disabled') {
+    wakeStartedAt = null;
+    wakeFailed = false;
+    return;
+  }
+  if (wakeStartedAt === null) wakeStartedAt = performance.now();
+  if (status === 'disconnected') wakeFailed = true;
+}
+trackWake(useGameStore.getState().linkStatus);
+useGameStore.subscribe((s, prev) => {
+  if (s.linkStatus !== prev.linkStatus) trackWake(s.linkStatus);
+});
+/** After this long trying, say the server is waking (a free hosted relay sleeps when idle). */
+const WAKE_NOTICE_MS = 3000;
+/** After this long, offer RETRY next to the address. */
+const RETRY_AFTER_MS = 45_000;
+
 const PHASE_LABEL: Record<RoomRace['phase'], string> = { lobby: 'LOBBY', countdown: 'LIGHTS', racing: 'RACE ON', results: 'RESULTS' };
+/** One line wherever rooms are explained (the owner's report: friends races are humans only). */
+const HUMANS_ONLY = 'AI rivals and your ghost are off in rooms';
+const sizeLabel = (n: number) => (n === 2 ? 'YOU + 1 FRIEND' : `YOU + ${n - 1} FRIENDS`);
+/** "2/2" when the relay keeps seats, else just the head count (a relay that predates sizes). */
+const seatCount = (count: number, size: number | null) => (size === null ? `${count}` : `${count}/${size}`);
 
 export default function FriendsTab() {
   const linkStatus = useGameStore((s) => s.linkStatus);
@@ -86,7 +123,8 @@ export default function FriendsTab() {
           {room.error.message}
         </p>
       )}
-      {linkStatus !== 'connected' ? <ConnectHelp linkStatus={linkStatus} /> : room.status === 'in-room' ? <InRoom room={room} /> : <Entry room={room} />}
+      {linkStatus !== 'connected' && <RejoinNote code={room.rejoining} />}
+      {linkStatus !== 'connected' ? <ConnectHelp linkStatus={linkStatus} serverUrl={serverUrl} /> : room.status === 'in-room' ? <InRoom room={room} /> : <Entry room={room} />}
       <GetTheGame />
     </div>
   );
@@ -149,10 +187,51 @@ function GetTheGame() {
   );
 }
 
+/** Getting back into a room after a link drop or a reload (AI rivals stay off meanwhile); LEAVE ROOM gives up. */
+function RejoinNote({ code }: { code: string | null }) {
+  if (!code) return null;
+  return (
+    <div className="fr__note fr__note--row" data-testid="friends-rejoining">
+      <span>THE LINK DROPPED · GETTING BACK INTO ROOM {code}… YOUR SEAT IS KEPT FOR 2 MIN</span>
+      <button type="button" className="gm-btn fr__btn fr__btn--fit" onClick={() => roomActions.leave()} data-testid="friends-rejoin-cancel">
+        LEAVE ROOM
+      </button>
+    </div>
+  );
+}
+
 /** No socket: how to get one (same Wi-Fi via dev:all, or a relay address). */
-function ConnectHelp({ linkStatus }: { linkStatus: string }) {
+function ConnectHelp({ linkStatus, serverUrl }: { linkStatus: LinkStatus; serverUrl: string }) {
   const [address, setAddress] = useState(() => savedRelay());
   const remembered = savedRelay();
+  const trying = linkStatus === 'connecting' || linkStatus === 'disconnected';
+  // Re-render once a second while trying (the elapsed counter).
+  const [, setTick] = useState(0);
+  useEffect(() => {
+    if (!trying) return;
+    const timer = setInterval(() => setTick((n) => n + 1), 1000);
+    return () => clearInterval(timer);
+  }, [trying]);
+  const elapsed = trying && wakeStartedAt !== null ? performance.now() - wakeStartedAt : 0;
+  const seconds = Math.floor(elapsed / 1000);
+  // The hosted relay (wss://) sleeps when idle and takes up to ~30 s to wake; a LAN relay answers at once.
+  const hosted = serverUrl.startsWith('wss://');
+  const retry = () => {
+    const link = getActiveLink();
+    if (link) {
+      // stop() + start() reconnects on the next tick and keeps the room client's listeners.
+      link.stop();
+      link.start();
+    }
+    wakeStartedAt = performance.now();
+    wakeFailed = false;
+    setTick((n) => n + 1);
+  };
+  const noRelay = (
+    <>
+      <b>NO RELAY REACHED.</b> It retries on its own; check the address below.
+    </>
+  );
   const connect = (e: FormEvent) => {
     e.preventDefault();
     const value = address.trim();
@@ -160,23 +239,40 @@ function ConnectHelp({ linkStatus }: { linkStatus: string }) {
     rememberRelay(value);
     reloadWithRelay(value);
   };
+  const lead =
+    linkStatus === 'disabled' ? (
+      <>
+        <b>OFFLINE MODE.</b> Playing with friends needs the relay that comes with the game.
+      </>
+    ) : elapsed < WAKE_NOTICE_MS ? (
+      <>
+        <b>CONNECTING TO THE RELAY…</b> Rooms open as soon as it answers.
+      </>
+    ) : hosted ? null : wakeFailed ? (
+      <>
+        {noRelay} · {seconds} s
+      </>
+    ) : (
+      <>
+        <b>CONNECTING TO THE RELAY…</b> Rooms open as soon as it answers · {seconds} s
+      </>
+    );
   return (
     <>
-      <p className="fr__lead">
-        {linkStatus === 'disabled' ? (
-          <>
-            <b>OFFLINE MODE.</b> Playing with friends needs the relay that comes with the game.
-          </>
-        ) : linkStatus === 'connecting' ? (
-          <>
-            <b>CONNECTING TO THE RELAY…</b> Rooms open as soon as it answers.
-          </>
-        ) : (
-          <>
-            <b>NO RELAY REACHED.</b> It retries on its own; check the address below.
-          </>
-        )}
-      </p>
+      {lead && <p className="fr__lead">{lead}</p>}
+      {trying && hosted && elapsed >= WAKE_NOTICE_MS && (
+        <p className="fr__lead" aria-live="polite" data-testid="friends-waking">
+          <b>WAKING THE ONLINE SERVER…</b> (up to 30 s the first time) · <span aria-hidden="true">{seconds} s</span>
+        </p>
+      )}
+      {trying && elapsed >= RETRY_AFTER_MS && (
+        <div className="fr__note fr__note--row" data-testid="friends-retry-row">
+          {hosted ? <span>{noRelay}</span> : <span>Still trying · {seconds} s</span>}
+          <button type="button" className="gm-btn fr__btn fr__btn--fit" onClick={retry} data-testid="friends-retry">
+            RETRY
+          </button>
+        </div>
+      )}
       <ol className="fr__steps">
         <li>
           On one computer or phone run <code>npm run dev:all</code> (it prints <code>http://&lt;ip&gt;:5173</code>).
@@ -212,22 +308,140 @@ function ConnectHelp({ linkStatus }: { linkStatus: string }) {
   );
 }
 
+/** The one-time card on a device that still carries the owner's default driver name: what should friends call you? */
+function NamePrompt({ current }: { current?: string }) {
+  const setName = useFriendsProfile((s) => s.setName);
+  const markAsked = useFriendsProfile((s) => s.markAsked);
+  const [value, setValue] = useState('');
+  const ok = (e: FormEvent) => {
+    e.preventDefault();
+    if (cleanName(value)) setName(value);
+    markAsked();
+  };
+  return (
+    <form className="fr__ask" onSubmit={ok} data-testid="friends-name-prompt">
+      <b className="fr__ask-title">WHAT SHOULD FRIENDS CALL YOU?</b>
+      <p className="fr__hint">
+        {current ? (
+          <>
+            Friends here see you as <b>{current}</b>. Shown next to your car in rooms; change it any time.
+          </>
+        ) : (
+          'Shown next to your car in rooms. You can change it here any time.'
+        )}
+      </p>
+      <div className="fr__row">
+        <input
+          className="fr__input"
+          placeholder="YOUR NAME"
+          value={value}
+          onChange={(e) => setValue(e.target.value)}
+          maxLength={ROOM_MAX_NAME}
+          autoComplete="nickname"
+          autoCorrect="off"
+          spellCheck={false}
+          aria-label="Your name"
+          data-testid="friends-name-prompt-input"
+        />
+        <button type="submit" className="gm-btn gm-btn--primary fr__btn fr__btn--fit" disabled={!cleanName(value)} data-testid="friends-name-prompt-ok">
+          OK
+        </button>
+      </div>
+      <button type="button" className="gm-btn fr__btn fr__btn--skip" onClick={markAsked} data-testid="friends-name-prompt-skip">
+        SKIP
+      </button>
+    </form>
+  );
+}
+
+/** YOUR NAME: prefilled from the selected driver, saved on this device as you type. */
+function NameField() {
+  const saved = useFriendsProfile((s) => s.name);
+  const setName = useFriendsProfile((s) => s.setName);
+  const driverName = useProfile((s) => roomName(s));
+  const [value, setValue] = useState(() => saved || driverName);
+  return (
+    <label className="fr__name" data-testid="friends-name">
+      <small>YOUR NAME</small>
+      <input
+        className="fr__input"
+        value={value}
+        onChange={(e) => {
+          setValue(e.target.value);
+          setName(e.target.value);
+        }}
+        onBlur={() => setValue(cleanName(value) || driverName)}
+        maxLength={ROOM_MAX_NAME}
+        autoComplete="nickname"
+        autoCorrect="off"
+        spellCheck={false}
+        aria-label="Your name"
+        data-testid="friends-name-input"
+      />
+    </label>
+  );
+}
+
+/** ROOM SIZE: 2 · 3 · 4 · 6 · 8 (sizes below `min` are greyed out). */
+function SizePicker({ value, onPick, min = 2, testId, disabled = false }: { value: number; onPick: (n: number) => void; min?: number; testId: string; disabled?: boolean }) {
+  return (
+    <div className="fr__sizes" role="radiogroup" aria-label="Room size" data-testid={testId}>
+      {ROOM_SIZES.map((n) => (
+        <button
+          key={n}
+          type="button"
+          role="radio"
+          aria-checked={n === value}
+          className={`gm-btn fr__size${n === value ? ' is-on' : ''}`}
+          disabled={disabled || n < min}
+          onClick={() => onPick(n)}
+          data-testid={`${testId}-${n}`}
+        >
+          {n}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 /** Connected, not in a room: host or join. */
 function Entry({ room }: { room: RoomState }) {
-  const [code, setCode] = useState(room.pendingCode ?? '');
+  // A failed join (ROOM FULL…) keeps its code in the field, so trying again is one tap (not after REMOVE).
+  const refill = (r: RoomState) => (r.error && r.error.code !== 'removed' && r.error.code !== 'not_found' ? r.lastCode : null);
+  const [code, setCode] = useState(room.pendingCode ?? refill(room) ?? '');
+  const refillCode = refill(room);
+  useEffect(() => {
+    if (refillCode) setCode((c) => c || refillCode);
+  }, [refillCode, room.error]);
+  const size = useFriendsProfile((s) => s.size);
+  const setSize = useFriendsProfile((s) => s.setSize);
+  const asked = useFriendsProfile((s) => s.asked);
+  const named = useFriendsProfile((s) => s.name);
+  const profile = useProfile();
   const joining = room.status === 'joining';
   const submit = (e: FormEvent) => {
     e.preventDefault();
     roomActions.join(code);
   };
+  // `asked` / `named` are read so the card goes away the moment it is answered.
+  if (!asked && !named && needsNamePrompt(profile)) return <NamePrompt />;
   return (
     <>
+      <RejoinNote code={room.rejoining} />
+      <NameField />
       <p className="fr__lead">
-        Race the same map at the same time. Everyone drives their own car; the others appear as ghost cars (no collisions). The dashboard still tunes every car in the room.
+        Race the same map at the same time. Everyone drives their own car; friends' cars pass through yours (no collisions). The dashboard still tunes every car in the room.
       </p>
-      <button type="button" className="gm-btn gm-btn--primary fr__btn fr__btn--host" onClick={() => roomActions.host()} disabled={joining} data-testid="friends-host">
+      <p className="fr__humans" data-testid="friends-humans-only">{HUMANS_ONLY}</p>
+      <div className="fr__sizebox">
+        <small>
+          ROOM SIZE · <b data-testid="friends-size-label">{sizeLabel(size)}</b>
+        </small>
+        <SizePicker value={size} onPick={setSize} testId="friends-size" disabled={joining} />
+      </div>
+      <button type="button" className="gm-btn gm-btn--primary fr__btn fr__btn--host" onClick={() => roomActions.host(size)} disabled={joining} data-testid="friends-host">
         {joining ? 'ONE MOMENT…' : 'HOST A ROOM'}
-        <small>YOU PICK THE MAP · FRIENDS JOIN BY CODE</small>
+        <small>{size} PLAYERS · YOU PICK THE MAP · FRIENDS JOIN BY CODE</small>
       </button>
       <form className="fr__row" onSubmit={submit}>
         <input
@@ -247,7 +461,7 @@ function Entry({ room }: { room: RoomState }) {
           JOIN
         </button>
       </form>
-      {room.left === 'link' && <p className="fr__note">The relay link dropped; the room is re-joined when it is back.</p>}
+      {room.left === 'link' && !room.rejoining && <p className="fr__note">The relay link dropped; the room is re-joined when it is back.</p>}
       {room.lastResults && <ResultsTable race={room.lastResults} you={null} title="LAST RACE" />}
     </>
   );
@@ -256,18 +470,35 @@ function Entry({ room }: { room: RoomState }) {
 function InRoom({ room }: { room: RoomState }) {
   const host = isHost(room);
   const me = room.players.find((p) => p.id === room.you) ?? null;
+  // A friend who arrived by link joined before ever seeing the name card: ask here, once.
+  const profile = useProfile();
+  const asked = useFriendsProfile((s) => s.asked);
+  const named = useFriendsProfile((s) => s.name);
+  const askName = !asked && !named && needsNamePrompt(profile);
   const others = room.players.filter((p) => p.id !== room.you);
-  const readyOthers = others.filter((p) => p.ready).length;
   const race = room.race;
   const phase = race?.phase ?? 'lobby';
   const trackId = race?.track ?? null;
   const track = trackId ? getTrackEntry(trackId) : null;
   const roam = track?.mode === 'roam';
   const live = phase === 'countdown' || phase === 'racing';
-  const canStart = host && !live && !roam && readyOthers === others.length;
+  const present = others.filter((p) => !p.away);
+  const readyPresent = present.filter((p) => p.ready).length;
+  const canStart = host && !live && !roam && readyPresent === present.length;
   const setTab = useHudUi((s) => s.setMenuTab);
   const [copied, setCopied] = useState(false);
+  const [confirmLeave, setConfirmLeave] = useState(false);
   const share = roomActions.shareUrl() ?? '';
+  const count = seatCount(room.players.length, room.size);
+  const heir = host ? nextHost(room) : null;
+  const manage = host && room.seats && !live;
+  const leave = () => {
+    if (heir && !confirmLeave) {
+      setConfirmLeave(true);
+      return;
+    }
+    roomActions.leave(heir?.id);
+  };
 
   const copy = async () => {
     try {
@@ -280,15 +511,21 @@ function InRoom({ room }: { room: RoomState }) {
   };
 
   const shownRace = phase === 'results' ? race : live && race && race.results.length > 0 ? race : room.lastResults;
+  // Away seats count toward the size: tell the host why a friend may be getting ROOM FULL.
+  const fullWithAway = host && room.seats && room.size !== null && room.players.length >= room.size && others.some((p) => p.away);
   return (
     <>
+      {askName && <NamePrompt current={me?.name} />}
       <div className="fr__code" data-testid="friends-code">
         <small>ROOM CODE</small>
         <b>{room.code}</b>
+        <span className="fr__count" data-testid="friends-count">
+          {count}
+        </span>
       </div>
       <div className="fr__share">
         <div className="fr__share-text">
-          <small>FRIENDS JOIN AT</small>
+          <small>FRIENDS JOIN AT · {count}</small>
           <span data-testid="friends-share">{share}</span>
         </div>
         <button type="button" className="gm-btn" onClick={copy} data-testid="friends-copy">
@@ -317,9 +554,28 @@ function InRoom({ room }: { room: RoomState }) {
         {!host && !live && <span>· THE HOST PICKS THE MAP</span>}
       </div>
       {live && !room.participant && <p className="fr__note">THIS RACE STARTED WITHOUT YOU · DRIVE FREELY, THE NEXT ONE IS YOURS</p>}
+      <div className="fr__listhead">
+        <small>
+          PLAYERS <b data-testid="friends-players-count">{count}</b>
+        </small>
+        <span className="fr__humans">{HUMANS_ONLY}</span>
+      </div>
+      {host && room.seats && room.size !== null && (
+        <div className="fr__sizebox" data-testid="friends-room-sizebox">
+          <small>
+            ROOM SIZE · <b>{sizeLabel(room.size)}</b>
+          </small>
+          <SizePicker value={room.size} onPick={(n) => roomActions.setSize(n)} min={Math.max(2, room.players.length)} testId="friends-room-size" disabled={live} />
+        </div>
+      )}
+      {fullWithAway && (
+        <p className="fr__note" data-testid="friends-full-away">
+          A RECONNECTING SEAT STILL COUNTS TOWARD {count}. If that friend is joining again from another browser, REMOVE the old seat.
+        </p>
+      )}
       <ul className="fr__players" data-testid="friends-players">
         {room.players.map((p, i) => (
-          <PlayerRow key={p.id} player={p} index={i} you={p.id === room.you} />
+          <PlayerRow key={p.id} player={p} index={i} you={p.id === room.you} manage={(manage || (host && room.seats && p.away === true)) && p.id !== room.you} />
         ))}
       </ul>
       <div className="fr__actions">
@@ -329,7 +585,7 @@ function InRoom({ room }: { room: RoomState }) {
         {host ? (
           <button type="button" className="gm-btn gm-btn--primary fr__btn" onClick={() => roomActions.start()} disabled={!canStart} data-testid="friends-start">
             START
-            <small>{roam ? 'NO RACE IN FREE ROAM' : others.length === 0 ? 'SOLO RUN' : `${readyOthers}/${others.length} READY`}</small>
+            <small>{roam ? 'NO RACE IN FREE ROAM' : present.length === 0 ? (others.length > 0 ? 'WAITING FOR FRIENDS' : 'SOLO RUN') : `${readyPresent}/${present.length} READY`}</small>
           </button>
         ) : (
           <button type="button" className="gm-btn fr__btn" disabled data-testid="friends-start">
@@ -337,10 +593,25 @@ function InRoom({ room }: { room: RoomState }) {
             <small>HOST ONLY</small>
           </button>
         )}
-        <button type="button" className="gm-btn fr__btn" onClick={() => roomActions.leave()} data-testid="friends-leave">
+        <button type="button" className={`gm-btn fr__btn${confirmLeave ? ' is-warn' : ''}`} onClick={leave} data-testid="friends-leave">
           LEAVE
         </button>
       </div>
+      {confirmLeave && heir && (
+        <div className="fr__confirm" role="alertdialog" aria-label="Leave the room" data-testid="friends-leave-confirm">
+          <span>
+            Leave and hand the room to <b>{heir.name}</b>?
+          </span>
+          <div className="fr__row">
+            <button type="button" className="gm-btn gm-btn--primary fr__btn" onClick={() => roomActions.leave(heir.id)} data-testid="friends-leave-yes">
+              LEAVE
+            </button>
+            <button type="button" className="gm-btn fr__btn" onClick={() => setConfirmLeave(false)} data-testid="friends-leave-no">
+              STAY
+            </button>
+          </div>
+        </div>
+      )}
       {shownRace && shownRace.results.length > 0 && <ResultsTable race={shownRace} you={room.you} title={shownRace.phase === 'results' ? 'RESULTS' : 'RACE · LIVE'} />}
     </>
   );
@@ -356,11 +627,17 @@ function LightsIn({ startAt }: { startAt: number }) {
   return <span>· GO IN {Math.max(0, left / 1000).toFixed(1)} S</span>;
 }
 
-function PlayerRow({ player, index, you }: { player: RoomPlayer; index: number; you: boolean }) {
+function PlayerRow({ player, index, you, manage }: { player: RoomPlayer; index: number; you: boolean; manage: boolean }) {
   const decoded = decodePlayer(player, index);
   const car = getCarEntry(resolveCarId(player.carId));
+  const [sure, setSure] = useState(false);
+  useEffect(() => {
+    if (!sure) return;
+    const timer = setTimeout(() => setSure(false), 4000);
+    return () => clearTimeout(timer);
+  }, [sure]);
   return (
-    <li className={`fr__player${you ? ' is-you' : ''}`} style={{ ['--accent' as string]: decoded.color }} data-testid={`friends-player-${player.id}`}>
+    <li className={`fr__player${you ? ' is-you' : ''}${player.away ? ' is-away' : ''}${manage ? ' has-actions' : ''}`} style={{ ['--accent' as string]: decoded.color }} data-testid={`friends-player-${player.id}`}>
       {decoded.avatar ? <img className="fr__avatar" src={portraitDataUrl(decoded.avatar)} alt="" width={40} height={40} /> : <span className="fr__avatar">{player.name.slice(0, 1).toUpperCase()}</span>}
       <div className="fr__who">
         <b>{player.name}</b>
@@ -372,11 +649,35 @@ function PlayerRow({ player, index, you }: { player: RoomPlayer; index: number; 
       <div className="fr__tags">
         {player.isHost && <span className="fr__tag fr__tag--host">HOST</span>}
         {you && <span className="fr__tag fr__tag--you">YOU</span>}
-        <span className={`fr__tag${player.ready ? ' fr__tag--ready' : ''}`} data-testid={`friends-ready-${player.id}`}>
-          {player.ready ? '✓ READY' : 'NOT READY'}
-        </span>
-        {player.ping !== null && <span className="fr__tag fr__tag--ping">{player.ping} MS</span>}
+        {player.away ? (
+          <span className="fr__tag fr__tag--away" data-testid={`friends-away-${player.id}`}>
+            RECONNECTING…
+          </span>
+        ) : (
+          <span className={`fr__tag${player.ready ? ' fr__tag--ready' : ''}`} data-testid={`friends-ready-${player.id}`}>
+            {player.ready ? '✓ READY' : 'NOT READY'}
+          </span>
+        )}
+        {player.ping !== null && !player.away && <span className="fr__tag fr__tag--ping">{player.ping} MS</span>}
       </div>
+      {manage && (
+        <div className="fr__player-actions">
+          <button type="button" className="gm-btn fr__mini" onClick={() => roomActions.makeHost(player.id)} disabled={player.away === true} data-testid={`friends-makehost-${player.id}`}>
+            MAKE HOST
+          </button>
+          <button
+            type="button"
+            className={`gm-btn fr__mini${sure ? ' is-warn' : ''}`}
+            onClick={() => {
+              if (!sure) setSure(true);
+              else roomActions.remove(player.id);
+            }}
+            data-testid={`friends-remove-${player.id}`}
+          >
+            {sure ? 'TAP TO REMOVE' : 'REMOVE'}
+          </button>
+        </div>
+      )}
     </li>
   );
 }

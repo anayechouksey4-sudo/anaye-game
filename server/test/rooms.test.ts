@@ -166,7 +166,8 @@ describe('create and join', () => {
     const b = await join();
     b.send({ type: 'room:join', code: joined.code, ...identity('x'), name: 'A very very very long name <script>' });
     const bj = await b.take('room:joined');
-    assert.equal(bj.players[1]!.name, 'A very very ve');
+    // Room names may be ROOM_MAX_NAME (16) long since seats (M5: "max 16" names in FRIENDS); was 14 (MAX_DISPLAY_TEXT).
+    assert.equal(bj.players[1]!.name, 'A very very very');
     assert.equal(ROOM_MAX_PLAYERS, 8);
     await a.take('room:players');
   });

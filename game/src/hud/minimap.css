@@ -92,3 +92,9 @@
   .hud--compact.hud--minimap .hud-banners,
   .hud--compact.hud--minimap .hud-countdown { max-width: calc(100vw - 2 * (var(--mm) + var(--hud-l) + 8px)); }
 }
+@media (orientation: landscape) and (max-width: 599px) and (min-height: 240px) {
+  /* No touch controls, narrow window: the top bar starts at the left edge (hud.css), so the disc sits at the
+     right edge under ☰ and the chips go straight under the bar, stopping short of the disc. */
+  .hud--compact:not(.hud--touch) > .mm { top: calc(var(--hud-t) + var(--bar-h) + 12px); left: auto; right: var(--hud-r); }
+  .hud--compact.hud--minimap:not(.hud--touch) .hud-corner-tl { top: var(--below-bar); max-height: calc(100% - var(--below-bar) - var(--hud-b) - var(--hud-reserve-b)); max-width: calc(100vw - var(--hud-l) - var(--hud-r) - var(--mm) - 18px); }
+}

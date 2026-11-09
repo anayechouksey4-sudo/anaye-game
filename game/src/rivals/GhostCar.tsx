@@ -2,7 +2,8 @@
  * The shadow ghost: records the player's run at 10 Hz from GO (rivals/ghost.ts) and, when the run is
  * a new best for this car on this map, saves it; on the next run the saved best is replayed as a
  * translucent copy of the player's own car ("YOU · BEST"), ranked never (kind 'ghost'), no contact.
- * Recording always runs on timed races (cheap); playback follows SETTINGS · GHOST.
+ * Recording always runs on timed races (cheap); playback follows SETTINGS · GHOST and is off in a
+ * FRIENDS room (RivalsLayer does not mount it there).
  */
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useAfterPhysicsStep } from '@react-three/rapier';
@@ -120,7 +121,13 @@ export function GhostCar({ layout }: { layout: TrackLayout }) {
     pose.quaternion.set(_s.qx, _s.qy, _s.qz, _s.qw);
     prev.current.copy(pose.position);
     fade.opacity = GHOST_OPACITY;
-    return registerParticipant({ id: GHOST_ID, name: `${driverName} · BEST`, carId: classId, kind: 'ghost', color: '#d8f7ff' });
+    const off = registerParticipant({ id: GHOST_ID, name: `${driverName} · BEST`, carId: classId, kind: 'ghost', color: '#d8f7ff' });
+    return () => {
+      off();
+      // Unmounted (a FRIENDS room, GHOST OFF, a map switch): the debug handle must not report a ghost any more.
+      if (ghostDebug.pose === pose) ghostDebug.pose = null;
+      if (ghostDebug.tape === tape) ghostDebug.tape = null;
+    };
   }, [tape, pose, fade, classId, driverName]);
 
   useAfterPhysicsStep(() => {
@@ -137,5 +144,9 @@ export function GhostCar({ layout }: { layout: TrackLayout }) {
   });
 
   if (!tape) return null;
-  return <KinematicCar carId={classId} look={look} plate={plateFor(carId)} label={`${driverName} · BEST`} labelColor="#d8f7ff" opacity={GHOST_OPACITY} fade={fade} pose={pose} />;
+  return (
+    <group name="ghost">
+      <KinematicCar carId={classId} look={look} plate={plateFor(carId)} label={`${driverName} · BEST`} labelColor="#d8f7ff" opacity={GHOST_OPACITY} fade={fade} pose={pose} />
+    </group>
+  );
 }

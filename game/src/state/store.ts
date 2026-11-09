@@ -35,6 +35,25 @@ export type UpdateSource = 'ws' | 'snapshot' | 'local' | 'debug';
 export type CameraMode = 'chase' | 'orbit' | 'hood';
 export const CAMERA_MODES: readonly CameraMode[] = ['chase', 'orbit', 'hood'];
 
+/** SETTINGS · CAMERA (and the C key) survive a reload like every other setting; nothing stored = CHASE. */
+const CAMERA_KEY = 'gamerfleet.camera.v1';
+function loadCameraMode(): CameraMode {
+  try {
+    const raw = window.localStorage.getItem(CAMERA_KEY);
+    return CAMERA_MODES.find((m) => m === raw) ?? 'chase';
+  } catch {
+    return 'chase';
+  }
+}
+function saveCameraMode(mode: CameraMode): CameraMode {
+  try {
+    window.localStorage.setItem(CAMERA_KEY, mode);
+  } catch {
+    // Storage blocked (private window, sandboxed frame): the choice lasts for this page only.
+  }
+  return mode;
+}
+
 export type UplinkKind = 'controls' | 'physics' | 'link' | 'presence' | 'error' | 'info';
 
 export interface UplinkEvent {
@@ -213,7 +232,7 @@ export const useGameStore = create<GameState>()((set, get) => {
     run: freshRun(0, null),
     trackLayout: null,
 
-    ui: { physicsPanelOpen: false, helpOpen: true, cameraMode: 'chase' },
+    ui: { physicsPanelOpen: false, helpOpen: true, cameraMode: loadCameraMode() },
 
     applySquadControls: (controls, source = 'ws') => {
       const clean = clampSquadControls(controls);
@@ -344,9 +363,9 @@ export const useGameStore = create<GameState>()((set, get) => {
     cycleCamera: () =>
       set((s) => {
         const i = CAMERA_MODES.indexOf(s.ui.cameraMode);
-        return { ui: { ...s.ui, cameraMode: CAMERA_MODES[(i + 1) % CAMERA_MODES.length] ?? 'chase' } };
+        return { ui: { ...s.ui, cameraMode: saveCameraMode(CAMERA_MODES[(i + 1) % CAMERA_MODES.length] ?? 'chase') } };
       }),
-    setCameraMode: (mode) => set((s) => ({ ui: { ...s.ui, cameraMode: mode } })),
+    setCameraMode: (mode) => set((s) => ({ ui: { ...s.ui, cameraMode: saveCameraMode(mode) } })),
   };
 });
 
