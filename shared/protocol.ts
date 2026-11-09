@@ -922,11 +922,22 @@ export interface Envelope {
 // Client → server ------------------------------------------------------------
 
 /** First frame a client should send. Role may also be given as `?role=` in the URL. */
-export interface HelloMessage extends Envelope {
+export interface HelloMessage extends Envelope, PlayerAuthFields {
   type: 'hello';
   role: ClientRole;
   /** Free-form display name, ≤ 40 chars. */
   name?: string;
+}
+
+/**
+ * Sign-in and time zone (milestone 6, additive; see "Sign-in, time zone and announcements" below).
+ * Optional on `hello`, `room:create`, `room:join` and `room:update`; a relay that predates them drops them.
+ */
+export interface PlayerAuthFields {
+  /** The device's IANA time zone (`Intl.DateTimeFormat().resolvedOptions().timeZone`); the relay maps it to a country. */
+  tz?: string;
+  /** A Google ID token (JWT) the relay verifies; null = signed out (clears the socket's verified badge). */
+  idToken?: string | null;
 }
 
 /** Dashboard → everyone: the full, exact slider values. Always all three keys. */
@@ -1017,6 +1028,26 @@ export interface WelcomeMessage extends Envelope {
   protocolVersion: typeof PROTOCOL_VERSION;
   snapshot: ServerSnapshot;
   peers: PeerCounts;
+  /**
+   * Milestone 6: true when this relay verifies Google ID tokens (sign-in badges, SIGNED-IN PLAYERS ONLY rooms),
+   * false when it could but has no client id configured. Absent from a relay that predates sign-in.
+   */
+  signIn?: boolean;
+}
+
+/**
+ * Milestone 6: an owner announcement every game shows as a banner until `until` (relay clock, epoch ms;
+ * compare with `serverNow` to get the time left). `text` is plain text (≤ ANNOUNCE_MAX_TEXT characters,
+ * no control characters) and must be rendered as text, never as markup. `text: ''` = hide the banner now.
+ * The same `id` may arrive more than once (it is re-sent after every welcome while active): show it once.
+ * Sent to game clients only; a game that predates it drops it (parseMessage returns null for the type).
+ */
+export interface AnnounceMessage extends Envelope {
+  type: 'server:announce';
+  id: string;
+  text: string;
+  until: number;
+  serverNow: number;
 }
 
 /** Broadcast to everyone whenever a client joins, leaves or changes role. */
@@ -1037,7 +1068,7 @@ export interface PongMessage extends Envelope {
   serverTime: number;
 }
 
-export type ServerMessage = WelcomeMessage | PresenceMessage | ErrorMessage | PongMessage | RoomServerMessage;
+export type ServerMessage = WelcomeMessage | PresenceMessage | ErrorMessage | PongMessage | AnnounceMessage | RoomServerMessage;
 
 /** Anything that can appear on the wire (server relays client frames with `from` set). */
 export type ProtocolMessage = ClientMessage | ServerMessage;
@@ -1152,6 +1183,12 @@ export interface RoomPlayer extends RoomIdentity {
   ping: number | null;
   /** Seats: the socket dropped and the seat is held for ROOM_SEAT_GRACE_MS (absent = connected). */
   away?: true;
+  /** Milestone 6: the relay verified this player's Google ID token (absent = not signed in). */
+  verified?: true;
+  /** Milestone 6: the verified player's Google given name (first name), ≤ ROOM_MAX_NAME; absent when unknown. */
+  givenName?: string;
+  /** Milestone 6: ISO 3166-1 alpha-2 country estimated from the device time zone (absent = unknown). */
+  country?: string;
 }
 
 export interface RoomResult {
@@ -1190,20 +1227,27 @@ export interface RoomPose {
 }
 
 // Client → relay
-export interface RoomCreateMessage extends Envelope, RoomIdentity {
+export interface RoomCreateMessage extends Envelope, RoomIdentity, PlayerAuthFields {
   type: 'room:create';
   /** Seats: the device's player token (sanitizeRoomToken); absent = an untokened (old) client. */
   token?: string;
   /** Seats: how many players the room takes, 2…ROOM_MAX_PLAYERS (absent = ROOM_MAX_PLAYERS). */
   size?: number;
+  /** Milestone 6: only verified (signed-in) players may join; the creator must be verified too. */
+  signedInOnly?: boolean;
 }
-export interface RoomJoinMessage extends Envelope, RoomIdentity {
+export interface RoomJoinMessage extends Envelope, RoomIdentity, PlayerAuthFields {
   type: 'room:join';
   code: string;
   token?: string;
 }
-export interface RoomUpdateMessage extends Envelope, RoomIdentity {
+export interface RoomUpdateMessage extends Envelope, RoomIdentity, PlayerAuthFields {
   type: 'room:update';
+}
+/** Milestone 6: host only — switch SIGNED-IN PLAYERS ONLY on or off (on needs a verified host). */
+export interface RoomSettingsMessage extends Envelope {
+  type: 'room:settings';
+  signedInOnly: boolean;
 }
 export interface RoomLeaveMessage extends Envelope {
   type: 'room:leave';
@@ -1263,7 +1307,8 @@ export type RoomClientMessage =
   | RoomPingMessage
   | RoomSizeMessage
   | RoomRemoveMessage
-  | RoomHostMessage;
+  | RoomHostMessage
+  | RoomSettingsMessage;
 
 // Relay → client
 export interface RoomJoinedMessage extends Envelope {
@@ -1279,12 +1324,16 @@ export interface RoomJoinedMessage extends Envelope {
   size?: number;
   /** Seats: this join took back the device's own seat (same `you`, host role and results row). */
   restored?: true;
+  /** Milestone 6: the room admits signed-in (verified) players only (absent = open). */
+  signedInOnly?: true;
 }
 export interface RoomPlayersMessage extends Envelope {
   type: 'room:players';
   players: RoomPlayer[];
   /** Seats: the room size (absent from a relay that predates seats). */
   size?: number;
+  /** Milestone 6: the room admits signed-in (verified) players only (absent = open). */
+  signedInOnly?: true;
 }
 /** 'removed' / 'replaced' go to tokened (seat-aware) clients only; an old client gets 'closed'. */
 export type RoomLeftReason = 'left' | 'expired' | 'closed' | 'removed' | 'replaced';
@@ -1302,8 +1351,14 @@ export type RoomErrorCode =
   | 'not_host'
   | 'bad_state'
   /** Seats: this device was removed from the room (sent to tokened clients only). */
-  | 'removed';
-export const ROOM_ERROR_CODES: readonly RoomErrorCode[] = ['bad_code', 'not_found', 'full', 'rooms_full', 'already_in_room', 'not_in_room', 'not_host', 'bad_state', 'removed'];
+  | 'removed'
+  /**
+   * Milestone 6: the room is SIGNED-IN PLAYERS ONLY and this player is not verified. Sent only to clients
+   * that sent a milestone 6 field (`tz`, `idToken` or `signedInOnly`); an older client gets `bad_state`
+   * with a readable message instead.
+   */
+  | 'sign_in_required';
+export const ROOM_ERROR_CODES: readonly RoomErrorCode[] = ['bad_code', 'not_found', 'full', 'rooms_full', 'already_in_room', 'not_in_room', 'not_host', 'bad_state', 'removed', 'sign_in_required'];
 export interface RoomErrorMessage extends Envelope {
   type: 'room:error';
   code: RoomErrorCode;
@@ -1338,6 +1393,7 @@ export const ROOM_CLIENT_TYPES: readonly RoomClientMessage['type'][] = [
   'room:size',
   'room:remove',
   'room:host',
+  'room:settings',
 ];
 
 /**
@@ -1601,7 +1657,7 @@ export function parseMessage(raw: unknown): ProtocolMessage | null {
   switch (data.type) {
     case 'hello': {
       if (!isClientRole(data.role)) return null;
-      const msg: HelloMessage = { ...env, type: 'hello', role: data.role };
+      const msg: HelloMessage = { ...env, type: 'hello', role: data.role, ...sanitizePlayerAuth(data) };
       if (typeof data.name === 'string') msg.name = data.name.slice(0, 40);
       return msg;
     }
@@ -1651,7 +1707,7 @@ export function parseMessage(raw: unknown): ProtocolMessage | null {
         const session = sanitizeGameSession(s.session);
         if (session && Object.keys(session).length > 0) snapshot.session = session;
       }
-      return {
+      const welcome: WelcomeMessage = {
         ...env,
         type: 'server:welcome',
         clientId: data.clientId,
@@ -1660,6 +1716,15 @@ export function parseMessage(raw: unknown): ProtocolMessage | null {
         snapshot,
         peers,
       };
+      if (typeof data.signIn === 'boolean') welcome.signIn = data.signIn;
+      return welcome;
+    }
+    case 'server:announce': {
+      if (typeof data.id !== 'string' || !ANNOUNCE_ID_PATTERN.test(data.id)) return null;
+      if (!isFiniteNumber(data.until) || !isFiniteNumber(data.serverNow)) return null;
+      const text = sanitizeAnnounceText(data.text);
+      if (text === null) return null;
+      return { ...env, type: 'server:announce', id: data.id, text, until: data.until, serverNow: data.serverNow };
     }
     case 'server:presence': {
       const peers = sanitizePeers(data.peers);
@@ -1776,6 +1841,7 @@ function sanitizeRoomPlayer(input: unknown): RoomPlayer | null {
     isHost: input.isHost === true,
     ping: isFiniteNumber(input.ping) && input.ping >= 0 ? Math.round(clamp(input.ping, 0, 60_000)) : null,
     ...(input.away === true ? { away: true as const } : {}),
+    ...sanitizePlayerBadge(input),
   };
 }
 
@@ -1857,18 +1923,19 @@ function parseRoomMessage(data: Record<string, unknown>, env: Envelope): Protoco
     case 'room:create': {
       const identity = sanitizeRoomIdentity(data);
       if (!identity) return null;
-      const msg: RoomCreateMessage = { ...env, type: 'room:create', ...identity };
+      const msg: RoomCreateMessage = { ...env, type: 'room:create', ...identity, ...sanitizePlayerAuth(data) };
       const token = sanitizeRoomToken(data.token);
       const size = sanitizeRoomSize(data.size);
       if (token) msg.token = token;
       if (size !== null) msg.size = size;
+      if (typeof data.signedInOnly === 'boolean') msg.signedInOnly = data.signedInOnly;
       return msg;
     }
     case 'room:join': {
       const identity = sanitizeRoomIdentity(data);
       const code = sanitizeRoomCode(data.code);
       if (!identity || !code) return null;
-      const msg: RoomJoinMessage = { ...env, type: 'room:join', code, ...identity };
+      const msg: RoomJoinMessage = { ...env, type: 'room:join', code, ...identity, ...sanitizePlayerAuth(data) };
       const token = sanitizeRoomToken(data.token);
       if (token) msg.token = token;
       return msg;
@@ -1884,8 +1951,10 @@ function parseRoomMessage(data: Record<string, unknown>, env: Envelope): Protoco
     }
     case 'room:update': {
       const identity = sanitizeRoomIdentity(data);
-      return identity ? { ...env, type: 'room:update', ...identity } : null;
+      return identity ? { ...env, type: 'room:update', ...identity, ...sanitizePlayerAuth(data) } : null;
     }
+    case 'room:settings':
+      return typeof data.signedInOnly === 'boolean' ? { ...env, type: 'room:settings', signedInOnly: data.signedInOnly } : null;
     case 'room:leave': {
       const msg: RoomLeaveMessage = { ...env, type: 'room:leave' };
       if (typeof data.to === 'string' && MEMBER_ID_PATTERN.test(data.to)) msg.to = data.to;
@@ -1921,6 +1990,7 @@ function parseRoomMessage(data: Record<string, unknown>, env: Envelope): Protoco
       const size = sanitizeRoomSize(data.size);
       if (size !== null) msg.size = size;
       if (data.restored === true) msg.restored = true;
+      if (data.signedInOnly === true) msg.signedInOnly = true;
       return msg;
     }
     case 'room:players': {
@@ -1929,6 +1999,7 @@ function parseRoomMessage(data: Record<string, unknown>, env: Envelope): Protoco
       const msg: RoomPlayersMessage = { ...env, type: 'room:players', players };
       const size = sanitizeRoomSize(data.size);
       if (size !== null) msg.size = size;
+      if (data.signedInOnly === true) msg.signedInOnly = true;
       return msg;
     }
     case 'room:left': {
@@ -1949,6 +2020,193 @@ function parseRoomMessage(data: Record<string, unknown>, env: Envelope): Protoco
     default:
       return null;
   }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Sign-in, time zone and announcements (milestone 6, additive to protocol v1)
+// ─────────────────────────────────────────────────────────────────────────────
+//
+// Every field below is optional: a client that predates it sends none of it, a relay that predates it
+// drops it (unknown fields never survive sanitizing), and a client that predates it drops it from the
+// relay's frames (the old parser builds each message field by field).
+//
+//   hello / room:create / room:join / room:update may carry
+//     tz       the device's IANA time zone; the relay keeps only the country it maps to (countryFromTimeZone),
+//              never the zone itself and never anything derived from the IP address;
+//     idToken  a Google ID token. With GOOGLE_CLIENT_ID set, the relay verifies it (RS256 against Google's
+//              keys, iss, aud = the client id, exp, iat) and marks the socket verified, keeping only the
+//              token's given name (sanitized, ≤ ROOM_MAX_NAME). null = signed out. The token itself is
+//              never stored, logged or relayed. The latest frame that carries `idToken` decides; a frame
+//              without it keeps the socket's current state, so sending it once on `hello` is enough.
+//   room:create {signedInOnly} / room:settings {signedInOnly}  host option: only verified players may join
+//              (a non-verified join gets room:error 'sign_in_required'; seats taken before it was switched on
+//              stay, and a device taking back its own seat is let in). The host must be verified to switch
+//              it on, and the relay must have sign-in configured (welcome.signIn === true), else 'bad_state'.
+//   room:joined / room:players carry `signedInOnly: true` while it is on; each player carries
+//              `verified: true`, `givenName` and `country` when known (absent = not signed in / unknown).
+//   server:welcome {signIn}  whether this relay verifies Google tokens.
+//   server:announce {id, text, until, serverNow}  the owner's banner (AnnounceMessage).
+//
+// Error codes stay readable for old games: 'sign_in_required' goes only to a client that sent a milestone 6
+// field (`tz`, `idToken` or `signedInOnly`) on this socket; every other client gets 'bad_state' with a message
+// that says what to do. When the owner pauses new rooms, room:create answers 'rooms_full' ("New rooms are
+// paused by the owner"), a code every game already knows.
+
+/** Longest Google ID token accepted on the wire (they are ~1.2 KB). */
+export const MAX_ID_TOKEN_LENGTH = 4096;
+/** Longest IANA time zone accepted on the wire. */
+export const MAX_TIME_ZONE_LENGTH = 64;
+/** Longest owner announcement (code points). */
+export const ANNOUNCE_MAX_TEXT = 120;
+/** An announcement stays up this many minutes (the owner picks 1…60). */
+export const ANNOUNCE_MIN_MINUTES = 1;
+export const ANNOUNCE_MAX_MINUTES = 60;
+const ANNOUNCE_ID_PATTERN = /^[A-Za-z0-9_-]{1,32}$/;
+const ID_TOKEN_PATTERN = /^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/;
+const TIME_ZONE_PATTERN = /^[A-Za-z][A-Za-z0-9_+-]*(?:\/[A-Za-z0-9_+-]+){0,3}$/;
+const COUNTRY_PATTERN = /^[A-Z]{2}$/;
+// Control, format (bidi overrides, zero-width), surrogate, private-use and unassigned code points.
+const ANNOUNCE_TEXT_BAD = /[\p{Cc}\p{Cf}\p{Cs}\p{Co}\p{Cn}]/gu;
+
+/** An IANA time zone name (`Asia/Kolkata`, `America/Argentina/Buenos_Aires`, `UTC`), else null. */
+export function sanitizeTimeZone(input: unknown): string | null {
+  return typeof input === 'string' && input.length <= MAX_TIME_ZONE_LENGTH && TIME_ZONE_PATTERN.test(input) ? input : null;
+}
+
+/** A compact JWT (three base64url parts, ≤ MAX_ID_TOKEN_LENGTH), else null. Shape only: the relay verifies it. */
+export function sanitizeIdToken(input: unknown): string | null {
+  return typeof input === 'string' && input.length <= MAX_ID_TOKEN_LENGTH && ID_TOKEN_PATTERN.test(input) ? input : null;
+}
+
+/** An ISO 3166-1 alpha-2 code (upper case), else null. */
+export function sanitizeCountryCode(input: unknown): string | null {
+  return typeof input === 'string' && COUNTRY_PATTERN.test(input) ? input : null;
+}
+
+/**
+ * Owner announcement text: plain text, any script, control / format characters removed, whitespace runs
+ * collapsed. Returns null for a non-string or for text longer than ANNOUNCE_MAX_TEXT code points after
+ * cleaning ('' = hide the banner). Markup characters are kept: every client renders it as text.
+ */
+export function sanitizeAnnounceText(input: unknown): string | null {
+  if (typeof input !== 'string' || input.length > ANNOUNCE_MAX_TEXT * 8) return null;
+  const s = input.normalize('NFKC').replace(ANNOUNCE_TEXT_BAD, ' ').replace(/\s+/g, ' ').trim();
+  return [...s].length <= ANNOUNCE_MAX_TEXT ? s : null;
+}
+
+/** `tz` / `idToken` of a client frame (absent when missing or malformed; a malformed token counts as signed out). */
+function sanitizePlayerAuth(data: Record<string, unknown>): PlayerAuthFields {
+  const out: PlayerAuthFields = {};
+  const tz = sanitizeTimeZone(data.tz);
+  if (tz) out.tz = tz;
+  if (data.idToken === null) out.idToken = null;
+  else if (data.idToken !== undefined) out.idToken = sanitizeIdToken(data.idToken);
+  return out;
+}
+
+/** verified / givenName / country of a player on the wire (only the ones that are present and valid). */
+function sanitizePlayerBadge(input: Record<string, unknown>): Pick<RoomPlayer, 'verified' | 'givenName' | 'country'> {
+  const out: Pick<RoomPlayer, 'verified' | 'givenName' | 'country'> = {};
+  if (input.verified === true) {
+    out.verified = true;
+    const givenName = sanitizeRoomName(input.givenName);
+    if (givenName) out.givenName = givenName;
+  }
+  const country = sanitizeCountryCode(input.country);
+  if (country) out.country = country;
+  return out;
+}
+
+/**
+ * IANA time zone → ISO country, for the owner's "countries" list. An estimate (a device can be set to any
+ * zone): it covers India, the 30 most common zones and the main zone(s) of most countries; anything else
+ * (UTC, Etc/*, rare zones) is unknown (null).
+ */
+export const TIME_ZONE_COUNTRY: Readonly<Record<string, string>> = /* @__PURE__ */ Object.freeze({
+  // South Asia
+  'Asia/Kolkata': 'IN', 'Asia/Calcutta': 'IN', 'Asia/Karachi': 'PK', 'Asia/Dhaka': 'BD', 'Asia/Dacca': 'BD',
+  'Asia/Colombo': 'LK', 'Asia/Kathmandu': 'NP', 'Asia/Katmandu': 'NP', 'Asia/Thimphu': 'BT', 'Indian/Maldives': 'MV',
+  'Asia/Kabul': 'AF',
+  // North America
+  'America/New_York': 'US', 'America/Chicago': 'US', 'America/Denver': 'US', 'America/Los_Angeles': 'US',
+  'America/Phoenix': 'US', 'America/Anchorage': 'US', 'Pacific/Honolulu': 'US', 'America/Detroit': 'US',
+  'America/Indiana/Indianapolis': 'US', 'America/Indianapolis': 'US', 'America/Kentucky/Louisville': 'US',
+  'America/Boise': 'US', 'America/Juneau': 'US', 'America/Puerto_Rico': 'PR',
+  'America/Toronto': 'CA', 'America/Montreal': 'CA', 'America/Vancouver': 'CA', 'America/Edmonton': 'CA',
+  'America/Winnipeg': 'CA', 'America/Halifax': 'CA', 'America/St_Johns': 'CA', 'America/Regina': 'CA',
+  'America/Mexico_City': 'MX', 'America/Monterrey': 'MX', 'America/Tijuana': 'MX', 'America/Cancun': 'MX',
+  'America/Merida': 'MX', 'America/Chihuahua': 'MX',
+  // Central / South America and the Caribbean
+  'America/Guatemala': 'GT', 'America/El_Salvador': 'SV', 'America/Tegucigalpa': 'HN', 'America/Managua': 'NI',
+  'America/Costa_Rica': 'CR', 'America/Panama': 'PA', 'America/Havana': 'CU', 'America/Santo_Domingo': 'DO',
+  'America/Jamaica': 'JM', 'America/Port_of_Spain': 'TT',
+  'America/Sao_Paulo': 'BR', 'America/Fortaleza': 'BR', 'America/Recife': 'BR', 'America/Bahia': 'BR',
+  'America/Belem': 'BR', 'America/Manaus': 'BR', 'America/Cuiaba': 'BR', 'America/Porto_Velho': 'BR',
+  'America/Argentina/Buenos_Aires': 'AR', 'America/Buenos_Aires': 'AR', 'America/Argentina/Cordoba': 'AR',
+  'America/Santiago': 'CL', 'America/Bogota': 'CO', 'America/Lima': 'PE', 'America/Caracas': 'VE',
+  'America/Guayaquil': 'EC', 'America/Montevideo': 'UY', 'America/La_Paz': 'BO', 'America/Asuncion': 'PY',
+  // Europe
+  'Europe/London': 'GB', 'Europe/Belfast': 'GB', 'Europe/Dublin': 'IE', 'Europe/Lisbon': 'PT', 'Europe/Madrid': 'ES',
+  'Atlantic/Canary': 'ES', 'Europe/Paris': 'FR', 'Europe/Brussels': 'BE', 'Europe/Amsterdam': 'NL',
+  'Europe/Luxembourg': 'LU', 'Europe/Berlin': 'DE', 'Europe/Zurich': 'CH', 'Europe/Vienna': 'AT', 'Europe/Rome': 'IT',
+  'Europe/Malta': 'MT', 'Europe/Prague': 'CZ', 'Europe/Bratislava': 'SK', 'Europe/Warsaw': 'PL', 'Europe/Budapest': 'HU',
+  'Europe/Ljubljana': 'SI', 'Europe/Zagreb': 'HR', 'Europe/Belgrade': 'RS', 'Europe/Sarajevo': 'BA',
+  'Europe/Bucharest': 'RO', 'Europe/Sofia': 'BG', 'Europe/Athens': 'GR', 'Europe/Istanbul': 'TR', 'Asia/Istanbul': 'TR',
+  'Asia/Nicosia': 'CY', 'Europe/Copenhagen': 'DK', 'Europe/Stockholm': 'SE', 'Europe/Oslo': 'NO', 'Europe/Helsinki': 'FI',
+  'Atlantic/Reykjavik': 'IS', 'Europe/Tallinn': 'EE', 'Europe/Riga': 'LV', 'Europe/Vilnius': 'LT', 'Europe/Minsk': 'BY',
+  'Europe/Kyiv': 'UA', 'Europe/Kiev': 'UA', 'Europe/Chisinau': 'MD', 'Europe/Moscow': 'RU', 'Europe/Samara': 'RU',
+  'Asia/Yekaterinburg': 'RU', 'Asia/Novosibirsk': 'RU', 'Asia/Krasnoyarsk': 'RU', 'Asia/Vladivostok': 'RU',
+  'Asia/Tbilisi': 'GE', 'Asia/Yerevan': 'AM', 'Asia/Baku': 'AZ',
+  // Middle East and Africa
+  'Asia/Dubai': 'AE', 'Asia/Riyadh': 'SA', 'Asia/Qatar': 'QA', 'Asia/Kuwait': 'KW', 'Asia/Bahrain': 'BH',
+  'Asia/Muscat': 'OM', 'Asia/Jerusalem': 'IL', 'Asia/Tel_Aviv': 'IL', 'Asia/Amman': 'JO', 'Asia/Beirut': 'LB',
+  'Asia/Baghdad': 'IQ', 'Asia/Tehran': 'IR', 'Asia/Aden': 'YE',
+  'Africa/Cairo': 'EG', 'Africa/Johannesburg': 'ZA', 'Africa/Lagos': 'NG', 'Africa/Nairobi': 'KE',
+  'Africa/Casablanca': 'MA', 'Africa/Algiers': 'DZ', 'Africa/Tunis': 'TN', 'Africa/Accra': 'GH',
+  'Africa/Addis_Ababa': 'ET', 'Africa/Dar_es_Salaam': 'TZ', 'Africa/Kampala': 'UG', 'Africa/Abidjan': 'CI',
+  'Africa/Dakar': 'SN', 'Africa/Kinshasa': 'CD', 'Africa/Luanda': 'AO', 'Africa/Harare': 'ZW', 'Africa/Lusaka': 'ZM',
+  'Africa/Khartoum': 'SD', 'Indian/Mauritius': 'MU',
+  // Central, East and South-East Asia
+  'Asia/Tashkent': 'UZ', 'Asia/Almaty': 'KZ', 'Asia/Bishkek': 'KG', 'Asia/Yangon': 'MM', 'Asia/Rangoon': 'MM',
+  'Asia/Bangkok': 'TH', 'Asia/Ho_Chi_Minh': 'VN', 'Asia/Saigon': 'VN', 'Asia/Phnom_Penh': 'KH', 'Asia/Vientiane': 'LA',
+  'Asia/Kuala_Lumpur': 'MY', 'Asia/Singapore': 'SG', 'Asia/Jakarta': 'ID', 'Asia/Makassar': 'ID', 'Asia/Jayapura': 'ID',
+  'Asia/Manila': 'PH', 'Asia/Brunei': 'BN',
+  'Asia/Shanghai': 'CN', 'Asia/Chongqing': 'CN', 'Asia/Urumqi': 'CN', 'Asia/Hong_Kong': 'HK', 'Asia/Macau': 'MO',
+  'Asia/Taipei': 'TW', 'Asia/Tokyo': 'JP', 'Asia/Seoul': 'KR', 'Asia/Ulaanbaatar': 'MN',
+  // Oceania
+  'Australia/Sydney': 'AU', 'Australia/Melbourne': 'AU', 'Australia/Brisbane': 'AU', 'Australia/Perth': 'AU',
+  'Australia/Adelaide': 'AU', 'Australia/Hobart': 'AU', 'Australia/Darwin': 'AU', 'Australia/Canberra': 'AU',
+  'Pacific/Auckland': 'NZ', 'Pacific/Fiji': 'FJ', 'Pacific/Port_Moresby': 'PG', 'Pacific/Guam': 'GU',
+});
+
+/** English short names of the countries TIME_ZONE_COUNTRY can produce. */
+export const COUNTRY_NAMES: Readonly<Record<string, string>> = /* @__PURE__ */ Object.freeze({
+  AE: 'United Arab Emirates', AF: 'Afghanistan', AM: 'Armenia', AO: 'Angola', AR: 'Argentina', AT: 'Austria',
+  AU: 'Australia', AZ: 'Azerbaijan', BA: 'Bosnia and Herzegovina', BD: 'Bangladesh', BE: 'Belgium', BG: 'Bulgaria',
+  BH: 'Bahrain', BN: 'Brunei', BO: 'Bolivia', BR: 'Brazil', BT: 'Bhutan', BY: 'Belarus', CA: 'Canada',
+  CD: 'DR Congo', CH: 'Switzerland', CI: "Côte d'Ivoire", CL: 'Chile', CN: 'China', CO: 'Colombia', CR: 'Costa Rica',
+  CU: 'Cuba', CY: 'Cyprus', CZ: 'Czechia', DE: 'Germany', DK: 'Denmark', DO: 'Dominican Republic', DZ: 'Algeria',
+  EC: 'Ecuador', EE: 'Estonia', EG: 'Egypt', ES: 'Spain', ET: 'Ethiopia', FI: 'Finland', FJ: 'Fiji', FR: 'France',
+  GB: 'United Kingdom', GE: 'Georgia', GH: 'Ghana', GR: 'Greece', GT: 'Guatemala', GU: 'Guam', HK: 'Hong Kong',
+  HN: 'Honduras', HR: 'Croatia', HU: 'Hungary', ID: 'Indonesia', IE: 'Ireland', IL: 'Israel', IN: 'India', IQ: 'Iraq',
+  IR: 'Iran', IS: 'Iceland', IT: 'Italy', JM: 'Jamaica', JO: 'Jordan', JP: 'Japan', KE: 'Kenya', KG: 'Kyrgyzstan',
+  KH: 'Cambodia', KR: 'South Korea', KW: 'Kuwait', KZ: 'Kazakhstan', LA: 'Laos', LB: 'Lebanon', LK: 'Sri Lanka',
+  LT: 'Lithuania', LU: 'Luxembourg', LV: 'Latvia', MA: 'Morocco', MD: 'Moldova', MM: 'Myanmar', MN: 'Mongolia',
+  MO: 'Macao', MT: 'Malta', MU: 'Mauritius', MV: 'Maldives', MX: 'Mexico', MY: 'Malaysia', NG: 'Nigeria',
+  NI: 'Nicaragua', NL: 'Netherlands', NO: 'Norway', NP: 'Nepal', NZ: 'New Zealand', OM: 'Oman', PA: 'Panama',
+  PE: 'Peru', PG: 'Papua New Guinea', PH: 'Philippines', PK: 'Pakistan', PL: 'Poland', PR: 'Puerto Rico',
+  PT: 'Portugal', PY: 'Paraguay', QA: 'Qatar', RO: 'Romania', RS: 'Serbia', RU: 'Russia', SA: 'Saudi Arabia',
+  SD: 'Sudan', SE: 'Sweden', SG: 'Singapore', SI: 'Slovenia', SK: 'Slovakia', SN: 'Senegal', SV: 'El Salvador',
+  TH: 'Thailand', TN: 'Tunisia', TR: 'Türkiye', TT: 'Trinidad and Tobago', TW: 'Taiwan', TZ: 'Tanzania',
+  UA: 'Ukraine', UG: 'Uganda', US: 'United States', UY: 'Uruguay', UZ: 'Uzbekistan', VE: 'Venezuela', VN: 'Vietnam',
+  YE: 'Yemen', ZA: 'South Africa', ZM: 'Zambia', ZW: 'Zimbabwe',
+});
+
+/** The country a device time zone suggests (ISO alpha-2), or null when unknown. Never use the IP address. */
+export function countryFromTimeZone(tz: unknown): string | null {
+  const zone = sanitizeTimeZone(tz);
+  if (!zone) return null;
+  return Object.prototype.hasOwnProperty.call(TIME_ZONE_COUNTRY, zone) ? (TIME_ZONE_COUNTRY[zone] ?? null) : null;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

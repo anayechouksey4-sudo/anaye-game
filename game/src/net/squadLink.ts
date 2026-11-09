@@ -5,7 +5,8 @@
  *        squad:controls  → applySquadControls (mapSquadControlsToPhysics) — used on the next physics step
  *        physics:set     → patchPhysics
  *        server:presence → dashboards count
- *   out  hello on open; game:state (physics, controls, carId, trackId, bigJumpKmh) ~100 ms after any
+ *        server:announce → the room client's listeners (the owner's banner, hud/announce.ts)
+ *   out  hello on open (with the device time zone and, when signed in, the Google ID token: auth/wire.ts); game:state (physics, controls, carId, trackId, bigJumpKmh) ~100 ms after any
  *        physics/controls/car/map change and when another dashboard comes online;
  *        game:telemetry every TELEMETRY_INTERVAL_MS; ping every few seconds (RTT + dead-link detection)
  *
@@ -26,6 +27,7 @@ import {
   type ProtocolMessage,
   type SquadControls,
 } from '@shared/protocol';
+import { helloAuthFields } from '../auth/wire';
 import { isNetworkDisabled, resolveServerUrl } from '../config';
 import { installRoomClient, markRoomsOffline } from '../multiplayer/roomClient';
 import { activeDriver, useProfile } from '../state/profile';
@@ -85,7 +87,7 @@ export class SquadLink {
   /** Counters for diagnostics / tests. */
   readonly stats = { sent: 0, received: 0, rejected: 0, connects: 0 };
 
-  /** Every `room:*` frame the relay sends us (parsed). Returns the unsubscribe function. */
+  /** Every `room:*` frame the relay sends us (parsed), plus server:welcome and server:announce. Returns the unsubscribe function. */
   onMessage(listener: (message: ProtocolMessage) => void): () => void {
     this.messageListeners.add(listener);
     return () => {
@@ -193,7 +195,7 @@ export class SquadLink {
       this.pendingPings.clear();
       gameState().setLinkStatus('connected');
       gameState().pushUplink('link', `connected · ${this.url}`);
-      this.send({ type: 'hello', role: 'game', name: CLIENT_NAME });
+      this.send({ type: 'hello', role: 'game', name: CLIENT_NAME, ...helloAuthFields() });
       this.telemetryTimer = setInterval(() => this.send({ type: 'game:telemetry', telemetry: buildTelemetry() }), TELEMETRY_INTERVAL_MS);
       this.pingTimer = setInterval(() => this.ping(), PING_INTERVAL_MS);
       for (const listener of [...this.openListeners]) listener();
@@ -228,7 +230,7 @@ export class SquadLink {
   }
 
   private handle(message: ProtocolMessage): void {
-    if (message.type.startsWith('room:')) {
+    if (message.type.startsWith('room:') || message.type === 'server:announce') {
       for (const listener of [...this.messageListeners]) listener(message);
       return;
     }
@@ -245,6 +247,8 @@ export class SquadLink {
         );
         // Announce what we are actually running even if nothing changed.
         this.sendState();
+        // The room client reads welcome.signIn (Google sign-in on this relay).
+        for (const listener of [...this.messageListeners]) listener(message);
         break;
       }
       case 'squad:controls':

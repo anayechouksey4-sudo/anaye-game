@@ -1,6 +1,6 @@
 /**
  * Draws the other players in the room: one rivals/KinematicCar per member (their car class, MY RIDE
- * look, plate and name in their colour), posed every frame from the interpolation buffer in
+ * look, plate and name in their colour; ✓ and the Google first name for a signed-in friend), posed every frame from the interpolation buffer in
  * remotePlayers.ts. No physics bodies: cars pass through each other.
  *
  * Mount once inside the <Canvas> (App.tsx, next to the track / rivals layer). Renders nothing
@@ -10,6 +10,7 @@
 import { useEffect, useMemo } from 'react';
 import { useFrame, useThree } from '@react-three/fiber';
 import { isCarClassId, type CarClassId, type RoomPlayer } from '@shared/protocol';
+import { nameTagLabel } from '../auth/badge';
 import KinematicCar from '../rivals/KinematicCar';
 import { decodePlayer } from './identity';
 import { INTERP_DELAY_MS, ensureRemote, forEachRemote, sampleRemote } from './remotePlayers';
@@ -34,7 +35,7 @@ function RemoteCar({ player, index }: { player: RoomPlayer; index: number }) {
   const carId: CarClassId = isCarClassId(player.carId) ? player.carId : 'hypercar';
   return (
     <group name={`friend:${player.name}`}>
-      <KinematicCar carId={carId} look={decoded.look} plate={player.plate} label={player.name} labelColor={decoded.color} fade={remote.fade} pose={remote.pose} />
+      <KinematicCar carId={carId} look={decoded.look} plate={player.plate} label={nameTagLabel(player)} labelColor={decoded.color} fade={remote.fade} pose={remote.pose} />
     </group>
   );
 }

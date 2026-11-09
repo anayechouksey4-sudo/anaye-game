@@ -11,7 +11,7 @@
 
 /* Buttons: full width, 52 px (menu.css .gm-btn), optional small sub-line. */
 .fr__btn { width: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; line-height: 1.1; }
-.fr__btn small { font-size: 9px; font-weight: 400; letter-spacing: 0.16em; opacity: 0.8; }
+.fr__btn small { max-width: 100%; font-size: 9px; font-weight: 400; letter-spacing: 0.16em; opacity: 0.8; white-space: normal; text-align: center; line-height: 1.3; }
 .fr__btn:disabled { opacity: 0.45; cursor: default; }
 .fr__btn--host { min-height: 56px; font-size: 13px; }
 .fr__row { display: flex; gap: 8px; align-items: stretch; }
@@ -136,3 +136,22 @@ a.fr__btn { display: inline-flex; align-items: center; justify-content: center; 
 .fr__results th:nth-child(3) { width: 30%; }
 .fr__results th:nth-child(4) { width: 22%; }
 .fr__results td.fr__name { max-width: none; width: auto; }
+
+/* Sign-in (M6): the SIGN IN WITH GOOGLE row, ✓ badges, the host's SIGNED-IN PLAYERS ONLY switch. */
+.fr__signin { display: flex; flex-direction: column; gap: 6px; padding: 10px 12px; background: rgba(8, 10, 18, 0.7); border: 1px solid var(--line); border-radius: 12px; }
+.fr__signin.is-needed { border-color: var(--yellow); box-shadow: 0 0 0 1px var(--yellow), 0 0 18px rgba(245, 230, 99, 0.25); }
+.fr__signin .fr__hint { margin: 0; }
+.fr__signin .fr__error { margin: 0; }
+.fr__signed { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 0 6px; min-height: 44px; font-size: 11px; letter-spacing: 0.14em; color: var(--green); }
+.fr__signed b { color: #fff; letter-spacing: 0.06em; overflow-wrap: anywhere; }
+.fr__signed--off { min-height: 0; color: #ffd0a0; }
+/* GIS draws a 40 px button; scaled to 44 px (the touch target follows the transform). Its box stays empty until then. */
+.fr__gis { display: flex; align-items: center; min-height: 0; max-width: 100%; overflow: visible; }
+.fr__gis:not(:empty) { min-height: 48px; padding-right: 10%; }
+.fr__gis > * { transform: scale(1.1); transform-origin: left center; }
+.fr__gis-wait { display: inline-flex; align-items: center; min-height: 44px; font-size: 10px; letter-spacing: 0.16em; color: var(--dim); }
+.fr__nameline { display: flex; align-items: baseline; gap: 6px; min-width: 0; }
+.fr__nameline b { min-width: 0; }
+.fr__verified { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 10px; font-weight: 800; letter-spacing: 0.08em; color: var(--green); }
+.fr__status .fr__tag--signed-only { color: var(--green); background: rgba(57, 255, 20, 0.08); letter-spacing: 0.14em; }
+.fr__switch.is-on { border-color: var(--green); color: var(--green); background: rgba(57, 255, 20, 0.08); }

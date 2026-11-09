@@ -15,3 +15,17 @@ services:
     envVars:
       - key: NODE_ENV
         value: production
+      # Render's proxy appends the visitor's address as the LAST X-Forwarded-For entry (admin rate limits, audit hash).
+      # Keep this only behind such a proxy: without one, a client could pick that entry itself.
+      - key: TRUST_PROXY
+        value: "1"
+      # Secrets and owner settings: set the values in the Render dashboard (Environment), never in this file.
+      # ADMIN_KEY: the owner's admin passphrase, at least 24 characters (admin stays off without it).
+      - key: ADMIN_KEY
+        sync: false
+      # ADMIN_EMAILS: comma-separated Google accounts allowed into the admin console (with GOOGLE_CLIENT_ID: two-factor).
+      - key: ADMIN_EMAILS
+        sync: false
+      # GOOGLE_CLIENT_ID: the game's Google OAuth client id (public); players' sign-in tokens must be issued to it.
+      - key: GOOGLE_CLIENT_ID
+        sync: false

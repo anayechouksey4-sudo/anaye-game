@@ -3,6 +3,26 @@ import { DEFAULT_SERVER_PORT, normalizeServerUrl } from '@shared/protocol';
 /** Fixed physics step. Everything in the car model integrates with this dt. */
 export const PHYSICS_DT = 1 / 60;
 
+/**
+ * The game's Google OAuth client id ("Web application" client, public by design). Empty = no SIGN IN WITH
+ * GOOGLE button anywhere and Google's script is never loaded. The owner pastes the id here (the same value
+ * as the relay's GOOGLE_CLIENT_ID environment variable); see game/README.md "Google sign-in".
+ */
+export const GOOGLE_CLIENT_ID = '';
+
+/** GOOGLE_CLIENT_ID, or VITE_GOOGLE_CLIENT_ID baked into a local test build (headless checks with a test client id). */
+export function googleClientId(): string {
+  let fromEnv: unknown;
+  try {
+    fromEnv = import.meta.env.VITE_GOOGLE_CLIENT_ID;
+  } catch {
+    fromEnv = undefined; // node tests: no import.meta.env
+  }
+  const id = GOOGLE_CLIENT_ID || (typeof fromEnv === 'string' ? fromEnv.trim() : '');
+  // A client id is `<digits>-<letters>.apps.googleusercontent.com`; anything with spaces or markup is a typo.
+  return /^[A-Za-z0-9._-]{1,200}$/.test(id) ? id : '';
+}
+
 function queryParams(): URLSearchParams {
   if (typeof window === 'undefined') return new URLSearchParams();
   return new URLSearchParams(window.location.search);

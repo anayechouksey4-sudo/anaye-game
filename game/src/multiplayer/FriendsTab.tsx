@@ -4,11 +4,20 @@
  * MAKE HOST (host), LEAVE (the host confirms who gets the room), the share link and the results
  * table. Offline / unlinked it explains how to reach a relay. Rooms are humans only: no AI rivals, no
  * ghost. Every control is ≥ 44 px (menu.css buttons, 46 px fields); fits 360×640 and 740×280.
+ *
+ * Milestone 6: SIGN IN WITH GOOGLE (optional; only when the relay verifies tokens and config.ts has a
+ * client id), ✓ + first name on signed-in players, the host's SIGNED-IN PLAYERS ONLY switch, and the
+ * owner's announcement at the top (the menu covers the HUD banner).
  */
-import { useEffect, useState, type FormEvent, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { ROOM_CODE_LENGTH, ROOM_MAX_NAME, ROOM_SIZES, type RoomPlayer, type RoomRace } from '@shared/protocol';
+import { signOut, useAuth } from '../auth/authStore';
+import { displayName, verifiedLabel } from '../auth/badge';
+import { ensureGis, offerOneTap, renderGisButton } from '../auth/gis';
 import { getCarEntry, resolveCarId } from '../car/catalog';
+import { googleClientId } from '../config';
 import { portraitDataUrl } from '../drivers/portrait';
+import { AnnounceBanner } from '../hud/AnnounceBanner';
 import { LinkStatusBadge } from '../hud/LinkPanel';
 import { formatRaceTime } from '../hud/hudUtils';
 import { useHudUi } from '../hud/uiStore';
@@ -118,14 +127,96 @@ export default function FriendsTab() {
           </button>
         )}
       </div>
+      <AnnounceBanner variant="menu" />
       {room.error && (
         <p className="fr__error" role="alert" data-testid="friends-error">
           {room.error.message}
         </p>
       )}
+      {linkStatus === 'connected' && <SignInRow />}
       {linkStatus !== 'connected' && <RejoinNote code={room.rejoining} />}
       {linkStatus !== 'connected' ? <ConnectHelp linkStatus={linkStatus} serverUrl={serverUrl} /> : room.status === 'in-room' ? <InRoom room={room} /> : <Entry room={room} />}
       <GetTheGame />
+    </div>
+  );
+}
+
+/** Google sign-in: shown only while this relay verifies Google tokens (server:welcome.signIn) and the game has a client id. */
+function SignInRow() {
+  const relaySignIn = useAuth((s) => s.relaySignIn);
+  const clientId = googleClientId();
+  if (relaySignIn !== true || !clientId) return null;
+  return <SignInBox clientId={clientId} />;
+}
+
+/** GIS's button grows to this size at most (it scales by 1.1 to a 44 px touch target, friends.css). */
+const GIS_BUTTON_MAX = 300;
+
+function SignInBox({ clientId }: { clientId: string }) {
+  const status = useAuth((s) => s.status);
+  const givenName = useAuth((s) => s.givenName);
+  const gis = useAuth((s) => s.gis);
+  const neededAt = useAuth((s) => s.neededAt);
+  const error = useAuth((s) => s.error);
+  const holder = useRef<HTMLDivElement>(null);
+  const framed = isFramed();
+  const signedIn = status === 'signed-in';
+  useEffect(() => {
+    if (framed || signedIn) return;
+    // Google's script is fetched here, the first time FRIENDS shows the sign-in row (never before).
+    if (gis === 'idle') void ensureGis(clientId);
+    const el = holder.current;
+    if (gis === 'ready' && el) {
+      renderGisButton(el, Math.min(GIS_BUTTON_MAX, (el.clientWidth || GIS_BUTTON_MAX) / 1.1));
+      offerOneTap();
+    }
+  }, [clientId, framed, signedIn, gis]);
+  let body: ReactNode;
+  if (signedIn) {
+    body = (
+      <div className="fr__row">
+        <span className="fr__signed" data-testid="friends-signed-in">
+          ✓ SIGNED IN AS <b>{givenName ?? 'GOOGLE PLAYER'}</b>
+        </span>
+        <button type="button" className="gm-btn fr__btn fr__btn--fit" onClick={signOut} data-testid="friends-sign-out">
+          SIGN OUT
+        </button>
+      </div>
+    );
+  } else if (framed) {
+    // Google's sign-in does not run inside another page's frame.
+    body = (
+      <a className="gm-btn gm-btn--primary fr__btn" href={PUBLIC_GAME_URL} target="_blank" rel="noopener noreferrer" data-testid="friends-signin-open-page">
+        OPEN THE GAME PAGE TO SIGN IN
+      </a>
+    );
+  } else {
+    body = (
+      <>
+        {status === 'expired' && <span className="fr__signed fr__signed--off">SIGN-IN RAN OUT · SIGN IN AGAIN</span>}
+        {/* GIS draws its SIGN IN WITH GOOGLE button in here; React keeps the box empty. */}
+        <div className="fr__gis" ref={holder} data-testid="friends-gis" />
+        {(gis === 'idle' || gis === 'loading') && <span className="fr__gis-wait">LOADING GOOGLE SIGN-IN…</span>}
+        {gis === 'failed' && (
+          <div className="fr__note fr__note--row" data-testid="friends-gis-failed">
+            <span>Google sign-in did not load (offline, or blocked by the browser).</span>
+            <button type="button" className="gm-btn fr__btn fr__btn--fit" onClick={() => void ensureGis(clientId)} data-testid="friends-gis-retry">
+              RETRY
+            </button>
+          </div>
+        )}
+      </>
+    );
+  }
+  return (
+    <div className={`fr__signin${neededAt !== null && !signedIn ? ' is-needed' : ''}`} data-testid="friends-signin" data-status={status}>
+      {body}
+      <p className="fr__hint">
+        {signedIn
+          ? 'Friends see ✓ and your first name. Your email is never shown or kept.'
+          : 'Optional. Friends see ✓ and your first name, never your email. Some rooms are for signed-in players only.'}
+      </p>
+      {error && !signedIn && <p className="fr__error">{error}</p>}
     </div>
   );
 }
@@ -486,6 +577,19 @@ function InRoom({ room }: { room: RoomState }) {
   const readyPresent = present.filter((p) => p.ready).length;
   const canStart = host && !live && !roam && readyPresent === present.length;
   const setTab = useHudUi((s) => s.setMenuTab);
+  const relaySignIn = useAuth((s) => s.relaySignIn);
+  const authStatus = useAuth((s) => s.status);
+  // Signed in here but no ✓ from the relay a few seconds on: it refused the token (most likely a client id mismatch).
+  const unverified = relaySignIn === true && authStatus === 'signed-in' && me !== null && me.verified !== true;
+  const [showUnverified, setShowUnverified] = useState(false);
+  useEffect(() => {
+    if (!unverified) {
+      setShowUnverified(false);
+      return;
+    }
+    const timer = setTimeout(() => setShowUnverified(true), 3000);
+    return () => clearTimeout(timer);
+  }, [unverified]);
   const [copied, setCopied] = useState(false);
   const [confirmLeave, setConfirmLeave] = useState(false);
   const share = roomActions.shareUrl() ?? '';
@@ -552,6 +656,11 @@ function InRoom({ room }: { room: RoomState }) {
           </button>
         )}
         {!host && !live && <span>· THE HOST PICKS THE MAP</span>}
+        {room.signedInOnly && (
+          <span className="fr__tag fr__tag--signed-only" data-testid="friends-signed-only-tag">
+            SIGNED-IN PLAYERS ONLY
+          </span>
+        )}
       </div>
       {live && !room.participant && <p className="fr__note">THIS RACE STARTED WITHOUT YOU · DRIVE FREELY, THE NEXT ONE IS YOURS</p>}
       <div className="fr__listhead">
@@ -568,6 +677,12 @@ function InRoom({ room }: { room: RoomState }) {
           <SizePicker value={room.size} onPick={(n) => roomActions.setSize(n)} min={Math.max(2, room.players.length)} testId="friends-room-size" disabled={live} />
         </div>
       )}
+      {showUnverified && (
+        <p className="fr__note" data-testid="friends-not-verified">
+          The relay did not accept your Google sign-in, so friends see no ✓. SIGN OUT and sign in again; if it stays, the game and the relay are set up with different client ids.
+        </p>
+      )}
+      {host && relaySignIn === true && (googleClientId() !== '' || room.signedInOnly) && <SignedInOnlySwitch on={room.signedInOnly} meVerified={me?.verified === true} />}
       {fullWithAway && (
         <p className="fr__note" data-testid="friends-full-away">
           A RECONNECTING SEAT STILL COUNTS TOWARD {count}. If that friend is joining again from another browser, REMOVE the old seat.
@@ -627,9 +742,28 @@ function LightsIn({ startAt }: { startAt: number }) {
   return <span>· GO IN {Math.max(0, left / 1000).toFixed(1)} S</span>;
 }
 
+/** Host: SIGNED-IN PLAYERS ONLY. Turning it on needs our own ✓; seats already taken stay. */
+function SignedInOnlySwitch({ on, meVerified }: { on: boolean; meVerified: boolean }) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={on}
+      className={`gm-btn fr__btn fr__switch${on ? ' is-on' : ''}`}
+      disabled={!on && !meVerified}
+      onClick={() => roomActions.setSignedInOnly(!on)}
+      data-testid="friends-signed-only"
+    >
+      SIGNED-IN PLAYERS ONLY · {on ? 'ON' : 'OFF'}
+      <small>{on ? 'NEW PLAYERS MUST SIGN IN WITH GOOGLE' : meVerified ? 'ANYONE WITH THE CODE CAN JOIN' : 'SIGN IN ABOVE TO TURN THIS ON'}</small>
+    </button>
+  );
+}
+
 function PlayerRow({ player, index, you, manage }: { player: RoomPlayer; index: number; you: boolean; manage: boolean }) {
   const decoded = decodePlayer(player, index);
   const car = getCarEntry(resolveCarId(player.carId));
+  const badge = verifiedLabel(player);
   const [sure, setSure] = useState(false);
   useEffect(() => {
     if (!sure) return;
@@ -638,9 +772,16 @@ function PlayerRow({ player, index, you, manage }: { player: RoomPlayer; index: 
   }, [sure]);
   return (
     <li className={`fr__player${you ? ' is-you' : ''}${player.away ? ' is-away' : ''}${manage ? ' has-actions' : ''}`} style={{ ['--accent' as string]: decoded.color }} data-testid={`friends-player-${player.id}`}>
-      {decoded.avatar ? <img className="fr__avatar" src={portraitDataUrl(decoded.avatar)} alt="" width={40} height={40} /> : <span className="fr__avatar">{player.name.slice(0, 1).toUpperCase()}</span>}
+      {decoded.avatar ? <img className="fr__avatar" src={portraitDataUrl(decoded.avatar)} alt="" width={40} height={40} /> : <span className="fr__avatar">{displayName(player.name).slice(0, 1).toUpperCase()}</span>}
       <div className="fr__who">
-        <b>{player.name}</b>
+        <span className="fr__nameline">
+          <b>{displayName(player.name)}</b>
+          {badge && (
+            <span className="fr__verified" title="Signed in with Google" data-testid={`friends-verified-${player.id}`}>
+              {badge}
+            </span>
+          )}
+        </span>
         <small>
           {decoded.look.ride ? `${decoded.look.ride.name} (${car.name})` : car.name}
           {player.plate ? <i> · {player.plate}</i> : null}

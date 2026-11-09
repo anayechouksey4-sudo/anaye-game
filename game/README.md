@@ -61,9 +61,11 @@ check, written on change, wrapped in try/catch so a blocked store only costs the
 | `gamerfleet.friends.v1` | rooms: this device's player token (random, never shown), YOUR NAME, the last ROOM SIZE, whether the name card was answered | `multiplayer/friendsProfile.ts` |
 | `gamerfleet.room.v1` | rooms: the room this page is seated in and when it was last alive there (`{code, at}`), so a reload within the 120 s seat grace takes the seat back; in `sessionStorage` (this tab) and, for the installed app, `localStorage` | `multiplayer/friendsProfile.ts` |
 | `gamerfleet.camera.v1` | SETTINGS · CAMERA (CHASE / ORBIT / HOOD; nothing stored = CHASE) | `state/store.ts` |
+| `gamerfleet.signin.v1` | `'1'` after a Google sign-in on this device (offers one-tap next time); removed by SIGN OUT. Never the token, never an email | `auth/authStore.ts` |
+| `gamerfleet.announce.closed.v1` | ids of the owner announcements closed with ✕ (the last 8), so a reconnect does not bring them back | `hud/announce.ts` |
 | `tessera.air.v1`, `tessera.trap.v1` | the island's Kite Launcher air time and speed-trap bests per car | `track/world/physics/records.ts` |
 
-The service worker's caches are named `gf-racer-<version>`; rooms (FRIENDS) keep only `gamerfleet.friends.v1` and `gamerfleet.room.v1` locally.
+The service worker's caches are named `gf-racer-<version>`; rooms (FRIENDS) keep only `gamerfleet.friends.v1` and `gamerfleet.room.v1` locally; Google sign-in keeps only `gamerfleet.signin.v1` (a flag, never the token).
 
 ## Install as an app
 
@@ -792,9 +794,79 @@ dashboard still tunes every car in the room). Protocol `room.v1` in `shared/prot
   `sceneCars()` (every car in the scene graph: `friend` / `rival` / `ghost`), `waitFor(predicate)`. The room lives
   on the relay; the device keeps only `gamerfleet.friends.v1` (token, YOUR NAME, last size), `gamerfleet.room.v1`
   (the seat to take back after a reload) and the URL (`?room=`).
+- **Sign-in and announcements** (milestone 6): see [Google sign-in](#google-sign-in-srcauth) and
+  [Owner announcements](#owner-announcements-hudannouncebannertsx) below.
 - **Waking the hosted relay.** A free hosted relay sleeps when idle. While FRIENDS waits for a `wss://` relay it
   shows "WAKING THE ONLINE SERVER… (up to 30 s the first time)" with a seconds counter from 3 s, and from 45 s
   also "NO RELAY REACHED" with a RETRY button (it restarts the link; a LAN `ws://` relay keeps the plain wording).
+
+## Google sign-in (`src/auth/`)
+
+Optional. Signing in puts **✓ and the player's Google first name** next to their name in the FRIENDS player list
+and on the name tag over their car (`auth/badge.ts`; a typed YOUR NAME cannot fake it: check-mark look-alikes are
+dropped from names), and lets a host make a room **SIGNED-IN PLAYERS ONLY**. Nothing else changes: playing,
+rooms and the dashboard work exactly the same signed out.
+
+- **Where.** ☰ MENU → FRIENDS shows a sign-in box above the room controls only when both are true: the game has
+  a client id (`GOOGLE_CLIENT_ID` in `src/config.ts`; empty = no button anywhere) and the relay verifies Google
+  tokens (`server:welcome.signIn === true`, i.e. the relay has its own `GOOGLE_CLIENT_ID`). Google Identity
+  Services (`https://accounts.google.com/gsi/client`) is loaded only then, the first time that box shows
+  (`auth/gis.ts`); never at start-up, never in offline mode, never against a relay without sign-in. The button
+  is the one Google draws (scaled to a 44 px touch target). Inside another page's frame it is replaced by
+  OPEN THE GAME PAGE TO SIGN IN. The installed app and Chrome / Safari use Google's popup.
+- **Signed in.** "✓ SIGNED IN AS <first name>" and SIGN OUT. The ID token stays in memory only
+  (`auth/authStore.ts`): not in localStorage, sessionStorage, the zustand store or any log. The device remembers
+  only that it signed in last time (`gamerfleet.signin.v1`), so the next visit offers Google's one-tap when FRIENDS
+  opens. A few minutes before the token runs out (1 h) the game asks one-tap for a fresh one, but only while the ☰
+  menu is open (nothing pops up over the thumbs mid-race); if that does not work the box says SIGN-IN RAN OUT ·
+  SIGN IN AGAIN, and the relay keeps the ✓ on the current connection until it reconnects. SIGN OUT forgets the
+  token and the flag, turns off Google's auto-select and tells the relay at once.
+- **What goes to the relay** (`auth/wire.ts`, contract in `shared/protocol.ts` "Sign-in, time zone and
+  announcements"): the device time zone (`Intl.DateTimeFormat().resolvedOptions().timeZone`) on `hello` and on
+  every `room:create` / `room:join` / `room:update`; the relay keeps only the country it maps that to, for the
+  owner's stats, and never looks at the IP address. The token goes once per connection (on `hello` when the game
+  already has one, else on the next room frame) and again on `room:create` / `room:join`; never once it is about to
+  run out (that would sign the connection out); `idToken: null` once after SIGN OUT. Signing in or out outside a
+  room still tells the relay with one `room:update`, whose expected `not_in_room` answer is not shown. The relay
+  checks the token (signature, issuer, audience, expiry) and keeps only the first name; the email is never shown,
+  sent on or stored by the game.
+- **SIGNED-IN PLAYERS ONLY.** In a room the host gets a switch under ROOM SIZE (turning it on needs the host's
+  own ✓). While on, the status line says so and a friend who is not signed in is refused with "SIGNED-IN PLAYERS
+  ONLY: sign in with Google (above), then try again" and the sign-in box highlighted; after signing in, JOIN (the
+  code is still in the field) gets them in. Players already seated stay; the host can switch it off any time. A
+  friend on an older version of the game gets a message that says to reload.
+- If the game shows SIGNED IN but the player's own row has no ✓ a few seconds later, the relay refused the token
+  and FRIENDS says so (most likely the game and the relay were given different client ids).
+- **Owner setup.** Google Cloud console → APIs & Services → Credentials → Create OAuth client ID → *Web
+  application*; Authorized JavaScript origins: `https://anayechouksey4-sudo.github.io` (plus `http://localhost:5173`
+  for `npm run dev`); no redirect URI and no client secret are needed. Paste the client id into
+  `GOOGLE_CLIENT_ID` in `src/config.ts` (it is public by design) and set the same value as the relay's
+  `GOOGLE_CLIENT_ID` environment variable on Render, then rebuild the hosted copy (`node scripts/build-pages.mjs`).
+- **Local testing.** Google issues no tokens for a made-up client id, so headless checks build the game with
+  `VITE_GOOGLE_CLIENT_ID=local-test-client.example.com`, start a local relay with the test key set from
+  `npm run test-google` (server/README.md) and answer the GIS script URL with a stub `google.accounts.id` that
+  hands back tokens signed by that key. Unit tests: `game/test/signin.test.ts` (token reading, memory-only storage,
+  what goes on the wire, announcement timing, badge text).
+
+## Owner announcements (`hud/AnnounceBanner.tsx`)
+
+When the owner posts an announcement from the admin console, the relay sends `server:announce` to every connected
+game (and again to each game that connects while it is up). The game shows it as an **ANNOUNCEMENT** banner with a
+✕ (44 px) until the relay's end time:
+
+- Phones, portrait: straight under the top bar, left of ☰ / ⟲ (and of the minimap disc); landscape: the top-left
+  corner beside the centred top bar and above the steer pad, or, on the island where the minimap disc holds that
+  corner, the mirror slot on the right under ⟲ / ☰ and above the pedals (a long text scrolls inside it). Speed,
+  timer, the `P n/N` chip, the minimap and the thumb controls are never covered (checked at 360×640, 412×839,
+  863×360 and 740×280); the LINK / TELEMETRY chips that start in the top-left corner sit under it until it is
+  closed. It steps aside while the physics panel or the results card is open (it comes back when they close, its
+  time still running). Desktop: the right column under ☰ MENU and the UPLINK feed. While the ☰ menu is open the
+  same banner sits at the top of FRIENDS.
+- The text is plain text, rendered as a text node: `<b>` shows as the characters `<b>`.
+- It goes away on its own at the relay's `until` (time left = `until − serverNow` from the same frame, so the
+  device clock does not matter), at once when the owner clears it (`text: ''`), or with ✕ on this device. A closed
+  announcement stays closed through reconnects and reloads (`gamerfleet.announce.closed.v1`, last 8 ids).
+- An older game ignores the frame.
 
 ## Sound and haptics
 

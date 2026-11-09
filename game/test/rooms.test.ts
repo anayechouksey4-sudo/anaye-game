@@ -8,6 +8,8 @@
  *   arrive in network bursts used to drag it to 0, so "AHEAD BY 208 S" for a 5 s gap)
  * - the seat this page was in is kept for a reload within the relay's grace, per tab (sessionStorage),
  *   and cleared on leave; the installed app also reads localStorage
+ * - FRIENDS says why a room ended (the owner closing it from the console included); our own LEAVE says nothing,
+ *   and a late 'not_in_room' answer (a pose already on its way) does not replace that notice
  */
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
@@ -37,7 +39,7 @@ let standaloneMode = false;
   location: { search: '', hash: '', href: 'http://localhost/', hostname: 'localhost', protocol: 'http:', port: '', origin: 'http://localhost' },
 };
 
-const { roomPositionLine } = await import('../src/multiplayer/roomStore');
+const { isStaleRoomError, roomLeftNotice, roomPositionLine } = await import('../src/multiplayer/roomStore');
 const { forgetSeat, rememberSeat, seatToRestore, ROOM_SEAT_STORAGE_KEY } = await import('../src/multiplayer/friendsProfile');
 const standings = await import('../src/rivals/standings');
 const { ROOM_SEAT_GRACE_MS } = await import('../../shared/protocol');
@@ -128,4 +130,26 @@ test('the seat survives a reload within the grace, per tab; leave forgets it; th
   // Junk is ignored.
   sessionStorage.setItem(ROOM_SEAT_STORAGE_KEY, '{"code":5}');
   assert.equal(seatToRestore(ROOM_SEAT_GRACE_MS, t0), null);
+});
+
+test('room:left: FRIENDS says why the room ended, the owner closing it included; our own LEAVE says nothing', () => {
+  assert.equal(roomLeftNotice('left'), null);
+  const closed = roomLeftNotice('closed', 5);
+  assert.deepEqual(closed, { code: 'not_found', message: 'The room was closed by the owner', at: 5 });
+  // not_found: the code field is not refilled (the room is gone), unlike ROOM FULL.
+  assert.equal(roomLeftNotice('expired', 5)?.code, 'not_found');
+  assert.equal(roomLeftNotice('removed', 5)?.code, 'removed');
+  assert.equal(roomLeftNotice('replaced', 5)?.code, 'already_in_room');
+  for (const reason of ['expired', 'closed', 'removed', 'replaced'] as const) assert.ok(roomLeftNotice(reason)!.message.length > 10, reason);
+});
+
+test('a late not_in_room answer after the room ended keeps the notice; inside a room it still shows', () => {
+  // A pose sent just before room:left reaches the relay after the room is gone and is answered not_in_room.
+  for (const status of ['idle', 'joining', 'offline'] as const) assert.equal(isStaleRoomError('not_in_room', status), true, status);
+  assert.equal(isStaleRoomError('not_in_room', 'in-room'), false);
+  // Every other error still shows, in or out of a room.
+  for (const code of ['not_found', 'full', 'removed', 'sign_in_required', 'bad_state'] as const) {
+    assert.equal(isStaleRoomError(code, 'idle'), false, code);
+    assert.equal(isStaleRoomError(code, 'in-room'), false, code);
+  }
 });

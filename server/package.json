@@ -14,7 +14,8 @@
     "typecheck": "tsc --noEmit",
     "sim:dashboard": "tsx src/tools/sim-dashboard.ts",
     "sim:game": "tsx src/tools/sim-game.ts",
-    "send": "tsx src/tools/send.ts"
+    "send": "tsx src/tools/send.ts",
+    "test-google": "tsx src/tools/test-google.ts"
   },
   "dependencies": {
     "ws": "^8.22.1"

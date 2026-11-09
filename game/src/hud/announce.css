@@ -1,0 +1,91 @@
+/* Owner announcement (AnnounceBanner.tsx). Uses the HUD tokens from .hud (hud.css). */
+.ann {
+  display: flex;
+  align-items: flex-start;
+  gap: 2px;
+  padding: 6px 2px 6px 12px;
+  color: var(--text, #d8f7ff);
+  background: rgba(8, 10, 18, 0.92);
+  border: 1px solid var(--yellow, #f5e663);
+  border-radius: 12px;
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.5), inset 0 0 18px rgba(245, 230, 99, 0.08);
+  pointer-events: auto;
+}
+.ann__body { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 2px; padding: 4px 0 2px; }
+.ann__label { font-size: 9px; font-weight: 800; letter-spacing: 0.2em; color: var(--yellow, #f5e663); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ann__text { margin: 0; font-size: 12px; line-height: 1.35; letter-spacing: 0.02em; color: #fff; white-space: normal; overflow-wrap: anywhere; }
+.ann__close {
+  flex: 0 0 auto;
+  width: 44px;
+  height: 44px;
+  margin: -4px 0;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  font: inherit;
+  font-size: 18px;
+  line-height: 1;
+  color: var(--yellow, #f5e663);
+  background: none;
+  border: 0;
+  border-radius: 10px;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+.ann__close:active { background: rgba(245, 230, 99, 0.18); }
+.ann__close:focus-visible { outline: 2px solid var(--yellow, #f5e663); outline-offset: -2px; }
+
+/* In the HUD. Above the name tags and the minimap disc; under the position sheet (3), the start lights (4),
+   the loading veil, the results card and the trophy toast. Desktop: the right column, under ☰ MENU and the
+   7-line UPLINK feed, above the PHYSICS / CAM / HIDE row (the car and the speedometer stay clear). */
+.ann--hud { position: absolute; z-index: 2; top: 244px; right: 14px; width: 300px; max-height: calc(100% - 244px - 310px); min-height: 56px; overflow-y: auto; overscroll-behavior: contain; }
+/* A long text scrolls inside the banner; ✕ stays in reach at its top right. */
+.ann--hud .ann__close { position: sticky; top: 0; }
+/* The physics panel opens where the banner sits; the banner comes back when it closes. */
+.hud--physics-open .ann--hud { display: none; }
+
+/* Phones, portrait: straight under the top bar, stopping short of the ☰ / ⟲ column (and of the minimap disc).
+   The LINK / TELEMETRY chips that start there sit under it until it is closed or runs out. */
+.hud--compact .ann--hud { top: var(--below-bar); left: var(--hud-l); right: calc(var(--hud-r) + var(--btn) + 10px); width: auto; min-height: 0; max-height: 120px; }
+.hud--compact.hud--minimap .ann--hud { right: calc(var(--hud-r) + var(--mm) + 10px); max-height: 150px; }
+
+/* Phones, landscape: the top-left corner, left of the centred top bar (≤ 300 px wide with the P n/N chip)
+   and above the steer pad, so neither the bar nor the thumbs are ever covered. */
+/* Height kept free at the bottom right: the pedal cluster (touch) or the PHYSICS / CAM row. */
+.hud--compact { --ann-reserve-br: 48px; }
+.hud--compact.hud--touch { --ann-reserve-br: var(--tc-cluster-h); }
+@media (orientation: landscape) {
+  .hud--compact .ann--hud {
+    top: var(--hud-t);
+    right: auto;
+    width: calc(50vw - 150px - var(--hud-l) - 12px);
+    max-height: calc(100% - var(--hud-t) - var(--hud-b) - var(--hud-reserve-b) - 6px);
+  }
+  /* Open worlds: the minimap disc holds the top-left corner, so the banner takes the mirror slot on the
+     right: under ⟲ / ☰, above the pedals, outside the centred 300 px column (top bar, event prompt, start
+     lights, region card). A long text scrolls inside it; the disc is never covered. */
+  .hud--compact.hud--minimap .ann--hud {
+    top: calc(var(--hud-t) + var(--btn) + 8px);
+    left: auto;
+    right: var(--hud-r);
+    width: calc(50vw - 150px - var(--hud-r) - 12px);
+    max-height: calc(100% - var(--hud-t) - var(--btn) - 8px - var(--hud-b) - var(--ann-reserve-br) - 8px);
+  }
+  /* While it shows there, the centred callouts and the trophy toast stop short of it (it starts 162 px right of centre). */
+  .hud--compact.hud--minimap:has(> .ann--hud) .hud-banners { max-width: min(calc(100vw - 2 * (var(--mm) + var(--hud-l) + 8px)), 308px); }
+  .hud--compact.hud--minimap:has(> .ann--hud):not(:has(> .hud-results)) .cr-toast { max-width: min(calc(100vw - 2 * (var(--hud-l) + var(--mm) + 12px)), calc(50vw + 154px - var(--hud-l) - var(--mm) - 12px)); }
+}
+/* Narrow landscape without touch controls: the top bar starts at the left edge (hud.css), so the banner goes
+   under it, stopping short of ☰ (or of the minimap disc, which sits at the right edge under ☰ there). */
+@media (orientation: landscape) and (max-width: 599px) {
+  .hud--compact:not(.hud--touch) .ann--hud,
+  .hud--compact.hud--minimap:not(.hud--touch) .ann--hud { top: var(--below-bar); left: var(--hud-l); right: calc(var(--hud-r) + var(--btn) + 10px); width: auto; max-height: calc(100% - var(--below-bar) - var(--hud-b) - 6px); }
+  .hud--compact.hud--minimap:not(.hud--touch) .ann--hud { right: calc(var(--hud-r) + var(--mm) + 10px); }
+}
+
+/* Phones: the results card takes the middle of the screen and the trophy toast moves up beside it, so the
+   banner waits until the card closes (the FRIENDS copy still shows it; its time keeps running). */
+.hud--compact:has(> .hud-results) .ann--hud { display: none; }
+
+/* At the top of the FRIENDS tab (the menu covers the HUD). */
+.ann--menu { position: static; }

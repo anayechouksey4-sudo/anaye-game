@@ -1,4 +1,5 @@
 import { formatBanner } from './banner';
+import { resolveServerConfig } from './config';
 import { lanIPv4Addresses } from './network';
 import { USAGE, UsageError, resolveCliOptions, type CliOptions } from './options';
 import { createRelayServer, type RelayLogger } from './relay';
@@ -28,6 +29,7 @@ async function main(): Promise<void> {
     return;
   }
 
+  const config = resolveServerConfig(process.env);
   let relay;
   try {
     relay = await createRelayServer({
@@ -35,6 +37,9 @@ async function main(): Promise<void> {
       host: options.host,
       heartbeatMs: options.heartbeatMs,
       logger: consoleLogger(options.quiet),
+      google: config.google,
+      admin: config.admin,
+      version: config.version,
     });
   } catch (err) {
     const e = err as NodeJS.ErrnoException;
@@ -49,6 +54,9 @@ async function main(): Promise<void> {
   }
 
   console.log(formatBanner({ host: relay.host, port: relay.port, lan: lanIPv4Addresses() }));
+  // What is switched on (never a key, an address or a token).
+  for (const note of config.notes) console.log(`  ${note}`);
+  console.log('');
 
   let stopping = false;
   const shutdown = (signal: NodeJS.Signals): void => {

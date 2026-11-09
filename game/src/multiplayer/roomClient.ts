@@ -15,6 +15,14 @@
  * A reload (Android discards a background tab while the host shares the link) does the same: the
  * room this tab was seated in is kept (friendsProfile.ts rememberSeat) and re-joined when the page
  * comes back within the relay's seat grace, so the host is still the host.
+ *
+ * Sign-in and time zone (milestone 6, auth/wire.ts): every room:create / room:join / room:update carries
+ * the device time zone, and the Google ID token while signed in (null once after SIGN OUT). Signing in or
+ * out while connected tells the relay at once with a room:update: in a room it refreshes our badge for
+ * everyone; outside a room the relay still records it on the socket and answers 'not_in_room', which is
+ * expected and not shown. server:welcome.signIn says whether this relay verifies Google tokens (the
+ * FRIENDS sign-in row and the host's SIGNED-IN PLAYERS ONLY switch); server:announce feeds the owner's
+ * banner (hud/announce.ts).
  */
 import {
   ROOM_COUNTDOWN_LEAD_MS,
@@ -27,8 +35,11 @@ import {
   type RoomPlayer,
   type RoomRace,
 } from '@shared/protocol';
+import { noteSignInRequired, setRelaySignIn, useAuth } from '../auth/authStore';
+import { authChangePending, roomAuthFields } from '../auth/wire';
 import { carRuntime } from '../car/runtime';
 import { getQueryParam } from '../config';
+import { receiveAnnounce } from '../hud/announce';
 import type { SquadLink } from '../net/squadLink';
 import { registerParticipant, resetProgress, routeProgressOf, setFinished, setProgress, setReportedSpeed, standingsRoute } from '../rivals/standings';
 import { useProfile } from '../state/profile';
@@ -43,7 +54,7 @@ import { createPoseSender, type PoseSender } from './poseSender';
 import { installRaceFlow } from './raceFlow';
 import { clearRemotes, ensureRemote, pushPose, removeRemote } from './remotePlayers';
 import { installRoomDebug } from './roomDebug';
-import { isHost, roomState, useRoom } from './roomStore';
+import { isHost, isStaleRoomError, roomLeftNotice, roomState, useRoom } from './roomStore';
 
 const PING_BURST = 5;
 const PING_BURST_GAP_MS = 150;
@@ -70,6 +81,8 @@ export class RoomClient {
   /** The room code this tab is asking the other tabs about on start (seat restore), until they answer. */
   private askingSeat: string | null = null;
   private seatSavedAt = 0;
+  /** room:update frames sent outside a room to carry a sign-in change: their 'not_in_room' answer is expected. */
+  private authProbes = 0;
   readonly poses: PoseSender;
   readonly link: SquadLink;
 
@@ -139,6 +152,7 @@ export class RoomClient {
     this.offs.push(useProfile.subscribe(identityChanged));
     this.offs.push(useFriendsProfile.subscribe((s, prev) => (s.name !== prev.name ? identityChanged() : undefined)));
     this.offs.push(useSelection.subscribe((s, prev) => (s.carId !== prev.carId || s.plates !== prev.plates ? identityChanged() : undefined)));
+    this.offs.push(useAuth.subscribe((s, prev) => (s.status !== prev.status || s.serial !== prev.serial ? this.pushAuth() : undefined)));
     this.offs.push(
       installRaceFlow({
         relayNow: () => this.clock.now(),
@@ -165,7 +179,7 @@ export class RoomClient {
     if (!this.canAct()) return false;
     useRoom.getState().set({ status: 'joining', error: null, left: null, rejoining: null });
     this.armJoinTimeout();
-    return this.send({ type: 'room:create', ...localIdentity(), token: friendsProfile().token, size });
+    return this.send({ type: 'room:create', ...localIdentity(), token: friendsProfile().token, size, ...roomAuthFields({ force: true }) });
   }
 
   join(codeInput: string): boolean {
@@ -178,7 +192,7 @@ export class RoomClient {
     // `lastCode` refills ROOM CODE if this join fails (ROOM FULL: try again once a seat frees).
     useRoom.getState().set({ status: 'joining', error: null, left: null, pendingCode: null, lastCode: code });
     this.armJoinTimeout();
-    return this.send({ type: 'room:join', code, ...localIdentity(), token: friendsProfile().token });
+    return this.send({ type: 'room:join', code, ...localIdentity(), token: friendsProfile().token, ...roomAuthFields({ force: true }) });
   }
 
   /** LEAVE. A host hands the room to `to` (the FRIENDS confirm names who); the relay falls back to the earliest present member. */
@@ -203,6 +217,13 @@ export class RoomClient {
     const s = roomState();
     if (s.status !== 'in-room' || !isHost(s) || !s.seats || id === s.you) return false;
     return this.send({ type: 'room:remove', id });
+  }
+
+  /** Host: SIGNED-IN PLAYERS ONLY on / off (on needs our own verified badge; the relay checks). */
+  setSignedInOnly(on: boolean): boolean {
+    const s = roomState();
+    if (s.status !== 'in-room' || !isHost(s)) return false;
+    return this.send({ type: 'room:settings', signedInOnly: on });
   }
 
   /** Host: hand the host role to a present player. */
@@ -249,6 +270,7 @@ export class RoomClient {
   private onOpen(): void {
     const s = useRoom.getState();
     if (s.status === 'offline' || s.status === 'joining') s.set({ status: 'idle' });
+    this.authProbes = 0;
     this.clock.reset();
     this.startPings();
     const code = this.rejoinCode ?? s.pendingCode;
@@ -263,6 +285,9 @@ export class RoomClient {
 
   private onClose(): void {
     this.stopTimers();
+    this.authProbes = 0;
+    // The next relay says again whether it verifies Google tokens.
+    setRelaySignIn(null);
     const s = roomState();
     const code = s.status === 'in-room' ? s.code : s.rejoining;
     if (code) this.rejoinCode = code;
@@ -274,6 +299,15 @@ export class RoomClient {
   private onMessage(message: ProtocolMessage): void {
     const store = useRoom.getState();
     switch (message.type) {
+      case 'server:welcome':
+        // true / false from a relay with sign-in support; absent (old relay) = no sign-in.
+        setRelaySignIn(message.signIn === true);
+        // Signed in before this socket's hello could carry it (e.g. the token arrived mid-connect).
+        this.pushAuth();
+        return;
+      case 'server:announce':
+        receiveAnnounce(message);
+        return;
       case 'room:pong': {
         this.clock.addSample(message.t, performance.now(), message.serverNow);
         store.set({ clock: { offsetMs: this.clock.offsetMs, rttMs: this.clock.rttMs, samples: this.clock.count } });
@@ -305,6 +339,7 @@ export class RoomClient {
           seats: message.size !== undefined,
           rejoining: null,
           restores: store.restores + (message.restored ? 1 : 0),
+          signedInOnly: message.signedInOnly === true,
         });
         this.lastIdentityKey = identityKey(localIdentity());
         this.seatSavedAt = Date.now();
@@ -313,11 +348,13 @@ export class RoomClient {
         this.syncParticipants(message.players, message.you);
         this.applyFinishes(message.race);
         this.poses.start();
+        // Signed in or out while the join was on its way: tell the room now.
+        if (authChangePending()) this.pushAuth();
         return;
       }
       case 'room:players': {
         if (roomState().status !== 'in-room') return;
-        store.set(message.size !== undefined ? { players: message.players, size: message.size } : { players: message.players });
+        store.set({ players: message.players, ...(message.size !== undefined ? { size: message.size } : {}), signedInOnly: message.signedInOnly === true });
         this.syncParticipants(message.players, roomState().you);
         return;
       }
@@ -351,14 +388,30 @@ export class RoomClient {
         forgetSeat(message.reason === 'replaced');
         this.dropRoom('idle', message.reason);
         store.set({ rejoining: null });
-        if (message.reason === 'expired') store.set({ error: { code: 'not_found', message: 'The room expired (2 h idle)', at: Date.now() } });
-        if (message.reason === 'removed') store.set({ error: { code: 'removed', message: 'You were removed from the room', at: Date.now() } });
-        if (message.reason === 'replaced') store.set({ error: { code: 'already_in_room', message: 'This room is open on another tab or device', at: Date.now() } });
+        // expired / closed (the owner's console) / removed / replaced: FRIENDS says why.
+        const notice = roomLeftNotice(message.reason);
+        if (notice) store.set({ error: notice });
         return;
       }
       case 'room:error': {
+        // The answer to a sign-in change sent outside a room (pushAuth): expected, nothing to show. Frames are
+        // answered in order, so it can arrive while a HOST / JOIN sent just after it is still on its way.
+        if (message.code === 'not_in_room' && this.authProbes > 0) {
+          this.authProbes -= 1;
+          return;
+        }
+        // A frame that was on the wire when the room ended: keep the notice that says why (see isStaleRoomError).
+        if (isStaleRoomError(message.code, roomState().status)) return;
         this.clearJoinTimeout();
-        const text = message.code === 'removed' ? 'You were removed from the room' : message.code === 'not_found' && roomState().rejoining ? 'That room is gone' : message.message;
+        if (message.code === 'sign_in_required') noteSignInRequired();
+        const text =
+          message.code === 'removed'
+            ? 'You were removed from the room'
+            : message.code === 'not_found' && roomState().rejoining
+              ? 'That room is gone'
+              : message.code === 'sign_in_required'
+                ? 'SIGNED-IN PLAYERS ONLY: sign in with Google (above), then try again'
+                : message.message;
         const patch: Partial<ReturnType<typeof roomState>> = { error: { code: message.code, message: text, at: Date.now() } };
         if (roomState().status === 'joining') {
           patch.status = 'idle';
@@ -500,8 +553,24 @@ export class RoomClient {
       const key = identityKey(identity);
       if (key === this.lastIdentityKey) return;
       this.lastIdentityKey = key;
-      this.send({ type: 'room:update', ...identity });
+      this.send({ type: 'room:update', ...identity, ...roomAuthFields() });
     }, IDENTITY_THROTTLE_MS);
+  }
+
+  /**
+   * Tell the relay about a sign-in or sign-out right away (no-op when this socket already knows, e.g. a
+   * silent token refresh). A socket that is not open hears it on its next hello; a join on its way
+   * carries it already (room:joined checks again).
+   */
+  private pushAuth(): void {
+    // A relay without sign-in (or one that predates it) has nothing to record.
+    if (!this.link.connected || useAuth.getState().relaySignIn !== true || !authChangePending()) return;
+    const status = roomState().status;
+    if (status !== 'in-room' && status !== 'idle') return;
+    const identity = localIdentity();
+    if (status === 'in-room') this.lastIdentityKey = identityKey(identity);
+    else this.authProbes += 1;
+    if (!this.send({ type: 'room:update', ...identity, ...roomAuthFields() }) && status !== 'in-room') this.authProbes -= 1;
   }
 
   private startPings(): void {
@@ -576,6 +645,7 @@ export const roomActions = {
   setSize: (size: number): boolean => active?.setSize(size) ?? false,
   remove: (id: string): boolean => active?.remove(id) ?? false,
   makeHost: (id: string): boolean => active?.makeHost(id) ?? false,
+  setSignedInOnly: (on: boolean): boolean => active?.setSignedInOnly(on) ?? false,
   ready: (on: boolean): boolean => active?.ready(on) ?? false,
   start: (): boolean => active?.start() ?? false,
   shareUrl: (): string | null => active?.shareUrl() ?? null,

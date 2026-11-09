@@ -8,6 +8,7 @@ import { NameTags } from '../rivals/NameTags';
 import { useSelection } from '../state/selection';
 import { useGameStore } from '../state/store';
 import { useWorldHud } from '../state/worldRuntime';
+import { AnnounceBanner } from './AnnounceBanner';
 import { Banners } from './Banners';
 import { Countdown } from './Countdown';
 import { EventFeed } from './EventFeed';
@@ -128,6 +129,7 @@ export function HUD() {
       <InputChip />
       <LoadingVeil />
       <Banners />
+      <AnnounceBanner />
       {/* Trophy unlock notice (career/TrophyToast): under the top bar, beside the minimap, never over the thumbs. */}
       <TrophyToast />
       <Countdown />

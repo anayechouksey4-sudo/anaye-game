@@ -23,7 +23,11 @@
  *     a room with no members left is deleted at once;
  *   - results are owned here: 'countdown' resets them to the present members, `finish` fills a row,
  *     rows of members who leave stay; 'results' clears every READY so the next race needs it again;
- *   - poses above `poseMaxHz` per sender are dropped (token bucket, small burst).
+ *   - poses above `poseMaxHz` per sender are dropped (token bucket, small burst);
+ *   - milestone 6: a member carries a badge (verified + Google given name, country from the device time
+ *     zone) that the relay sets from its socket; a room can be SIGNED-IN PLAYERS ONLY (`signedInOnly`):
+ *     a new member must be verified (a device taking back its own seat is let in); the owner's console
+ *     can close a room or remove any member (`closeRoom`, `adminRemove`).
  */
 import {
   ROOM_IDLE_EXPIRY_MS,
@@ -58,7 +62,21 @@ export interface RoomMember {
   poseRefillAt: number;
   /** Clock ms when the socket dropped (null while connected). */
   awaySince: number | null;
+  /** Milestone 6 badge (set by the relay from the member's socket). */
+  verified: boolean;
+  givenName: string | null;
+  country: string | null;
 }
+
+/** What the relay knows about a member's socket: verified Google sign-in and the time-zone country. */
+export interface MemberBadge {
+  verified: boolean;
+  /** Sanitized Google given name (only with `verified`). */
+  givenName: string | null;
+  country: string | null;
+}
+
+export const NO_BADGE: Readonly<MemberBadge> = Object.freeze({ verified: false, givenName: null, country: null });
 
 export interface Room {
   code: string;
@@ -77,6 +95,8 @@ export interface Room {
   /** When `room:players` last went out because of a ping update (throttled by the relay). */
   lastPingBroadcastAt: number;
   counters: { posesIn: number; posesDropped: number };
+  /** Milestone 6: only verified players may join. */
+  signedInOnly: boolean;
 }
 
 export type RoomResult2<T = Room> = { ok: true; room: T; changed: boolean } | { ok: false; code: RoomErrorCode; message: string };
@@ -158,6 +178,16 @@ const fail = (code: RoomErrorCode, message: string): RoomFail => ({ ok: false, c
 
 const nameKey = (name: string): string => name.toLocaleLowerCase();
 
+/** Copies a socket's badge onto a seat; true when something changed. */
+function applyBadge(member: RoomMember, badge: MemberBadge): boolean {
+  const givenName = badge.verified ? badge.givenName : null;
+  const changed = member.verified !== badge.verified || member.givenName !== givenName || member.country !== badge.country;
+  member.verified = badge.verified;
+  member.givenName = givenName;
+  member.country = badge.country;
+  return changed;
+}
+
 
 export class RoomManager {
   readonly rooms = new Map<string, Room>();
@@ -206,12 +236,24 @@ export class RoomManager {
     return [...room.members.values()].map((m) => {
       const player: RoomPlayer = { id: m.id, ...m.identity, ready: m.ready, isHost: m.id === room.hostId, ping: m.ping };
       if (m.clientId === null) player.away = true;
+      // Badges only when set, so a room without sign-in looks exactly as it did before milestone 6.
+      if (m.verified) {
+        player.verified = true;
+        if (m.givenName) player.givenName = m.givenName;
+      }
+      if (m.country) player.country = m.country;
       return player;
     });
   }
 
-  create(clientId: string, identity: RoomIdentity, opts: { token?: string | null; size?: number | null } = {}): RoomFail | JoinOk {
+  create(
+    clientId: string,
+    identity: RoomIdentity,
+    opts: { token?: string | null; size?: number | null; badge?: MemberBadge; signedInOnly?: boolean } = {},
+  ): RoomFail | JoinOk {
     if (this.byClient.has(clientId)) return fail('already_in_room', 'leave the current room first');
+    const badge = opts.badge ?? NO_BADGE;
+    if (opts.signedInOnly && !badge.verified) return fail('sign_in_required', 'SIGNED-IN PLAYERS ONLY: sign in with Google to host this room');
     this.sweep();
     if (this.rooms.size >= this.maxRooms) return fail('rooms_full', `the relay already hosts ${this.maxRooms} rooms; try again later`);
     const code = this.freshCode();
@@ -232,13 +274,14 @@ export class RoomManager {
       banned: new Set(),
       lastPingBroadcastAt: now,
       counters: { posesIn: 0, posesDropped: 0 },
+      signedInOnly: opts.signedInOnly === true,
     };
     this.rooms.set(code, room);
-    const member = this.addMember(room, clientId, identity, token);
+    const member = this.addMember(room, clientId, identity, token, badge);
     return { ok: true, room, member, restored: false, replacedClientId: null, released };
   }
 
-  join(clientId: string, code: string, identity: RoomIdentity, token: string | null = null): RoomFail | JoinOk {
+  join(clientId: string, code: string, identity: RoomIdentity, token: string | null = null, badge: MemberBadge = NO_BADGE): RoomFail | JoinOk {
     if (this.byClient.has(clientId)) return fail('already_in_room', 'leave the current room first');
     const room = this.rooms.get(code);
     if (!room || this.expired(room)) {
@@ -260,13 +303,15 @@ export class RoomManager {
       seat.poseRefillAt = this.now();
       this.byClient.set(clientId, room);
       this.applyIdentity(room, seat, identity);
+      applyBadge(seat, badge);
       this.seatsRestoredTotal += 1;
       this.touch(room);
       return { ok: true, room, member: seat, restored: true, replacedClientId, released: [] };
     }
+    if (room.signedInOnly && !badge.verified) return fail('sign_in_required', 'SIGNED-IN PLAYERS ONLY: sign in with Google to join this room');
     if (room.members.size >= room.size) return fail('full', this.fullMessage(room));
     const released = token ? this.releaseToken(token) : [];
-    const member = this.addMember(room, clientId, identity, token);
+    const member = this.addMember(room, clientId, identity, token, badge);
     return { ok: true, room, member, restored: false, replacedClientId: null, released };
   }
 
@@ -278,6 +323,56 @@ export class RoomManager {
     this.applyIdentity(room, member, identity);
     this.touch(room);
     return { ok: true, room, changed: JSON.stringify(member.identity) !== before };
+  }
+
+  /** The socket's badge changed (sign-in, sign-out, time zone): copy it to its seat. */
+  setBadge(clientId: string, badge: MemberBadge): RoomResult2 {
+    const found = this.memberOf(clientId);
+    if (!found) return fail('not_in_room', 'not in a room');
+    const changed = applyBadge(found.member, badge);
+    return { ok: true, room: found.room, changed };
+  }
+
+  /** Host only: SIGNED-IN PLAYERS ONLY on / off. Switching it on needs a verified host. */
+  setSignedInOnly(clientId: string, on: boolean): RoomResult2 {
+    const found = this.memberOf(clientId);
+    if (!found) return fail('not_in_room', 'not in a room');
+    const { room, member } = found;
+    if (room.hostId !== member.id) return fail('not_host', 'only the host changes who may join');
+    if (on && !member.verified) return fail('sign_in_required', 'SIGNED-IN PLAYERS ONLY: sign in with Google first');
+    const changed = room.signedInOnly !== on;
+    room.signedInOnly = on;
+    this.touch(room);
+    return { ok: true, room, changed };
+  }
+
+  /** Owner's console: delete a room now. Returns the sockets that were seated in it (they get room:left 'closed'). */
+  closeRoom(code: string): { room: Room; clientIds: string[]; members: RoomMember[] } | null {
+    const room = this.rooms.get(code);
+    if (!room) return null;
+    const members = [...room.members.values()];
+    const clientIds = members.map((m) => m.clientId).filter((id): id is string => id !== null);
+    this.remove(room);
+    return { room, clientIds, members };
+  }
+
+  /**
+   * Owner's console: remove any member (the host too: the role moves as on a leave). Banned from the room
+   * like a host REMOVE. `closed` when it was the last member.
+   */
+  adminRemove(code: string, memberId: string): RoomFail | { ok: true; room: Room; target: RoomMember; targetClientId: string | null; closed: boolean; newHostId: string | null } {
+    const room = this.rooms.get(code);
+    if (!room) return fail('not_found', `no room ${code}`);
+    const target = room.members.get(memberId);
+    if (!target) return fail('bad_state', 'no such player in the room');
+    const targetClientId = target.clientId;
+    const left = this.dropMember(room, target);
+    if (!left.closed) {
+      if (target.token) this.ban(room, target.token);
+      if (targetClientId) this.ban(room, targetClientId);
+      this.ban(room, target.id);
+    }
+    return { ok: true, room, target, targetClientId, closed: left.closed, newHostId: left.newHostId };
   }
 
   setReady(clientId: string, ready: boolean): RoomResult2 {
@@ -557,7 +652,7 @@ export class RoomManager {
     return { room, member, closed: false, newHostId };
   }
 
-  private addMember(room: Room, clientId: string, identity: RoomIdentity, token: string | null): RoomMember {
+  private addMember(room: Room, clientId: string, identity: RoomIdentity, token: string | null, badge: MemberBadge = NO_BADGE): RoomMember {
     const seq = ++this.seq;
     const now = this.now();
     const member: RoomMember = {
@@ -572,6 +667,9 @@ export class RoomManager {
       poseTokens: this.poseBurst,
       poseRefillAt: now,
       awaySince: null,
+      verified: badge.verified,
+      givenName: badge.verified ? badge.givenName : null,
+      country: badge.country,
     };
     room.members.set(clientId, member);
     this.byClient.set(clientId, room);

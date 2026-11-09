@@ -45,6 +45,8 @@ export interface RoomState {
   size: number | null;
   /** The relay keeps seats (sizes, REMOVE, MAKE HOST, reconnect grace); false on a relay that predates them. */
   seats: boolean;
+  /** Milestone 6: the room admits signed-in (Google-verified) players only (room:joined / room:players). */
+  signedInOnly: boolean;
   /**
    * The room we are getting back into after the link dropped (null otherwise). Rooms mode (no AI rivals,
    * no ghost) holds through the blip; cleared when we are back in, give up, or leave.
@@ -66,6 +68,7 @@ const EMPTY = {
   armAt: null,
   size: null,
   seats: false,
+  signedInOnly: false,
 };
 
 export const useRoom = create<RoomState>()((set) => ({
@@ -84,6 +87,32 @@ export const useRoom = create<RoomState>()((set) => ({
 }));
 
 export const roomState = (): RoomState => useRoom.getState();
+
+/**
+ * What FRIENDS says after room:left. 'left' (our own LEAVE) says nothing. 'closed' reaches a seat-aware
+ * game only when the owner closes the room from the console (an old game also gets it for REMOVE).
+ */
+export function roomLeftNotice(reason: RoomLeftReason, at: number = Date.now()): RoomError | null {
+  switch (reason) {
+    case 'expired':
+      return { code: 'not_found', message: 'The room expired (2 h idle)', at };
+    case 'closed':
+      return { code: 'not_found', message: 'The room was closed by the owner', at };
+    case 'removed':
+      return { code: 'removed', message: 'You were removed from the room', at };
+    case 'replaced':
+      return { code: 'already_in_room', message: 'This room is open on another tab or device', at };
+    default:
+      return null;
+  }
+}
+
+/**
+ * A 'not_in_room' answer that arrives while this page is not in a room is stale: a pose or finish was
+ * already on its way when the room ended (the owner closing it, a REMOVE, a seat that expired). Showing it
+ * would replace the notice that says why the room ended with "not in a room", so it is dropped.
+ */
+export const isStaleRoomError = (code: RoomErrorCode, status: RoomStatus): boolean => code === 'not_in_room' && status !== 'in-room';
 
 /** In a room, or getting back into one after a link blip: friends races have no AI rivals and no ghost. */
 export const inRoomMode = (s: Pick<RoomState, 'status' | 'rejoining'>): boolean => s.status === 'in-room' || s.rejoining !== null;
