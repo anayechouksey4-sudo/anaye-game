@@ -1,0 +1,5 @@
+<resources>
+    <string name="app_name">NEXUS X Controller</string>
+    <string name="discovery_channel_name">Network discovery</string>
+    <string name="discovery_active">Scanning your network</string>
+</resources>

@@ -1,0 +1,5 @@
+<resources>
+    <string name="app_name">NEXUS X Companion</string>
+    <string name="companion_channel">Companion session</string>
+    <string name="screen_share_active">Screen sharing is active</string>
+</resources>
