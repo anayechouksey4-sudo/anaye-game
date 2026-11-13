@@ -14,7 +14,7 @@ Android SDK 35. ~6,200 lines of Kotlin across 131 files (3 modules).
 - **Both debug APKs build and are valid, signed APKs** (apksigner verifies them):
   - `controller-debug.apk` (~20 MB, 20 dex, package `com.nexusx.controller`)
   - `companion-debug.apk` (~18 MB, 18 dex, package `com.nexusx.companion`)
-- **47 unit tests pass, 0 failures** (`./gradlew :core:testDebugUnitTest`):
+- **48 unit tests pass, 0 failures** (`./gradlew :core:testDebugUnitTest`):
   - HKDF-SHA256 against RFC 5869 vectors; AES-256-GCM seal/open + tamper/AAD rejection.
   - ECDH P-256 agreement (both sides equal) and directional key derivation.
   - SecureChannel duplex round-trip, replay rejection, reorder rejection.
@@ -72,7 +72,7 @@ Android SDK 35. ~6,200 lines of Kotlin across 131 files (3 modules).
 
 ```bash
 cd nexus-x
-./gradlew :core:testDebugUnitTest          # 47 tests pass
+./gradlew :core:testDebugUnitTest          # 48 tests pass
 ./gradlew :controller:assembleDebug :companion:assembleDebug   # both APKs
 $ANDROID_HOME/build-tools/35.0.0/apksigner verify \
     controller/build/outputs/apk/debug/controller-debug.apk    # signature OK
@@ -82,7 +82,7 @@ $ANDROID_HOME/build-tools/35.0.0/apksigner verify \
 
 After the first green build, an adversarial multi-agent review swept the
 security- and correctness-critical code. Confirmed findings were fixed and
-covered by new regression tests (tests went 43 → 47):
+covered by new regression tests (tests went 43 → 48):
 
 - **AES-GCM nonce reuse across sessions (critical):** session keys were derived
   only from static identity keys, so reconnecting re-used the same (key, nonce).
@@ -112,3 +112,14 @@ covered by new regression tests (tests went 43 → 47):
 - **Instagram mojibake repair (med):** was unconditional and destroyed emoji/CJK.
   Fixed to apply only on detected mojibake with a strict UTF-8 re-decode.
 - **Android 15 FGS timeout (med):** added `onTimeout` to the discovery service.
+- **Companion authorization gap (high):** the Companion acted on control messages
+  for any peer that completed the handshake. Fixed: after the handshake it looks up
+  the stored pairing, pins the peer's identity key against it (rejecting an
+  impostor), and processes `Ping`/`ScreenStart`/`ScreenStop` only for an authorized,
+  actively-paired peer; an unpaired peer may send only `PairRequest`.
+- **WhatsApp timestamps with seconds (med):** no date format carried seconds, so
+  those timestamps parsed to null. Fixed by adding second-precision formats;
+  regression test `timestamps_with_seconds_parse`.
+- **Whole-session replay (high):** resolved by the same per-session-nonce fix — the
+  session id and keys are now unique per connection, so frames cannot be replayed
+  across sessions.

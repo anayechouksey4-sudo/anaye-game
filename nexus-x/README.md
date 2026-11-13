@@ -30,7 +30,7 @@ three Gradle modules:
 **Verified in this environment** (Linux cloud container, JDK 21, Gradle 8.11.1,
 Android SDK 35, AGP 8.7.3):
 
-- `:core` compiles and **47 unit tests pass** (cryptography, the handshake, the
+- `:core` compiles and **48 unit tests pass** (cryptography, the handshake, the
   10-minute monitor, file-transfer integrity, the discovery reducer, parsers,
   and the wire protocol). See `core/src/test`.
 - Debug APKs for both apps are built by Gradle. See `BUILD.md`.

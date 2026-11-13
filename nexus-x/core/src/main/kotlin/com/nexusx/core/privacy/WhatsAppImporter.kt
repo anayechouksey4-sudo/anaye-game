@@ -19,8 +19,12 @@ object WhatsAppImporter {
     )
 
     private val DATE_FORMATS = listOf(
+        // Minute precision
         "M/d/yy, h:mm a", "M/d/yyyy, h:mm a", "d/M/yy, HH:mm", "d/M/yyyy, HH:mm",
         "M/d/yy, HH:mm", "dd/MM/yyyy, HH:mm", "MM/dd/yy, h:mm a",
+        // Second precision (some exports include seconds; without these the timestamp parsed to null)
+        "M/d/yy, h:mm:ss a", "M/d/yyyy, h:mm:ss a", "d/M/yy, HH:mm:ss", "d/M/yyyy, HH:mm:ss",
+        "M/d/yy, HH:mm:ss", "dd/MM/yyyy, HH:mm:ss", "MM/dd/yy, h:mm:ss a",
     )
 
     fun parse(text: String, conversation: String, importedAtEpochMs: Long): List<PrivacyMessageEntity> {

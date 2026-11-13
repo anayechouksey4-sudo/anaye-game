@@ -87,15 +87,28 @@ class CompanionService : Service() {
             }.getOrNull() ?: return
             val conn = NexusConnection(input, output, result.channel, result.peerId, result.peerName)
 
+            // Authorize this connection against a stored pairing. A device is "authorized" only if an
+            // ACTIVE pairing exists AND the handshake peer key matches the one we stored at pairing
+            // time (key pinning). An impostor reusing a known device id but a different key is rejected.
+            val stored = runCatching { app.database.pairingDao().find(result.peerId) }.getOrNull()
+            val peerKeyB64 = PairingPayload.publicKeyToB64(result.peerPublicKey)
+            if (stored != null && stored.status == PairingStatus.ACTIVE.name && stored.remotePublicKey != peerKeyB64) {
+                runCatching { conn.send(WireMessage.ErrorMsg(403, "identity key does not match the stored pairing")) }
+                return // reject impostor
+            }
+            val authorized = stored != null && stored.status == PairingStatus.ACTIVE.name && stored.remotePublicKey == peerKeyB64
+
             while (!conn.isClosed) {
                 val msg = runCatching { conn.receive() }.getOrNull() ?: break
                 when (msg) {
+                    // PairRequest is the only message allowed from an unpaired peer (it drives the
+                    // on-device approval flow). Everything else requires an authorized pairing.
                     is WireMessage.PairRequest -> handlePairRequest(conn, result, app)
-                    is WireMessage.Ping -> runCatching { conn.send(WireMessage.Pong(msg.nonce)) }
-                    is WireMessage.ScreenStart ->
+                    is WireMessage.Ping -> if (authorized) runCatching { conn.send(WireMessage.Pong(msg.nonce)) }
+                    is WireMessage.ScreenStart -> if (authorized)
                         CompanionController.setActiveShare(CompanionController.ActiveShare(result.peerName, System.currentTimeMillis()))
-                    is WireMessage.ScreenStop -> CompanionController.setActiveShare(null)
-                    else -> {}
+                    is WireMessage.ScreenStop -> if (authorized) CompanionController.setActiveShare(null)
+                    else -> if (!authorized) runCatching { conn.send(WireMessage.ErrorMsg(401, "not paired")) }
                 }
             }
         }

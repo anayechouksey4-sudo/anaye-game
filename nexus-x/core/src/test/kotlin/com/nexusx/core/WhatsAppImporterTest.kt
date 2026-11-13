@@ -27,4 +27,12 @@ class WhatsAppImporterTest {
         val msgs = WhatsAppImporter.parse(sample, "c", 0)
         assertThat(msgs[1].timestampEpochMs).isNotNull()
     }
+
+    @Test fun timestamps_with_seconds_parse() {
+        val withSeconds = "12/31/23, 11:59:30 PM - Alice: at the stroke of midnight"
+        val msgs = WhatsAppImporter.parse(withSeconds, "c", 0)
+        assertThat(msgs).hasSize(1)
+        assertThat(msgs[0].sender).isEqualTo("Alice")
+        assertThat(msgs[0].timestampEpochMs).isNotNull()
+    }
 }
